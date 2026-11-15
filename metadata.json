@@ -1,0 +1,6 @@
+{
+  "name": "Rhythm Canvas Reboot",
+  "description": "Mobile-optimized HTML5 4-lane rhythm game with touch controls, freeplay tracks, battle royale, H.O.R.S.E. multiplayer, custom note shop, and song chart editor.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
