@@ -1895,7 +1895,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
 
       {/* Compact Active Mods / Botplay / Demon status (portrait/non-landscape compact) */}
       {!isLandscapeCompact && (
-        <div className="relative z-20 w-full px-3 flex flex-wrap items-center justify-center gap-1.5 shrink-0 lg:hidden">
+        <div className="relative z-20 w-full px-3 mt-1.5 flex flex-wrap items-center justify-center gap-1.5 shrink-0 lg:hidden">
         <span className="hud-chip px-2 py-0.5 text-[10px] font-black text-cyan-300">
           ×{modifiers?.speed?.toFixed(2) || '1.00'}
         </span>

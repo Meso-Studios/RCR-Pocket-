@@ -29,13 +29,31 @@ export const NoteTestArena: React.FC<{ product: Partial<NoteProduct>; onClose: (
   const hitsRef = useRef(0);
   hitsRef.current = hits;
 
+  const lastFrameRef = useRef(performance.now());
+  const smoothTimeRef = useRef(0);
+  const lastRawRef = useRef(-1);
+
   useEffect(() => {
-    const ctx = canvasRef.current?.getContext('2d');
+    const ctx = canvasRef.current?.getContext('2d', { alpha: false });
     if (!ctx) return;
-    const loop = () => {
-      const t =
-        running && audioRef.current ? audioRef.current.currentTime * 1000 : performance.now() - start.current;
-      ctx.clearRect(0, 0, 360, 520);
+    lastFrameRef.current = performance.now();
+    smoothTimeRef.current = 0;
+    lastRawRef.current = -1;
+    const loop = (now: number) => {
+      const dt = Math.max(0, Math.min(50, now - lastFrameRef.current));
+      lastFrameRef.current = now;
+      if (running && audioRef.current && !audioRef.current.paused) {
+        smoothTimeRef.current += dt;
+        const raw = audioRef.current.currentTime * 1000;
+        if (Math.abs(raw - lastRawRef.current) > 0.5) {
+          lastRawRef.current = raw;
+          const drift = raw - smoothTimeRef.current;
+          smoothTimeRef.current = Math.abs(drift) > 180 ? raw : smoothTimeRef.current + drift * 0.05;
+        }
+      } else {
+        smoothTimeRef.current = now - start.current;
+      }
+      const t = smoothTimeRef.current;
       const g = ctx.createLinearGradient(0, 0, 0, 520);
       g.addColorStop(0, '#121633');
       g.addColorStop(1, '#05060d');
@@ -108,13 +126,16 @@ export const NoteTestArena: React.FC<{ product: Partial<NoteProduct>; onClose: (
     );
   };
 
+  const hitRef = useRef(hit);
+  hitRef.current = hit;
+
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
-      if (KEY_MAP[e.key.toLowerCase()] !== undefined) hit();
+      if (KEY_MAP[e.key.toLowerCase()] !== undefined) hitRef.current();
     };
     window.addEventListener('keydown', k);
     return () => window.removeEventListener('keydown', k);
-  });
+  }, []);
 
   return (
     <div className="fixed inset-0 z-[999] bg-black/90 flex items-center justify-center p-2 sm:p-4 overflow-y-auto">

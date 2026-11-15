@@ -1,10 +1,13 @@
 import React, { useRef, useState } from 'react';
-import { Calendar, Cloud, Coins, Monitor, PenTool, Play, ShoppingCart, Star, Vibrate } from 'lucide-react';
+import { Calendar, Cloud, Coins, Monitor, Move, PenTool, Play, ShoppingCart, Sparkles, Star, Vibrate } from 'lucide-react';
 import { auth, db } from '../firebaseClient';
-import { ADMIN_EMAILS, APP_VERSION } from '../game/constants';
+import { ADMIN_EMAILS, APP_VERSION, SKINS } from '../game/constants';
 import { normalizeHapticsSettings, triggerHaptic } from '../game/haptics';
+import { normalizeControlLayout } from '../game/layoutConfig';
 import { getXpRequirement } from '../game/rhythmLogic';
 import type { FirebaseUser, InterruptionData, PlayerInfo, ScreenId } from '../game/types';
+import { useIsCompactLandscape } from '../game/useViewport';
+import { ControlLayoutModal } from './ControlLayoutModal';
 import { HapticsSettingsModal } from './HapticsSettingsModal';
 
 interface MainMenuProps {
@@ -16,6 +19,7 @@ interface MainMenuProps {
   interruptionsDisabled: boolean;
   onToggleInterruptions: () => void;
   onOpenDevConsole: () => void;
+  onOpenChangelog: () => void;
 }
 
 const MenuButton: React.FC<{
@@ -111,6 +115,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({
   interruptionsDisabled,
   onToggleInterruptions,
   onOpenDevConsole,
+  onOpenChangelog,
 }) => {
   const xpRequired = getXpRequirement(playerInfo.level);
   const xpPercent = Math.min(100, Math.max(0, (playerInfo.xp / xpRequired) * 100));
@@ -123,10 +128,17 @@ export const MainMenu: React.FC<MainMenuProps> = ({
 
   const [showOtaModal, setShowOtaModal] = useState(false);
   const [showHapticsModal, setShowHapticsModal] = useState(false);
+  const [showLayoutModal, setShowLayoutModal] = useState(false);
   const [otaVer, setOtaVer] = useState((APP_VERSION + 0.1).toFixed(1));
   const [otaMsg, setOtaMsg] = useState('New features added! Restart to play.');
   const [otaStatus, setOtaStatus] = useState('');
+  const isLandscapeCompact = useIsCompactLandscape();
   const hapticsConfig = normalizeHapticsSettings(playerInfo.haptics);
+  const controlLayoutConfig = normalizeControlLayout(playerInfo.controlLayout);
+  const skinColors =
+    playerInfo.equippedSkin === 'custom'
+      ? playerInfo.customColors
+      : SKINS[playerInfo.equippedSkin]?.colors || SKINS.default.colors;
 
   const navigateTo = (target: ScreenId) => {
     triggerHaptic('menuTap', hapticsConfig);
@@ -264,6 +276,17 @@ export const MainMenu: React.FC<MainMenuProps> = ({
             SCROLL: {playerInfo.downscroll ? 'DOWNSCROLL ↓' : 'UPSCROLL ↑'}
           </button>
           <button
+            data-testid="open-layout-settings-btn"
+            onClick={() => {
+              triggerHaptic('menuTap', hapticsConfig);
+              setShowLayoutModal(true);
+            }}
+            className="px-4 py-2.5 rounded-xl glass-panel font-black text-xs sm:text-base text-pink-300 tracking-wider border border-pink-400/60 min-h-[44px] flex items-center gap-2"
+          >
+            <Move className="w-4 h-4 shrink-0" />
+            <span>CONTROLS &amp; LAYOUT</span>
+          </button>
+          <button
             data-testid="open-haptics-settings-btn"
             onClick={() => {
               triggerHaptic('menuTap', hapticsConfig);
@@ -273,6 +296,17 @@ export const MainMenu: React.FC<MainMenuProps> = ({
           >
             <Vibrate className="w-4 h-4 shrink-0" />
             <span>HAPTICS: {hapticsConfig.enabled ? `${hapticsConfig.intensity}%` : 'OFF'}</span>
+          </button>
+          <button
+            data-testid="open-changelog-btn"
+            onClick={() => {
+              triggerHaptic('menuTap', hapticsConfig);
+              onOpenChangelog();
+            }}
+            className="px-4 py-2.5 rounded-xl glass-panel font-black text-xs sm:text-sm text-green-300 tracking-wider border border-green-400/50 min-h-[44px] flex items-center gap-1.5"
+          >
+            <Sparkles className="w-4 h-4 shrink-0" />
+            <span>WHAT&apos;S NEW</span>
           </button>
           <button
             onClick={() => {
@@ -427,6 +461,23 @@ export const MainMenu: React.FC<MainMenuProps> = ({
             })
           }
           onClose={() => setShowHapticsModal(false)}
+        />
+      )}
+      {showLayoutModal && (
+        <ControlLayoutModal
+          controlLayout={controlLayoutConfig}
+          downscroll={playerInfo.downscroll}
+          skinColors={skinColors}
+          skinShape={playerInfo.equippedShape || 'arrow'}
+          initialOrientation={isLandscapeCompact ? 'landscape' : 'portrait'}
+          onChange={(nextLayout) =>
+            setPlayerInfo((prev) => {
+              const next = { ...prev, controlLayout: nextLayout };
+              localStorage.setItem('rhythmCanvasSave', JSON.stringify(next));
+              return next;
+            })
+          }
+          onClose={() => setShowLayoutModal(false)}
         />
       )}
     </div>

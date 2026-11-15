@@ -10,10 +10,20 @@ import {
   getDurationString,
   getGrade,
   getLaneFromClientX,
+  getLaneFromPlayfieldPoint,
   getLaneFromPlayfieldX,
   getPlayfieldLayout,
   normalizeChart,
 } from './rhythmLogic.ts';
+import {
+  clampLaneCoord,
+  clampPadCoord,
+  getDefaultLaneCoords,
+  getLaneBoundaryBounds,
+  laneCoordsToPixels,
+  normalizeControlLayout,
+  pixelToLaneCoord,
+} from './layoutConfig.ts';
 import { buildVibrationPattern, DEFAULT_HAPTICS_SETTINGS, isHapticEventEnabled, normalizeHapticsSettings } from './haptics.ts';
 import { readGamepadLaneState, readGamepadStartPressed } from './gamepad.ts';
 import { isCompactLandscapeViewport } from './useViewport.ts';
@@ -166,4 +176,57 @@ test('readGamepadLaneState and readGamepadStartPressed map Xbox/PS buttons and a
     axes: [0, 0, 0, 0],
   } as unknown as Gamepad;
   assert.equal(readGamepadStartPressed(startPad), true);
+});
+
+test('portrait playfield is wider (440px) with 44px gaps and supports custom bounded dragged lanes & pads', () => {
+  const portrait = getPlayfieldLayout({ isLandscape: false, isVS: false, downscroll: true, heroMode: false });
+  assert.equal(portrait.width, 440);
+  assert.equal(portrait.noteSize, 66);
+  const gap = portrait.playerLaneXs[1] - (portrait.playerLaneXs[0] + portrait.noteSize);
+  assert.equal(gap, 44);
+
+  // Bounded lane drag clamping keeps coordinates strictly within boundary margin
+  const bounds = getLaneBoundaryBounds(false, 66);
+  const clampedHigh = pixelToLaneCoord(9999, 9999, false, 66);
+  const clampedLow = pixelToLaneCoord(-500, -500, false, 66);
+  assert.deepEqual(clampedHigh, { xNorm: 1, yNorm: 1 });
+  assert.deepEqual(clampedLow, { xNorm: 0, yNorm: 0 });
+  const roundTrip = laneCoordsToPixels([clampedLow, clampedHigh, clampLaneCoord({ xNorm: 0.5, yNorm: 0.25 }, clampedLow), clampedHigh], false, 66);
+  assert.equal(roundTrip.xs[0], bounds.minX);
+  assert.equal(roundTrip.xs[1], bounds.maxX);
+
+  // Bounded pad drag clamping keeps buttons within 1..79% X and 2..54% Y
+  const clampedPad = clampPadCoord({ xPct: 99, yPct: -10 }, { xPct: 4, yPct: 28 });
+  assert.equal(clampedPad.xPct, 79);
+  assert.equal(clampedPad.yPct, 2);
+
+  const normalizedLayout = normalizeControlLayout({
+    portraitLanes: getDefaultLaneCoords(false, true),
+    landscapePads: [{ xPct: 100, yPct: 100 }, { xPct: 0, yPct: 0 }, { xPct: 30, yPct: 30 }, { xPct: 60, yPct: 20 }],
+  });
+  assert.equal(normalizedLayout.portraitLanes?.length, 4);
+  assert.equal(normalizedLayout.landscapeLanes, null);
+  assert.equal(normalizedLayout.landscapePads?.[0].xPct, 79);
+
+  // Custom dragged receptor positions resolve 2D taps accurately
+  const customPortrait = getPlayfieldLayout({
+    isLandscape: false,
+    isVS: false,
+    downscroll: true,
+    heroMode: false,
+    customLanes: [
+      { xNorm: 0, yNorm: 0 },
+      { xNorm: 1, yNorm: 0 },
+      { xNorm: 0, yNorm: 1 },
+      { xNorm: 1, yNorm: 1 },
+    ],
+  });
+  assert.equal(
+    getLaneFromPlayfieldPoint(
+      customPortrait.playerLaneXs[2] + customPortrait.noteSize / 2,
+      customPortrait.playerLaneYs[2] + customPortrait.noteSize / 2,
+      customPortrait
+    ),
+    2
+  );
 });

@@ -45,8 +45,8 @@ export const ChangelogModal: React.FC<ChangelogModalProps> = ({ onClose }) => {
       data-testid="changelog-modal"
       className="fixed inset-0 z-[1100] bg-black/90 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 overflow-y-auto"
     >
-      <div className="bg-gray-950 border-4 border-yellow-400 shadow-[10px_10px_0_#000] w-full max-w-xl p-4 sm:p-6 flex flex-col gap-3.5 max-h-[92dvh] overflow-y-auto custom-scrollbar text-white">
-        <div className="flex items-start justify-between gap-3 border-b-2 border-white/20 pb-3">
+      <div className="bg-gray-950 border-4 border-yellow-400 shadow-[10px_10px_0_#000] w-full max-w-xl p-4 sm:p-6 flex flex-col gap-3 max-h-[90dvh] text-white">
+        <div className="flex items-start justify-between gap-3 border-b-2 border-white/20 pb-3 shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="bg-yellow-400 text-black p-2 border-2 border-black shrink-0">
               <Sparkles className="w-6 h-6" />
@@ -55,7 +55,7 @@ export const ChangelogModal: React.FC<ChangelogModalProps> = ({ onClose }) => {
               <div className="text-[11px] font-black tracking-widest text-pink-400 uppercase">
                 MOBILE REBOOT UPDATE • v{CHANGELOG_VERSION}
               </div>
-              <h2 className="text-2xl sm:text-3xl font-black italic text-white">
+              <h2 className="text-xl sm:text-3xl font-black italic text-white">
                 WHAT&apos;S NEW ON THIS DEVICE
               </h2>
             </div>
@@ -69,7 +69,7 @@ export const ChangelogModal: React.FC<ChangelogModalProps> = ({ onClose }) => {
           </button>
         </div>
 
-        <div className="space-y-2.5">
+        <div className="space-y-2.5 flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-1">
           {CHANGELOG_HIGHLIGHTS.map((item) => (
             <div key={item.title} className={`bg-gray-900/90 border-l-4 p-3 rounded-r-lg ${item.color}`}>
               <div className="font-black text-sm sm:text-base tracking-wide">{item.title}</div>
@@ -81,7 +81,7 @@ export const ChangelogModal: React.FC<ChangelogModalProps> = ({ onClose }) => {
         <button
           data-testid="changelog-close-btn"
           onClick={onClose}
-          className="w-full py-3 bg-yellow-400 text-black font-black text-lg sm:text-xl border-4 border-black shadow-[4px_4px_0_#000] min-h-[48px] mt-1"
+          className="w-full py-3 bg-yellow-400 text-black font-black text-lg sm:text-xl border-4 border-black shadow-[4px_4px_0_#000] min-h-[48px] shrink-0"
         >
           GOT IT — LET&apos;S PLAY
         </button>

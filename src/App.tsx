@@ -4,6 +4,8 @@ import { auth, db } from './firebaseClient';
 import { AudioEngine } from './game/audio';
 import {
   APP_VERSION,
+  CHANGELOG_STORAGE_KEY,
+  CHANGELOG_VERSION,
   MENU_BGM,
   ONLINE_BGM,
   ROYALTY_FREE_SONGS,
@@ -11,8 +13,10 @@ import {
 } from './game/constants';
 import { addRewardsCalc, normalizeChart } from './game/rhythmLogic';
 import { normalizeHapticsSettings } from './game/haptics';
+import { normalizeControlLayout } from './game/layoutConfig';
 import type {
   ChartNote,
+  ControlLayoutSettings,
   Difficulty,
   FirebaseUser,
   GameMode,
@@ -25,6 +29,7 @@ import type {
   Song,
 } from './game/types';
 import { AdminStudio } from './components/AdminStudio';
+import { ChangelogModal } from './components/ChangelogModal';
 import { DevConsole } from './components/DevConsole';
 import { RebootErrorBoundary } from './components/ErrorBoundary';
 import { EventsMenu } from './components/EventsMenu';
@@ -36,6 +41,22 @@ import { OnlineLobby } from './components/OnlineLobby';
 import { OnlineTracksMenu } from './components/OnlineTracksMenu';
 import { ShopMenu } from './components/ShopMenu';
 import { SongEditor } from './components/SongEditor';
+
+const safeGetStorage = (key: string): string | null => {
+  try {
+    return typeof window !== 'undefined' ? window.localStorage.getItem(key) : null;
+  } catch {
+    return null;
+  }
+};
+
+const safeSetStorage = (key: string, value: string): void => {
+  try {
+    if (typeof window !== 'undefined') window.localStorage.setItem(key, value);
+  } catch {
+    // ignore storage quota/privacy errors
+  }
+};
 
 const InterruptionOverlay: React.FC<{ message?: string }> = ({ message }) => (
   <div className="absolute inset-0 z-[99998] flex flex-col items-center justify-center bg-black/95 p-6 text-center text-white crt">
@@ -76,6 +97,24 @@ function RhythmCanvasApp() {
     if (typeof window === 'undefined') return false;
     return new URLSearchParams(window.location.search).get('autostart') === '1';
   });
+  const [showChangelog, setShowChangelog] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    const isAutostart = new URLSearchParams(window.location.search).get('autostart') === '1';
+    if (isAutostart) return false;
+    try {
+      return localStorage.getItem(CHANGELOG_STORAGE_KEY) !== CHANGELOG_VERSION;
+    } catch {
+      return false;
+    }
+  });
+  const closeChangelog = useCallback(() => {
+    try {
+      localStorage.setItem(CHANGELOG_STORAGE_KEY, CHANGELOG_VERSION);
+    } catch {
+      // ignore storage errors
+    }
+    setShowChangelog(false);
+  }, []);
   const [screen, setScreen] = useState<ScreenId>('menu');
 
   useEffect(() => {
@@ -120,7 +159,7 @@ function RhythmCanvasApp() {
       setBestGrades((prev) => {
         const key = String(songId);
         const next = { ...prev, [key]: Math.max(prev[key] || 0, percent) };
-        localStorage.setItem('rhythmCanvasGrades', JSON.stringify(next));
+        safeSetStorage('rhythmCanvasGrades', JSON.stringify(next));
         return next;
       }),
     []
@@ -132,14 +171,14 @@ function RhythmCanvasApp() {
   const [updateMessage, setUpdateMessage] = useState('');
   const [interruption, setInterruption] = useState<InterruptionData | null>(null);
   const [interruptionsDisabled, setInterruptionsDisabled] = useState(
-    () => localStorage.getItem('rhythmCanvasInterruptionsDisabled') === 'true'
+    () => safeGetStorage('rhythmCanvasInterruptionsDisabled') === 'true'
   );
   const interruptionShowing = Boolean(interruption?.active && !interruptionsDisabled);
 
   const handleToggleInterruptions = useCallback(() => {
     setInterruptionsDisabled((current) => {
       const next = !current;
-      localStorage.setItem('rhythmCanvasInterruptionsDisabled', String(next));
+      safeSetStorage('rhythmCanvasInterruptionsDisabled', String(next));
       return next;
     });
   }, []);
@@ -226,6 +265,7 @@ function RhythmCanvasApp() {
       ...parsed,
       downscroll: parsed.downscroll !== undefined ? Boolean(parsed.downscroll) : true,
       haptics: normalizeHapticsSettings(parsed.haptics),
+      controlLayout: normalizeControlLayout(parsed.controlLayout),
     };
   });
 
@@ -243,6 +283,7 @@ function RhythmCanvasApp() {
           botplay: parsed.botplay || false,
           downscroll: parsed.downscroll !== undefined ? Boolean(parsed.downscroll) : true,
           haptics: normalizeHapticsSettings(parsed.haptics),
+          controlLayout: normalizeControlLayout(parsed.controlLayout),
           unlockedNoteProducts: parsed.unlockedNoteProducts || [],
           equippedNoteProduct: parsed.equippedNoteProduct || null,
           unlockedHitSounds: parsed.unlockedHitSounds || [],
@@ -275,6 +316,7 @@ function RhythmCanvasApp() {
                     botplay: data.botplay !== undefined ? data.botplay : prev.botplay,
                     downscroll: data.downscroll !== undefined ? Boolean(data.downscroll) : prev.downscroll,
                     haptics: normalizeHapticsSettings(data.haptics || prev.haptics),
+                    controlLayout: normalizeControlLayout(data.controlLayout || prev.controlLayout),
                   };
                   localStorage.setItem('rhythmCanvasSave', JSON.stringify(newData));
                   return newData;
@@ -330,7 +372,7 @@ function RhythmCanvasApp() {
     setPlayerInfo((prev) => {
       const updated = addRewardsCalc(prev, xpToAdd, coinsToAdd);
       const newData = { ...prev, ...updated };
-      localStorage.setItem('rhythmCanvasSave', JSON.stringify(newData));
+      safeSetStorage('rhythmCanvasSave', JSON.stringify(newData));
       return newData;
     });
   }, []);
@@ -339,7 +381,16 @@ function RhythmCanvasApp() {
     const normalized = normalizeHapticsSettings(nextHaptics);
     setPlayerInfo((prev) => {
       const newData = { ...prev, haptics: normalized };
-      localStorage.setItem('rhythmCanvasSave', JSON.stringify(newData));
+      safeSetStorage('rhythmCanvasSave', JSON.stringify(newData));
+      return newData;
+    });
+  }, []);
+
+  const updateControlLayout = useCallback((nextLayout: ControlLayoutSettings) => {
+    const normalized = normalizeControlLayout(nextLayout);
+    setPlayerInfo((prev) => {
+      const newData = { ...prev, controlLayout: normalized };
+      safeSetStorage('rhythmCanvasSave', JSON.stringify(newData));
       return newData;
     });
   }, []);
@@ -469,8 +520,15 @@ function RhythmCanvasApp() {
     );
   }
 
+  const disableCrtOverlay = hasStarted && (screen === 'game' || screen === 'horse');
+
   return (
-    <div ref={appRef} className="relative w-full h-[100dvh] game-bg font-sans text-white select-none crt overflow-hidden">
+    <div
+      ref={appRef}
+      className={`relative w-full h-full min-h-full game-bg font-sans text-white select-none overflow-hidden ${
+        disableCrtOverlay ? '' : 'crt'
+      }`}
+    >
       <button
         onClick={toggleFullscreen}
         aria-label="Toggle fullscreen"
@@ -521,6 +579,7 @@ function RhythmCanvasApp() {
               interruptionsDisabled={interruptionsDisabled}
               onToggleInterruptions={handleToggleInterruptions}
               onOpenDevConsole={() => setShowDevConsole(true)}
+              onOpenChangelog={() => setShowChangelog(true)}
             />
           )}
 
@@ -589,6 +648,7 @@ function RhythmCanvasApp() {
               customBeatmap={Array.isArray(selectedSong.customMap) ? normalizeChart(selectedSong.customMap) : customBeatmap}
               playerInfo={playerInfo}
               onUpdateHaptics={updateHaptics}
+              onUpdateControlLayout={updateControlLayout}
               addRewards={addRewards}
               networkConnection={networkConnection}
               modifiers={modifiers}
@@ -616,6 +676,8 @@ function RhythmCanvasApp() {
           )}
 
           {screen === 'admin_studio' && <AdminStudio setScreen={setScreen} songs={songs} user={user} />}
+
+          {showChangelog && <ChangelogModal onClose={closeChangelog} />}
         </>
       )}
 

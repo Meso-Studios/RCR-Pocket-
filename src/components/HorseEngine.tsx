@@ -3,8 +3,9 @@ import { AudioEngine } from '../game/audio';
 import { HIT_WINDOWS, KEY_CODE_MAP, KEY_MAP, SKINS } from '../game/constants';
 import { pollActiveGamepadLanes, type LaneTuple } from '../game/gamepad';
 import { normalizeHapticsSettings, triggerHaptic } from '../game/haptics';
+import { normalizeControlLayout } from '../game/layoutConfig';
 import { drawNote, prewarmNoteSprites } from '../game/renderer';
-import { getLaneFromPlayfieldX, getPlayfieldLayout } from '../game/rhythmLogic';
+import { getLaneFromPlayfieldPoint, getPlayfieldLayout } from '../game/rhythmLogic';
 import type { ChartNote, PeerConnectionLike, PlayerInfo, ScreenId } from '../game/types';
 import { useIsCompactLandscape } from '../game/useViewport';
 
@@ -33,6 +34,11 @@ export const HorseEngine: React.FC<HorseEngineProps> = ({ networkConnection, set
   const hapticsRef = useRef(normalizeHapticsSettings(playerInfo.haptics));
   hapticsRef.current = normalizeHapticsSettings(playerInfo.haptics);
 
+  const effectiveControlLayout = normalizeControlLayout(playerInfo.controlLayout);
+  const customLanes = isLandscapeCompact
+    ? effectiveControlLayout.landscapeLanes
+    : effectiveControlLayout.portraitLanes;
+
   const playfieldLayout = useMemo(
     () =>
       getPlayfieldLayout({
@@ -40,8 +46,9 @@ export const HorseEngine: React.FC<HorseEngineProps> = ({ networkConnection, set
         isVS: false,
         downscroll: playerInfo.downscroll,
         heroMode: false,
+        customLanes,
       }),
-    [isLandscapeCompact, playerInfo.downscroll]
+    [isLandscapeCompact, playerInfo.downscroll, customLanes]
   );
   const playfieldLayoutRef = useRef(playfieldLayout);
   playfieldLayoutRef.current = playfieldLayout;
@@ -183,10 +190,12 @@ export const HorseEngine: React.FC<HorseEngineProps> = ({ networkConnection, set
     const pointerToLane = new Map<number, number>();
     const onPointerDown = (e: PointerEvent) => {
       e.preventDefault();
+      AudioEngine.init();
       const rect = canvas.getBoundingClientRect();
       const layout = playfieldLayoutRef.current;
       const canvasX = ((e.clientX - rect.left) / Math.max(1, rect.width)) * layout.width;
-      const lane = getLaneFromPlayfieldX(canvasX, layout);
+      const canvasY = ((e.clientY - rect.top) / Math.max(1, rect.height)) * layout.height;
+      const lane = getLaneFromPlayfieldPoint(canvasX, canvasY, layout);
       if (lane === null) return;
       try {
         canvas.setPointerCapture(e.pointerId);
@@ -220,14 +229,14 @@ export const HorseEngine: React.FC<HorseEngineProps> = ({ networkConnection, set
 
   useEffect(() => {
     let activeCanvas: HTMLCanvasElement | null = canvasRef.current;
-    let activeCtx = activeCanvas ? activeCanvas.getContext('2d') : null;
+    let activeCtx = activeCanvas ? activeCanvas.getContext('2d', { alpha: false }) : null;
     if (!activeCtx) return;
 
     const loop = (time: number) => {
       const currentCanvas = canvasRef.current;
       if (currentCanvas && currentCanvas !== activeCanvas) {
         activeCanvas = currentCanvas;
-        activeCtx = currentCanvas.getContext('2d');
+        activeCtx = currentCanvas.getContext('2d', { alpha: false });
       }
       if (!activeCtx) {
         reqRef.current = requestAnimationFrame(loop);
@@ -245,12 +254,13 @@ export const HorseEngine: React.FC<HorseEngineProps> = ({ networkConnection, set
 
       const ctx = activeCtx;
       const layout = playfieldLayoutRef.current;
-      ctx.clearRect(0, 0, layout.width, layout.height);
+      ctx.fillStyle = '#060811';
+      ctx.fillRect(0, 0, layout.width, layout.height);
       const elapsed = time - startTime.current;
-      const receptorY = layout.receptorY;
 
       for (let i = 0; i < 4; i++) {
         const lx = layout.playerLaneXs[i];
+        const ly = layout.playerLaneYs[i] ?? layout.receptorY;
         if (pressedRef.current[i]) {
           ctx.fillStyle = currentSkinColors[i] || '#ffffff';
           ctx.globalAlpha = 0.16;
@@ -262,7 +272,7 @@ export const HorseEngine: React.FC<HorseEngineProps> = ({ networkConnection, set
           ctx.fillRect(lx - 5, 0, layout.noteSize + 10, layout.height);
           ctx.globalAlpha = 1;
         }
-        drawNote(ctx, lx, receptorY, layout.noteSize, i % 4, null, pressedRef.current[i], currentSkinShape);
+        drawNote(ctx, lx, ly, layout.noteSize, i % 4, null, pressedRef.current[i], currentSkinShape);
       }
 
       if (phase === 'recording') {
@@ -278,15 +288,17 @@ export const HorseEngine: React.FC<HorseEngineProps> = ({ networkConnection, set
         recordedNotes.current.forEach((n) => {
           if (!n.hit && !n.missed) {
             activeNotes = true;
-            const y = playerInfo.downscroll ? receptorY - (n.time - elapsed) * 0.6 : receptorY + (n.time - elapsed) * 0.6;
+            const laneIdx = n.lane % 4;
+            const laneY = layout.playerLaneYs[laneIdx] ?? layout.receptorY;
+            const y = playerInfo.downscroll ? laneY - (n.time - elapsed) * 0.6 : laneY + (n.time - elapsed) * 0.6;
             if (y > -100 && y < layout.height + 100) {
               drawNote(
                 ctx,
-                layout.playerLaneXs[n.lane % 4] ?? 20,
+                layout.playerLaneXs[laneIdx] ?? 20,
                 y,
                 layout.noteSize,
-                n.lane % 4,
-                currentSkinColors[n.lane % 4],
+                laneIdx,
+                currentSkinColors[laneIdx],
                 false,
                 currentSkinShape,
                 n.type
