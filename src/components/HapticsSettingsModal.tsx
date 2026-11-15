@@ -8,6 +8,7 @@ import {
   normalizeHapticsSettings,
   triggerHaptic,
 } from '../game/haptics';
+import { useIsCompactLandscape } from '../game/useViewport';
 import type { HapticsSettings, HapticsTriggers } from '../game/types';
 
 interface HapticsSettingsModalProps {
@@ -34,6 +35,7 @@ const INTENSITY_PRESETS = [
 ];
 
 export const HapticsSettingsModal: React.FC<HapticsSettingsModalProps> = ({ settings, onChange, onClose }) => {
+  const isLandscapeCompact = useIsCompactLandscape();
   const current = normalizeHapticsSettings(settings);
   const hwSupported = isHardwareVibrationSupported();
   const iosTapticSupported = isIOSSwitchHapticSupported();
@@ -65,15 +67,23 @@ export const HapticsSettingsModal: React.FC<HapticsSettingsModalProps> = ({ sett
       aria-modal="true"
       aria-label="Haptics Settings"
     >
-      <div className="w-full max-w-xl max-h-[92dvh] flex flex-col bg-gray-950 border-4 border-cyan-400 shadow-[10px_10px_0_#000] rounded-2xl overflow-hidden text-white">
+      <div
+        className={`w-full max-h-[94dvh] flex flex-col bg-gray-950 border-4 border-cyan-400 shadow-[10px_10px_0_#000] rounded-2xl overflow-hidden text-white ${
+          isLandscapeCompact ? 'max-w-2xl' : 'max-w-xl'
+        }`}
+      >
         {/* Header */}
-        <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3 bg-gradient-to-r from-cyan-500/20 via-purple-600/20 to-pink-500/20 border-b-4 border-cyan-400 shrink-0">
+        <div
+          className={`flex items-center justify-between gap-3 bg-gradient-to-r from-cyan-500/20 via-purple-600/20 to-pink-500/20 border-b-4 border-cyan-400 shrink-0 ${
+            isLandscapeCompact ? 'px-4 py-2' : 'px-4 sm:px-6 py-3'
+          }`}
+        >
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-9 h-9 rounded-lg bg-cyan-400 text-black flex items-center justify-center shrink-0 border-2 border-black">
-              <Vibrate className="w-5 h-5" />
+            <div className={`${isLandscapeCompact ? 'w-7 h-7' : 'w-9 h-9'} rounded-lg bg-cyan-400 text-black flex items-center justify-center shrink-0 border-2 border-black`}>
+              <Vibrate className={isLandscapeCompact ? 'w-4 h-4' : 'w-5 h-5'} />
             </div>
             <div className="min-w-0">
-              <h2 className="text-lg sm:text-2xl font-black italic tracking-wide uppercase truncate">
+              <h2 className={`${isLandscapeCompact ? 'text-base' : 'text-lg sm:text-2xl'} font-black italic tracking-wide uppercase truncate`}>
                 HAPTICS SETTINGS
               </h2>
               <p className="text-[11px] font-bold text-cyan-300 truncate">
@@ -93,7 +103,7 @@ export const HapticsSettingsModal: React.FC<HapticsSettingsModalProps> = ({ sett
               triggerHaptic('menuTap', current);
               onClose();
             }}
-            className="bg-white text-black border-2 border-black p-2 rounded-lg font-black hover:bg-cyan-300 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+            className="bg-white text-black border-2 border-black p-1.5 rounded-lg font-black hover:bg-cyan-300 transition-colors min-w-[38px] min-h-[38px] flex items-center justify-center"
             aria-label="Close haptics settings"
           >
             <X className="w-5 h-5" />
@@ -101,7 +111,7 @@ export const HapticsSettingsModal: React.FC<HapticsSettingsModalProps> = ({ sett
         </div>
 
         {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar p-4 sm:p-5 space-y-4">
+        <div className={`flex-1 overflow-y-auto custom-scrollbar ${isLandscapeCompact ? 'p-3 space-y-2.5' : 'p-4 sm:p-5 space-y-4'}`}>
           {/* Master Toggle */}
           <div className="flex items-center justify-between gap-3 bg-black/70 border-2 border-white/20 rounded-xl p-3">
             <div>
@@ -370,7 +380,7 @@ export const HapticsSettingsModal: React.FC<HapticsSettingsModalProps> = ({ sett
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3 bg-black border-t-2 border-white/20 shrink-0">
+        <div className={`flex items-center justify-between gap-3 bg-black border-t-2 border-white/20 shrink-0 ${isLandscapeCompact ? 'px-4 py-2' : 'px-4 sm:px-6 py-3'}`}>
           <button
             type="button"
             data-testid="haptics-reset-btn"
@@ -378,7 +388,7 @@ export const HapticsSettingsModal: React.FC<HapticsSettingsModalProps> = ({ sett
               onChange(DEFAULT_HAPTICS_SETTINGS);
               triggerHaptic('menuTap', DEFAULT_HAPTICS_SETTINGS);
             }}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-xs font-black text-gray-200 min-h-[44px]"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-xs font-black text-gray-200 min-h-[38px]"
           >
             <RotateCcw className="w-4 h-4" />
             RESET DEFAULTS
@@ -391,7 +401,7 @@ export const HapticsSettingsModal: React.FC<HapticsSettingsModalProps> = ({ sett
               triggerHaptic('menuTap', current);
               onClose();
             }}
-            className="px-6 py-2.5 rounded-xl bg-yellow-400 text-black border-2 border-black font-black text-sm sm:text-base shadow-[4px_4px_0_#000] min-h-[44px]"
+            className="px-5 py-2 rounded-xl bg-yellow-400 text-black border-2 border-black font-black text-sm shadow-[4px_4px_0_#000] min-h-[38px]"
           >
             SAVE & CLOSE
           </button>

@@ -452,8 +452,8 @@ export const SongEditor: React.FC<SongEditorProps> = ({ setScreen, setSongs, son
 
       {/* Top Toolbar */}
       <div
-        className={`bg-black border-b-4 sm:border-b-8 border-white flex flex-col shrink-0 shadow-[0_6px_0_#000] z-10 pr-14 md:pr-20 ${
-          isLandscapeCompact ? 'p-1.5 gap-1.5' : 'p-3 md:p-5 gap-3'
+        className={`bg-black border-b-4 sm:border-b-8 border-white flex flex-col shrink-0 shadow-[0_6px_0_#000] z-10 ${
+          isLandscapeCompact ? 'p-1.5 gap-1 pr-12' : 'p-3 md:p-5 gap-3 pr-14 md:pr-20'
         }`}
       >
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -465,20 +465,25 @@ export const SongEditor: React.FC<SongEditorProps> = ({ setScreen, setSongs, son
                 setScreen('menu');
               }}
               className={`${
-                isLandscapeCompact ? 'p-1.5' : 'p-2'
-              } bg-white border-4 border-black text-black hover:bg-gray-200 transform skew-x-[-10deg] shadow-[4px_4px_0_#000]`}
+                isLandscapeCompact ? 'p-1 border-2' : 'p-2 border-4'
+              } bg-white border-black text-black hover:bg-gray-200 transform skew-x-[-10deg] shadow-[4px_4px_0_#000]`}
             >
               <span className="transform skew-x-[10deg] flex">
-                <ChevronLeft className={isLandscapeCompact ? 'w-5 h-5' : 'w-5 h-5 md:w-7 md:h-7'} />
+                <ChevronLeft className={isLandscapeCompact ? 'w-4 h-4' : 'w-5 h-5 md:w-7 md:h-7'} />
               </span>
             </button>
             <h2
               className={`font-black italic uppercase text-white transform skew-x-[-10deg] drop-shadow-[4px_4px_0_#ec4899] ${
-                isLandscapeCompact ? 'text-xl' : 'text-2xl md:text-4xl'
+                isLandscapeCompact ? 'text-lg' : 'text-2xl md:text-4xl'
               }`}
             >
               EDITOR
             </h2>
+            {isLandscapeCompact && (
+              <span className="bg-cyan-950 border border-cyan-400 px-2 py-0.5 text-[10px] font-black text-cyan-200">
+                PULSES: {pulses.length}
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
@@ -691,7 +696,9 @@ export const SongEditor: React.FC<SongEditorProps> = ({ setScreen, setSongs, son
 
           <button
             onClick={() => toggleRecording('pulses')}
-            className={`flex-1 min-w-[130px] flex justify-center items-center gap-1.5 border-4 border-black px-3 py-2 font-black text-xs sm:text-base shadow-[3px_3px_0_#000] transform skew-x-[-8deg] active:translate-y-0.5 ${
+            className={`flex-1 min-w-[115px] flex justify-center items-center gap-1.5 border-4 border-black px-3 ${
+              isLandscapeCompact ? 'py-1 text-xs' : 'py-2 text-xs sm:text-base'
+            } font-black shadow-[3px_3px_0_#000] transform skew-x-[-8deg] active:translate-y-0.5 ${
               isRecording && recordMode === 'pulses'
                 ? 'bg-blue-500 text-white animate-pulse'
                 : 'bg-cyan-400 text-black hover:bg-cyan-300'
@@ -706,7 +713,9 @@ export const SongEditor: React.FC<SongEditorProps> = ({ setScreen, setSongs, son
           <button
             disabled={isRecording}
             onClick={() => setShowLoadModal(true)}
-            className="flex-1 min-w-[80px] flex justify-center items-center gap-1.5 bg-blue-400 border-4 border-black text-black px-3 py-2 font-black text-xs sm:text-base hover:bg-blue-300 shadow-[3px_3px_0_#000] transform skew-x-[-8deg] disabled:opacity-50"
+            className={`flex-1 min-w-[78px] flex justify-center items-center gap-1.5 bg-blue-400 border-4 border-black text-black px-3 ${
+              isLandscapeCompact ? 'py-1 text-xs' : 'py-2 text-xs sm:text-base'
+            } font-black hover:bg-blue-300 shadow-[3px_3px_0_#000] transform skew-x-[-8deg] disabled:opacity-50`}
           >
             <span className="transform skew-x-[8deg] flex items-center gap-1.5">
               <BookOpen className="w-4 h-4" /> LOAD
@@ -715,7 +724,9 @@ export const SongEditor: React.FC<SongEditorProps> = ({ setScreen, setSongs, son
           <button
             disabled={isRecording}
             onClick={handleSave}
-            className="flex-1 min-w-[80px] flex justify-center items-center gap-1.5 bg-gray-300 border-4 border-black text-black px-3 py-2 font-black text-xs sm:text-base hover:bg-gray-400 shadow-[3px_3px_0_#000] transform skew-x-[-8deg] disabled:opacity-50"
+            className={`flex-1 min-w-[78px] flex justify-center items-center gap-1.5 bg-gray-300 border-4 border-black text-black px-3 ${
+              isLandscapeCompact ? 'py-1 text-xs' : 'py-2 text-xs sm:text-base'
+            } font-black hover:bg-gray-400 shadow-[3px_3px_0_#000] transform skew-x-[-8deg] disabled:opacity-50`}
           >
             <span className="transform skew-x-[8deg] flex items-center gap-1.5">
               <Save className="w-4 h-4" /> SAVE
@@ -724,9 +735,11 @@ export const SongEditor: React.FC<SongEditorProps> = ({ setScreen, setSongs, son
           <button
             disabled={isPublishing || isRecording}
             onClick={handlePublish}
-            className={`flex-1 min-w-[90px] flex justify-center items-center gap-1.5 ${
+            className={`flex-1 min-w-[88px] flex justify-center items-center gap-1.5 ${
               isPublishing ? 'bg-gray-500' : 'bg-green-400 hover:bg-green-300'
-            } border-4 border-black text-black px-3 py-2 font-black text-xs sm:text-base shadow-[3px_3px_0_#000] transform skew-x-[-8deg] disabled:opacity-50`}
+            } border-4 border-black text-black px-3 ${
+              isLandscapeCompact ? 'py-1 text-xs' : 'py-2 text-xs sm:text-base'
+            } font-black shadow-[3px_3px_0_#000] transform skew-x-[-8deg] disabled:opacity-50`}
           >
             <span className="transform skew-x-[8deg] flex items-center gap-1.5">
               <Cloud className="w-4 h-4" /> {isPublishing ? 'UPLOADING...' : 'PUBLISH'}
@@ -746,9 +759,11 @@ export const SongEditor: React.FC<SongEditorProps> = ({ setScreen, setSongs, son
             : ''
         }`}
       >
-        <p className="fixed left-4 sm:left-10 top-1/2 text-white font-black text-2xl sm:text-4xl opacity-20 -rotate-90 pointer-events-none tracking-widest">
-          PULSES: {pulses.length}
-        </p>
+        {!isLandscapeCompact && (
+          <p className="fixed left-4 sm:left-10 top-1/2 text-white font-black text-2xl sm:text-4xl opacity-20 -rotate-90 pointer-events-none tracking-widest">
+            PULSES: {pulses.length}
+          </p>
+        )}
 
         {isRecording && (
           <div

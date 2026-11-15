@@ -42,21 +42,8 @@ import { OnlineTracksMenu } from './components/OnlineTracksMenu';
 import { ShopMenu } from './components/ShopMenu';
 import { SongEditor } from './components/SongEditor';
 
-const safeGetStorage = (key: string): string | null => {
-  try {
-    return typeof window !== 'undefined' ? window.localStorage.getItem(key) : null;
-  } catch {
-    return null;
-  }
-};
-
-const safeSetStorage = (key: string, value: string): void => {
-  try {
-    if (typeof window !== 'undefined') window.localStorage.setItem(key, value);
-  } catch {
-    // ignore storage quota/privacy errors
-  }
-};
+import { safeGetStorage, safeSetStorage } from './game/storage';
+import { useIsCompactLandscape } from './game/useViewport';
 
 const InterruptionOverlay: React.FC<{ message?: string }> = ({ message }) => (
   <div className="absolute inset-0 z-[99998] flex flex-col items-center justify-center bg-black/95 p-6 text-center text-white crt">
@@ -70,6 +57,7 @@ const InterruptionOverlay: React.FC<{ message?: string }> = ({ message }) => (
 
 function RhythmCanvasApp() {
   const appRef = useRef<HTMLDivElement | null>(null);
+  const isLandscapeCompact = useIsCompactLandscape();
   const [rhythmList, setRhythmList] = useState<Array<string | number>>([]);
 
   useEffect(() => {
@@ -101,18 +89,10 @@ function RhythmCanvasApp() {
     if (typeof window === 'undefined') return false;
     const isAutostart = new URLSearchParams(window.location.search).get('autostart') === '1';
     if (isAutostart) return false;
-    try {
-      return localStorage.getItem(CHANGELOG_STORAGE_KEY) !== CHANGELOG_VERSION;
-    } catch {
-      return false;
-    }
+    return safeGetStorage(CHANGELOG_STORAGE_KEY) !== CHANGELOG_VERSION;
   });
   const closeChangelog = useCallback(() => {
-    try {
-      localStorage.setItem(CHANGELOG_STORAGE_KEY, CHANGELOG_VERSION);
-    } catch {
-      // ignore storage errors
-    }
+    safeSetStorage(CHANGELOG_STORAGE_KEY, CHANGELOG_VERSION);
     setShowChangelog(false);
   }, []);
   const [screen, setScreen] = useState<ScreenId>('menu');
@@ -123,7 +103,7 @@ function RhythmCanvasApp() {
 
   const [songs, setSongs] = useState<Song[]>(() => {
     try {
-      const raw = JSON.parse(localStorage.getItem('rhythmCanvasLocalSongs') || '[]');
+      const raw = JSON.parse(safeGetStorage('rhythmCanvasLocalSongs') || '[]');
       const local = (Array.isArray(raw) ? raw : [])
         .filter((x) => x && typeof x === 'object')
         .map((x) => ({
@@ -149,7 +129,7 @@ function RhythmCanvasApp() {
   });
   const [bestGrades, setBestGrades] = useState<Record<string, number>>(() => {
     try {
-      return JSON.parse(localStorage.getItem('rhythmCanvasGrades') || '{}');
+      return JSON.parse(safeGetStorage('rhythmCanvasGrades') || '{}');
     } catch {
       return {};
     }
@@ -241,7 +221,7 @@ function RhythmCanvasApp() {
   const [playerInfo, setPlayerInfo] = useState<PlayerInfo>(() => {
     let parsed: Partial<PlayerInfo> = {};
     try {
-      const saved = localStorage.getItem('rhythmCanvasSave');
+      const saved = safeGetStorage('rhythmCanvasSave');
       parsed = saved ? JSON.parse(saved) : {};
     } catch {
       parsed = {};
@@ -271,7 +251,7 @@ function RhythmCanvasApp() {
 
   useEffect(() => {
     try {
-      const localSave = localStorage.getItem('rhythmCanvasSave');
+      const localSave = safeGetStorage('rhythmCanvasSave');
       if (localSave) {
         const parsed = JSON.parse(localSave);
         setPlayerInfo((prev) => ({
@@ -318,7 +298,7 @@ function RhythmCanvasApp() {
                     haptics: normalizeHapticsSettings(data.haptics || prev.haptics),
                     controlLayout: normalizeControlLayout(data.controlLayout || prev.controlLayout),
                   };
-                  localStorage.setItem('rhythmCanvasSave', JSON.stringify(newData));
+                  safeSetStorage('rhythmCanvasSave', JSON.stringify(newData));
                   return newData;
                 });
               }
@@ -495,6 +475,7 @@ function RhythmCanvasApp() {
   }, [screen, isPreviewing, hasStarted, interruptionShowing]);
 
   const handleStartTap = () => {
+    if (hasStarted) return;
     AudioEngine.init();
     setHasStarted(true);
   };
@@ -532,12 +513,16 @@ function RhythmCanvasApp() {
       <button
         onClick={toggleFullscreen}
         aria-label="Toggle fullscreen"
-        className="absolute top-2 right-2 md:top-5 md:right-5 z-50 bg-black p-2 md:p-3 border-2 md:border-4 border-white text-white hover:bg-white hover:text-black transition-colors shadow-[4px_4px_0_#fff] md:shadow-[6px_6px_0_#fff] transform skew-x-[-5deg] active:translate-y-1 active:shadow-none"
+        className={`absolute top-2 right-2 z-50 bg-black border-white text-white hover:bg-white hover:text-black transition-colors transform skew-x-[-5deg] active:translate-y-1 active:shadow-none ${
+          isLandscapeCompact
+            ? 'p-1.5 border-2 shadow-[3px_3px_0_#fff]'
+            : 'md:top-5 md:right-5 p-2 md:p-3 border-2 md:border-4 shadow-[4px_4px_0_#fff] md:shadow-[6px_6px_0_#fff]'
+        }`}
       >
         {isFullscreen ? (
-          <Minimize className="w-5 h-5 md:w-7 md:h-7 transform skew-x-[5deg]" />
+          <Minimize className={`${isLandscapeCompact ? 'w-4 h-4' : 'w-5 h-5 md:w-7 md:h-7'} transform skew-x-[5deg]`} />
         ) : (
-          <Maximize className="w-5 h-5 md:w-7 md:h-7 transform skew-x-[5deg]" />
+          <Maximize className={`${isLandscapeCompact ? 'w-4 h-4' : 'w-5 h-5 md:w-7 md:h-7'} transform skew-x-[5deg]`} />
         )}
       </button>
 
@@ -555,13 +540,25 @@ function RhythmCanvasApp() {
           }}
           onClick={handleStartTap}
         >
-          <h1 className="reboot-title text-5xl sm:text-7xl md:text-8xl lg:text-9xl font-black italic text-pink-500 drop-shadow-[6px_6px_0_#000] mb-8 animate-pulse transform skew-x-[-10deg] text-center leading-tight">
+          <h1
+            className={`reboot-title font-black italic text-pink-500 drop-shadow-[6px_6px_0_#000] animate-pulse transform skew-x-[-10deg] text-center leading-tight ${
+              isLandscapeCompact ? 'text-4xl sm:text-5xl mb-3' : 'text-5xl sm:text-7xl md:text-8xl lg:text-9xl mb-8'
+            }`}
+          >
             RHYTHM
             <br />
             <span className="text-yellow-400">CANVAS</span>
-            <div className="text-2xl sm:text-3xl md:text-5xl text-cyan-300 tracking-[.35em] mt-2">REBOOT</div>
+            <div className={`${isLandscapeCompact ? 'text-xl sm:text-2xl mt-1' : 'text-2xl sm:text-3xl md:text-5xl mt-2'} text-cyan-300 tracking-[.35em]`}>
+              REBOOT
+            </div>
           </h1>
-          <div className="text-xl sm:text-2xl md:text-3xl font-black text-white bg-black px-6 sm:px-8 py-3 sm:py-4 border-4 border-white shadow-[8px_8px_0_#fff]">
+          <div
+            className={`font-black text-white bg-black border-4 border-white ${
+              isLandscapeCompact
+                ? 'text-base px-5 py-2.5 shadow-[5px_5px_0_#fff]'
+                : 'text-xl sm:text-2xl md:text-3xl px-6 sm:px-8 py-3 sm:py-4 shadow-[8px_8px_0_#fff]'
+            }`}
+          >
             CLICK TO START
           </div>
         </div>

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Sparkles, X } from 'lucide-react';
 import { CHANGELOG_VERSION } from '../game/constants';
+import { useIsCompactLandscape } from '../game/useViewport';
 
 interface ChangelogModalProps {
   onClose: () => void;
@@ -40,22 +41,28 @@ const CHANGELOG_HIGHLIGHTS: Array<{ title: string; detail: string; color: string
 ];
 
 export const ChangelogModal: React.FC<ChangelogModalProps> = ({ onClose }) => {
+  const isLandscapeCompact = useIsCompactLandscape();
+
   return (
     <div
       data-testid="changelog-modal"
-      className="fixed inset-0 z-[1100] bg-black/90 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 overflow-y-auto"
+      className="fixed inset-0 z-[1100] bg-black/90 backdrop-blur-md flex items-center justify-center p-2 sm:p-5 overflow-y-auto"
     >
-      <div className="bg-gray-950 border-4 border-yellow-400 shadow-[10px_10px_0_#000] w-full max-w-xl p-4 sm:p-6 flex flex-col gap-3 max-h-[90dvh] text-white">
-        <div className="flex items-start justify-between gap-3 border-b-2 border-white/20 pb-3 shrink-0">
+      <div
+        className={`bg-gray-950 border-4 border-yellow-400 shadow-[10px_10px_0_#000] w-full flex flex-col text-white ${
+          isLandscapeCompact ? 'max-w-3xl p-3.5 gap-2.5 max-h-[93dvh]' : 'max-w-xl p-4 sm:p-6 gap-3 max-h-[90dvh]'
+        }`}
+      >
+        <div className={`flex items-start justify-between gap-3 border-b-2 border-white/20 shrink-0 ${isLandscapeCompact ? 'pb-2' : 'pb-3'}`}>
           <div className="flex items-center gap-2.5">
-            <div className="bg-yellow-400 text-black p-2 border-2 border-black shrink-0">
-              <Sparkles className="w-6 h-6" />
+            <div className={`bg-yellow-400 text-black border-2 border-black shrink-0 ${isLandscapeCompact ? 'p-1.5' : 'p-2'}`}>
+              <Sparkles className={isLandscapeCompact ? 'w-4 h-4' : 'w-6 h-6'} />
             </div>
             <div>
               <div className="text-[11px] font-black tracking-widest text-pink-400 uppercase">
                 MOBILE REBOOT UPDATE • v{CHANGELOG_VERSION}
               </div>
-              <h2 className="text-xl sm:text-3xl font-black italic text-white">
+              <h2 className={`${isLandscapeCompact ? 'text-lg' : 'text-xl sm:text-3xl'} font-black italic text-white`}>
                 WHAT&apos;S NEW ON THIS DEVICE
               </h2>
             </div>
@@ -63,17 +70,26 @@ export const ChangelogModal: React.FC<ChangelogModalProps> = ({ onClose }) => {
           <button
             onClick={onClose}
             aria-label="Close changelog"
-            className="bg-white text-black border-2 border-black p-2 min-h-[42px] min-w-[42px] flex items-center justify-center font-black shrink-0"
+            className="bg-white text-black border-2 border-black p-1.5 min-h-[38px] min-w-[38px] flex items-center justify-center font-black shrink-0"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="space-y-2.5 flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-1">
+        <div
+          className={`flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-1 ${
+            isLandscapeCompact ? 'grid grid-cols-2 gap-2' : 'space-y-2.5'
+          }`}
+        >
           {CHANGELOG_HIGHLIGHTS.map((item) => (
-            <div key={item.title} className={`bg-gray-900/90 border-l-4 p-3 rounded-r-lg ${item.color}`}>
-              <div className="font-black text-sm sm:text-base tracking-wide">{item.title}</div>
-              <p className="text-xs sm:text-sm text-gray-200 font-semibold mt-0.5 leading-snug">{item.detail}</p>
+            <div
+              key={item.title}
+              className={`bg-gray-900/90 border-l-4 rounded-r-lg ${item.color} ${
+                isLandscapeCompact ? 'p-2.5' : 'p-3'
+              }`}
+            >
+              <div className="font-black text-xs sm:text-sm tracking-wide">{item.title}</div>
+              <p className="text-[11px] sm:text-xs text-gray-200 font-semibold mt-0.5 leading-snug">{item.detail}</p>
             </div>
           ))}
         </div>
@@ -81,7 +97,9 @@ export const ChangelogModal: React.FC<ChangelogModalProps> = ({ onClose }) => {
         <button
           data-testid="changelog-close-btn"
           onClick={onClose}
-          className="w-full py-3 bg-yellow-400 text-black font-black text-lg sm:text-xl border-4 border-black shadow-[4px_4px_0_#000] min-h-[48px] shrink-0"
+          className={`w-full bg-yellow-400 text-black font-black border-4 border-black shadow-[4px_4px_0_#000] shrink-0 ${
+            isLandscapeCompact ? 'py-2 text-sm min-h-[40px]' : 'py-3 text-lg sm:text-xl min-h-[48px]'
+          }`}
         >
           GOT IT — LET&apos;S PLAY
         </button>

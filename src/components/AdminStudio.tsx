@@ -290,6 +290,10 @@ export const AdminStudio: React.FC<AdminStudioProps> = ({ setScreen, songs, user
   const saveRhythm = async (list: Array<string | number>) => {
     if (!ADMIN_EMAILS.includes(user?.email || '')) return;
     setRhythm(list);
+    if (!db) {
+      setNotice('Saved locally; cloud sync unavailable.');
+      return;
+    }
     await db.collection('system').doc('rhythmList').set({ top10: list, updatedAt: Date.now() }, { merge: true });
   };
   const addTrack = (id: string | number) => {

@@ -16,6 +16,7 @@ import {
   getPlayfieldLayout,
   normalizeChart,
 } from '../game/rhythmLogic';
+import { safeGetStorage, safeSetStorage } from '../game/storage';
 import type {
   ChartNote,
   ControlLayoutSettings,
@@ -1071,11 +1072,11 @@ export const GameEngine: React.FC<GameEngineProps> = ({
   useEffect(() => {
     if (gameState !== 'finished') return;
     const highKey = `rhythmCanvasHigh_${song.id}_${difficulty}`;
-    const oldHigh = Number(localStorage.getItem(highKey) || 0);
+    const oldHigh = Number(safeGetStorage(highKey) || 0);
     setPreviousHigh(oldHigh);
     const fresh = score > oldHigh;
     setIsNewHigh(fresh);
-    if (fresh) localStorage.setItem(highKey, String(score));
+    if (fresh) safeSetStorage(highKey, String(score));
     setDisplayScore(0);
     const steps = 36;
     const increment = Math.max(1, Math.ceil(Math.max(0, score) / steps));
@@ -1799,48 +1800,60 @@ export const GameEngine: React.FC<GameEngineProps> = ({
         </div>
       )}
 
-      {/* Top HUD Bar (respects top-right fullscreen button via pr-16 md:pr-24) */}
+      {/* Top HUD Bar (respects top-right fullscreen button) */}
       <div
-        className={`relative z-20 w-full pl-3 sm:pl-6 pr-16 md:pr-24 flex items-center justify-between gap-2 shrink-0 ${
-          isLandscapeCompact ? 'pt-1.5 pb-1' : 'pt-2 sm:pt-4'
+        className={`relative z-20 w-full flex items-center justify-between gap-2 shrink-0 ${
+          isLandscapeCompact ? 'pl-2.5 pr-12 pt-1 pb-0.5' : 'pl-3 sm:pl-6 pr-16 md:pr-24 pt-2 sm:pt-4'
         }`}
       >
         <button
           data-testid="game-exit-btn"
           onClick={() => setScreen('freeplay')}
-          className="bg-white border-4 border-black p-1.5 sm:p-2.5 hover:bg-gray-200 transition-colors shadow-[4px_4px_0_#000] transform skew-x-[-10deg] shrink-0"
+          className={`bg-white text-black hover:bg-gray-200 transition-colors transform skew-x-[-10deg] shrink-0 ${
+            isLandscapeCompact
+              ? 'border-2 border-black p-1 shadow-[2px_2px_0_#000]'
+              : 'border-4 border-black p-1.5 sm:p-2.5 shadow-[4px_4px_0_#000]'
+          }`}
           aria-label="Exit track"
         >
-          <X className="w-5 h-5 sm:w-7 sm:h-7 text-black transform skew-x-[10deg]" />
+          <X className={`${isLandscapeCompact ? 'w-4 h-4' : 'w-5 h-5 sm:w-7 sm:h-7'} text-black transform skew-x-[10deg]`} />
         </button>
 
-        <div
-          className={`text-center bg-black border-2 sm:border-4 border-white shadow-[4px_4px_0_#fff] sm:shadow-[8px_8px_0_#fff] transform skew-x-[5deg] min-w-0 ${
-            isLandscapeCompact ? 'px-3 py-0.5 flex items-center gap-2' : 'px-3 sm:px-6 py-1 sm:py-2'
-          }`}
-        >
-          <h3
-            className={`font-black italic text-white uppercase transform skew-x-[-5deg] truncate ${
-              isLandscapeCompact ? 'text-sm sm:text-lg max-w-[160px] sm:max-w-xs' : 'text-base sm:text-2xl md:text-3xl max-w-[175px] sm:max-w-md'
-            }`}
-          >
-            {song.title}
-          </h3>
-          {gameMode === 'endless' && (
-            <div className="text-cyan-300 font-black text-[10px] sm:text-xs">
-              LOOP {loopCount + 1} • {Math.round(Math.pow(1.15, loopCount) * 100)}% SPEED
-            </div>
-          )}
-          <p className="text-[10px] sm:text-sm text-pink-400 font-black uppercase tracking-widest transform skew-x-[-5deg] truncate">
-            {gameMode} • {difficulty}
-          </p>
-        </div>
+        {isLandscapeCompact ? (
+          <div className="bg-black/80 border border-white/35 rounded-lg px-3 py-0.5 flex items-center gap-2 min-w-0 max-w-[46vw]">
+            <h3 className="font-black italic text-white uppercase text-xs sm:text-sm truncate">{song.title}</h3>
+            <span className="text-[10px] text-pink-400 font-black uppercase tracking-wider shrink-0">
+              {gameMode} • {difficulty}
+            </span>
+            {gameMode === 'endless' && (
+              <span className="text-cyan-300 font-black text-[10px] shrink-0">
+                L{loopCount + 1} ({Math.round(Math.pow(1.15, loopCount) * 100)}%)
+              </span>
+            )}
+          </div>
+        ) : (
+          <div className="text-center bg-black border-2 sm:border-4 border-white shadow-[4px_4px_0_#fff] sm:shadow-[8px_8px_0_#fff] transform skew-x-[5deg] min-w-0 px-3 sm:px-6 py-1 sm:py-2">
+            <h3 className="font-black italic text-white uppercase transform skew-x-[-5deg] truncate text-base sm:text-2xl md:text-3xl max-w-[175px] sm:max-w-md">
+              {song.title}
+            </h3>
+            {gameMode === 'endless' && (
+              <div className="text-cyan-300 font-black text-[10px] sm:text-xs">
+                LOOP {loopCount + 1} • {Math.round(Math.pow(1.15, loopCount) * 100)}% SPEED
+              </div>
+            )}
+            <p className="text-[10px] sm:text-sm text-pink-400 font-black uppercase tracking-widest transform skew-x-[-5deg] truncate">
+              {gameMode} • {difficulty}
+            </p>
+          </div>
+        )}
 
         <div className="flex items-center gap-1.5 shrink-0">
           {isBattleRoyale && (
             <button
               onClick={() => setShowBrDrawer((v) => !v)}
-              className="lg:hidden bg-yellow-400 text-black border-2 border-black px-2 py-1.5 font-black text-xs flex items-center gap-1 shadow-[3px_3px_0_#000]"
+              className={`lg:hidden bg-yellow-400 text-black border-2 border-black font-black flex items-center gap-1 shadow-[2px_2px_0_#000] ${
+                isLandscapeCompact ? 'px-2 py-1 text-[10px]' : 'px-2 py-1.5 text-xs'
+              }`}
             >
               <Trophy className="w-3.5 h-3.5" /> {brAlive}/50
             </button>
@@ -1854,7 +1867,9 @@ export const GameEngine: React.FC<GameEngineProps> = ({
               }}
               title="Arrange Note Lanes & Note Buttons"
               aria-label="Arrange Note Lanes and Buttons"
-              className="border-2 border-black px-2 py-1.5 font-black text-[10px] sm:text-xs flex items-center gap-1 shadow-[3px_3px_0_#000] bg-pink-500 text-black"
+              className={`border-2 border-black font-black flex items-center gap-1 shadow-[2px_2px_0_#000] bg-pink-500 text-black ${
+                isLandscapeCompact ? 'px-2 py-1 text-[10px] rounded' : 'px-2 py-1.5 text-[10px] sm:text-xs'
+              }`}
             >
               <Move className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">LAYOUT</span>
@@ -1868,9 +1883,9 @@ export const GameEngine: React.FC<GameEngineProps> = ({
             }}
             title="Haptics Settings"
             aria-label="Haptics Settings"
-            className={`border-2 border-black px-2 py-1.5 font-black text-[10px] sm:text-xs flex items-center gap-1 shadow-[3px_3px_0_#000] ${
-              effectiveHaptics.enabled ? 'bg-yellow-400 text-black' : 'bg-gray-900 text-gray-300 border-white/50'
-            }`}
+            className={`border-2 border-black font-black flex items-center gap-1 shadow-[2px_2px_0_#000] ${
+              isLandscapeCompact ? 'px-2 py-1 text-[10px] rounded' : 'px-2 py-1.5 text-[10px] sm:text-xs'
+            } ${effectiveHaptics.enabled ? 'bg-yellow-400 text-black' : 'bg-gray-900 text-gray-300 border-white/50'}`}
           >
             <Vibrate className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">{effectiveHaptics.enabled ? `${effectiveHaptics.intensity}%` : 'OFF'}</span>
@@ -1883,12 +1898,12 @@ export const GameEngine: React.FC<GameEngineProps> = ({
             }}
             title="Toggle Extra On-Screen Touch Pads"
             aria-label="Toggle On-Screen Touch Pads"
-            className={`border-2 border-black px-2 py-1.5 font-black text-[10px] sm:text-xs flex items-center gap-1 shadow-[3px_3px_0_#000] ${
-              showTouchPads ? 'bg-cyan-400 text-black' : 'bg-gray-900 text-white border-white/50'
-            }`}
+            className={`border-2 border-black font-black flex items-center gap-1 shadow-[2px_2px_0_#000] ${
+              isLandscapeCompact ? 'px-2 py-1 text-[10px] rounded' : 'px-2 py-1.5 text-[10px] sm:text-xs'
+            } ${showTouchPads ? 'bg-cyan-400 text-black' : 'bg-gray-900 text-white border-white/50'}`}
           >
             <Smartphone className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">{showTouchPads ? 'PADS ON' : 'PADS OFF'}</span>
+            <span className="hidden sm:inline">{showTouchPads ? 'PADS' : 'NO PADS'}</span>
           </button>
         </div>
       </div>
@@ -2263,12 +2278,18 @@ export const GameEngine: React.FC<GameEngineProps> = ({
                 {isNewHigh && <div className="text-yellow-300 animate-pulse text-sm sm:text-xl">★ NEW HIGH SCORE ★</div>}
               </div>
             </div>
-            <div className={`flex-1 grid grid-cols-1 md:grid-cols-[minmax(280px,48%)_1fr] items-stretch min-h-0 ${isLandscapeCompact ? 'gap-3' : 'gap-4'}`}>
-              <section className={`result-stats flex flex-col justify-between ${isLandscapeCompact ? 'p-3' : 'p-4 md:p-6'}`}>
-                <div className={`result-score text-black border-4 border-black text-right font-black tracking-wider ${isLandscapeCompact ? 'px-3 py-1 text-2xl' : 'px-4 py-2 text-3xl md:text-5xl'}`}>
+            <div
+              className={`flex-1 grid items-stretch min-h-0 ${
+                isLandscapeCompact
+                  ? 'grid-cols-2 gap-2.5'
+                  : 'grid-cols-1 md:grid-cols-[minmax(280px,48%)_1fr] gap-4'
+              }`}
+            >
+              <section className={`result-stats flex flex-col justify-between ${isLandscapeCompact ? 'p-2.5' : 'p-4 md:p-6'}`}>
+                <div className={`result-score text-black border-4 border-black text-right font-black tracking-wider ${isLandscapeCompact ? 'px-2.5 py-0.5 text-xl' : 'px-4 py-2 text-3xl md:text-5xl'}`}>
                   {String(displayScore).padStart(7, '0')}
                 </div>
-                <div className={`grid grid-cols-[auto_1fr_auto] gap-x-3 font-black relative z-10 ${isLandscapeCompact ? 'text-sm mt-2' : 'text-lg md:text-2xl mt-4'}`}>
+                <div className={`grid grid-cols-[auto_1fr_auto] gap-x-3 font-black relative z-10 ${isLandscapeCompact ? 'text-xs mt-1.5' : 'text-lg md:text-2xl mt-4'}`}>
                   <div className="judgment-row text-xs text-cyan-200">350</div>
                   <div className="judgment-row text-cyan-100">SICK</div>
                   <div className="judgment-row text-right">{stats.current.sick}x</div>
@@ -2282,40 +2303,44 @@ export const GameEngine: React.FC<GameEngineProps> = ({
                   <div className="judgment-row text-red-300">MISS</div>
                   <div className="judgment-row text-right">{stats.current.miss}x</div>
                 </div>
-                <div className={`grid grid-cols-2 border-t-2 border-white/40 ${isLandscapeCompact ? 'mt-2 pt-2' : 'mt-5 pt-3'}`}>
+                <div className={`grid grid-cols-2 border-t-2 border-white/40 ${isLandscapeCompact ? 'mt-1.5 pt-1.5' : 'mt-5 pt-3'}`}>
                   <div>
-                    <div className="text-xs sm:text-sm text-cyan-100">MAX COMBO</div>
-                    <div className={`${isLandscapeCompact ? 'text-xl' : 'text-3xl'} font-black`}>{maxCombo}x</div>
+                    <div className="text-[10px] sm:text-sm text-cyan-100">MAX COMBO</div>
+                    <div className={`${isLandscapeCompact ? 'text-lg' : 'text-3xl'} font-black`}>{maxCombo}x</div>
                   </div>
                   <div className="text-right">
-                    <div className="text-xs sm:text-sm text-cyan-100">ACCURACY</div>
-                    <div className={`${isLandscapeCompact ? 'text-xl' : 'text-3xl'} font-black`}>{accuracy}%</div>
+                    <div className="text-[10px] sm:text-sm text-cyan-100">ACCURACY</div>
+                    <div className={`${isLandscapeCompact ? 'text-lg' : 'text-3xl'} font-black`}>{accuracy}%</div>
                   </div>
                 </div>
               </section>
               <section className={`result-rank flex flex-col items-center justify-center ${isLandscapeCompact ? 'min-h-0 p-2 gap-1.5' : 'min-h-[220px] p-4 gap-3'}`}>
                 <div
                   className={`result-grade leading-none font-black italic ${
-                    isLandscapeCompact ? 'text-6xl' : 'text-[7rem] sm:text-[9rem] md:text-[15rem]'
+                    isLandscapeCompact ? 'text-5xl sm:text-6xl' : 'text-[7rem] sm:text-[9rem] md:text-[15rem]'
                   } ${
                     health <= 0 ? 'text-red-600' : 'text-green-500'
                   }`}
                 >
                   {getGrade(accuracy)}
                 </div>
-                <div className={`result-record border border-white/30 font-black ${isLandscapeCompact ? 'px-4 py-1 text-sm' : 'px-5 sm:px-7 py-2 sm:py-3 text-base sm:text-lg'}`}>
+                <div className={`result-record border border-white/30 font-black ${isLandscapeCompact ? 'px-3 py-1 text-xs' : 'px-5 sm:px-7 py-2 sm:py-3 text-base sm:text-lg'}`}>
                   BEST: {Math.max(previousHigh, score)} • SCORE: {score}
                 </div>
-                <div className={`result-actions w-full max-w-lg flex gap-3 ${isLandscapeCompact ? 'mt-1 pb-1' : 'mt-2 pb-4'}`}>
+                <div className={`result-actions w-full max-w-lg flex gap-2.5 ${isLandscapeCompact ? 'mt-0.5 pb-0.5' : 'mt-2 pb-4'}`}>
                   <button
                     onClick={retryTrack}
-                    className="flex-1 bg-gradient-to-r from-yellow-500 to-orange-500 text-black border-4 border-black p-3 text-xl md:text-3xl font-black shadow-[6px_6px_0_#000]"
+                    className={`flex-1 bg-gradient-to-r from-yellow-500 to-orange-500 text-black border-4 border-black font-black shadow-[4px_4px_0_#000] ${
+                      isLandscapeCompact ? 'p-2 text-base' : 'p-3 text-xl md:text-3xl shadow-[6px_6px_0_#000]'
+                    }`}
                   >
                     RETRY
                   </button>
                   <button
                     onClick={() => setScreen('freeplay')}
-                    className="flex-1 bg-gradient-to-r from-cyan-500 to-blue-600 text-white border-4 border-black p-3 text-xl md:text-3xl font-black shadow-[6px_6px_0_#000]"
+                    className={`flex-1 bg-gradient-to-r from-cyan-500 to-blue-600 text-white border-4 border-black font-black shadow-[4px_4px_0_#000] ${
+                      isLandscapeCompact ? 'p-2 text-base' : 'p-3 text-xl md:text-3xl shadow-[6px_6px_0_#000]'
+                    }`}
                   >
                     BACK
                   </button>

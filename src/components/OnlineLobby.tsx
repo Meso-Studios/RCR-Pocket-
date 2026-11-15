@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { ChevronLeft, Globe } from 'lucide-react';
+import { useIsCompactLandscape } from '../game/useViewport';
 import type { GameMode, PeerConnectionLike, ScreenId } from '../game/types';
 
 interface OnlineLobbyProps {
@@ -17,6 +18,7 @@ export const OnlineLobby: React.FC<OnlineLobbyProps> = ({
   setScreen,
   gameMode,
 }) => {
+  const isLandscapeCompact = useIsCompactLandscape();
   const [joinCode, setJoinCode] = useState('');
   const [status, setStatus] = useState('Initializing network...');
   const [copied, setCopied] = useState(false);
@@ -91,6 +93,62 @@ export const OnlineLobby: React.FC<OnlineLobbyProps> = ({
       // ignore clipboard restrictions
     }
   };
+
+  if (isLandscapeCompact) {
+    return (
+      <div className="w-full h-full flex flex-col bg-indigo-950 p-3 overflow-hidden safe-top safe-bottom">
+        <div className="w-full flex items-center justify-between gap-2 pr-12 pb-2 border-b border-white/15 shrink-0">
+          <button
+            onClick={() => setScreen(gameMode === 'horse' ? 'events' : 'freeplay')}
+            className="flex items-center gap-1 text-xs font-black bg-white border-2 border-black text-black px-3 py-1.5 rounded-lg shadow-[3px_3px_0_#000] min-h-[38px]"
+          >
+            <ChevronLeft className="w-4 h-4" /> BACK
+          </button>
+          <h2 className="text-xl font-black italic text-cyan-400 drop-shadow-[3px_3px_0_#000] flex items-center gap-2">
+            <Globe className="w-5 h-5 shrink-0" /> MULTIPLAYER LOBBY
+          </h2>
+          <div className="w-16" />
+        </div>
+
+        <div className="flex-1 min-h-0 grid grid-cols-2 gap-4 py-3 px-2 max-w-5xl w-full mx-auto items-stretch">
+          <div className="bg-black p-4 border-4 border-pink-500 rounded-xl shadow-[6px_6px_0_#ec4899] flex flex-col justify-between">
+            <div>
+              <h3 className="text-xl font-black text-white italic mb-1">HOST A GAME</h3>
+              <p className="text-xs text-gray-300 font-bold mb-2">Tap to copy &amp; share with your friend:</p>
+              <button
+                type="button"
+                onClick={copyCode}
+                className="w-full bg-white text-black text-center font-black text-base py-2 px-3 border-2 border-black rounded-lg select-all cursor-pointer break-all min-h-[44px]"
+              >
+                {copied ? 'COPIED CODE!' : myPeerId || 'GENERATING...'}
+              </button>
+            </div>
+            <p className="text-cyan-400 font-black animate-pulse text-center text-xs mt-2">{status}</p>
+          </div>
+
+          <div className="bg-black p-4 border-4 border-yellow-400 rounded-xl shadow-[6px_6px_0_#facc15] flex flex-col justify-between">
+            <div>
+              <h3 className="text-xl font-black text-white italic mb-1">JOIN A GAME</h3>
+              <p className="text-xs text-gray-300 font-bold mb-2">Paste your friend&apos;s code here:</p>
+              <input
+                type="text"
+                value={joinCode}
+                onChange={(e) => setJoinCode(e.target.value)}
+                placeholder="ENTER CODE"
+                className="w-full bg-white text-black font-black text-base p-2 border-2 border-black rounded-lg uppercase text-center focus:outline-none focus:ring-2 focus:ring-yellow-400 min-h-[42px]"
+              />
+            </div>
+            <button
+              onClick={handleJoin}
+              className="w-full bg-yellow-400 text-black font-black text-lg py-2 border-2 border-black rounded-lg shadow-[3px_3px_0_#000] min-h-[44px] mt-2"
+            >
+              CONNECT
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full h-full flex flex-col items-center bg-indigo-950 p-4 md:p-10 overflow-y-auto overflow-x-hidden custom-scrollbar safe-top safe-bottom">

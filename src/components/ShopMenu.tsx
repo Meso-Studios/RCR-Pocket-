@@ -12,6 +12,8 @@ import {
   SKINS,
 } from '../game/constants';
 import { drawNote } from '../game/renderer';
+import { safeGetStorage, safeSetStorage } from '../game/storage';
+import { useIsCompactLandscape } from '../game/useViewport';
 import type { FirebaseUser, HitSoundProduct, NoteProduct, PlayerInfo, ScreenId } from '../game/types';
 import { TouchLanePads } from './TouchControls';
 
@@ -137,10 +139,16 @@ export const NoteTestArena: React.FC<{ product: Partial<NoteProduct>; onClose: (
     return () => window.removeEventListener('keydown', k);
   }, []);
 
+  const isLandscapeCompact = useIsCompactLandscape();
+
   return (
     <div className="fixed inset-0 z-[999] bg-black/90 flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
-      <div className="bg-gray-950 border-4 border-cyan-400 p-3 sm:p-4 max-w-3xl w-full flex flex-col md:flex-row gap-4 max-h-[95dvh] overflow-y-auto">
-        <div className="flex flex-col items-center gap-2">
+      <div
+        className={`bg-gray-950 border-4 border-cyan-400 max-w-3xl w-full flex ${
+          isLandscapeCompact ? 'flex-row p-2.5 gap-3' : 'flex-col md:flex-row p-3 sm:p-4 gap-4'
+        } max-h-[95dvh] overflow-y-auto`}
+      >
+        <div className="flex flex-col items-center gap-1.5">
           <canvas
             ref={canvasRef}
             width="360"
@@ -149,7 +157,9 @@ export const NoteTestArena: React.FC<{ product: Partial<NoteProduct>; onClose: (
               e.preventDefault();
               hit();
             }}
-            className="touch-surface max-h-[45dvh] md:max-h-[65dvh] w-auto border-4 border-white mx-auto"
+            className={`touch-surface ${
+              isLandscapeCompact ? 'max-h-[58dvh]' : 'max-h-[45dvh] md:max-h-[65dvh]'
+            } w-auto border-4 border-white mx-auto`}
           />
           <TouchLanePads
             colors={['#ec4899', '#22d3ee', '#4ade80', '#ef4444']}
@@ -157,21 +167,33 @@ export const NoteTestArena: React.FC<{ product: Partial<NoteProduct>; onClose: (
             compact
           />
         </div>
-        <div className="flex-1 flex flex-col">
-          <h2 className="text-2xl sm:text-3xl font-black text-cyan-300">NEON DRIFT TEST</h2>
-          <p className="text-gray-300 mb-3 text-sm sm:text-base">
+        <div className="flex-1 flex flex-col min-w-0">
+          <h2 className={`${isLandscapeCompact ? 'text-lg' : 'text-2xl sm:text-3xl'} font-black text-cyan-300`}>
+            NEON DRIFT TEST
+          </h2>
+          <p className={`text-gray-300 mb-2 ${isLandscapeCompact ? 'text-xs' : 'text-sm sm:text-base'}`}>
             Tap the touch pads, canvas, or press arrow/WASD keys to test hits.
           </p>
           <audio ref={audioRef} src={ROYALTY_FREE_SONGS[0].audioUrl || undefined} loop playsInline />
-          <button onClick={startTest} className="w-full bg-green-400 text-black p-3 font-black min-h-[48px]">
+          <button
+            onClick={startTest}
+            className={`w-full bg-green-400 text-black font-black ${
+              isLandscapeCompact ? 'p-2 text-xs min-h-[38px]' : 'p-3 min-h-[48px]'
+            }`}
+          >
             START TEST
           </button>
-          <button onClick={hit} className="w-full bg-pink-500 text-black p-3 font-black mt-2 min-h-[48px]">
+          <button
+            onClick={hit}
+            className={`w-full bg-pink-500 text-black font-black mt-2 ${
+              isLandscapeCompact ? 'p-2 text-xs min-h-[38px]' : 'p-3 min-h-[48px]'
+            }`}
+          >
             SIMULATE HIT + EFFECTS
           </button>
-          <div className="mt-3 space-y-2">
+          <div className="mt-2 space-y-1.5 overflow-y-auto">
             {(product.effects || []).map((e) => (
-              <div className="bg-purple-900 p-2 text-sm" key={e.id}>
+              <div className="bg-purple-900 p-1.5 text-xs" key={e.id}>
                 {NOTE_EFFECTS.find((x) => x.id === e.id)?.name} • {e.intensity}%
               </div>
             ))}
@@ -181,7 +203,9 @@ export const NoteTestArena: React.FC<{ product: Partial<NoteProduct>; onClose: (
               audioRef.current?.pause();
               onClose();
             }}
-            className="w-full bg-white text-black p-3 font-black mt-auto pt-3 min-h-[48px]"
+            className={`w-full bg-white text-black font-black mt-auto ${
+              isLandscapeCompact ? 'p-2 text-xs min-h-[38px]' : 'p-3 pt-3 min-h-[48px]'
+            }`}
           >
             CLOSE TEST
           </button>
@@ -199,17 +223,18 @@ interface ShopMenuProps {
 }
 
 export const ShopMenu: React.FC<ShopMenuProps> = ({ setScreen, playerInfo, setPlayerInfo, user }) => {
+  const isLandscapeCompact = useIsCompactLandscape();
   const [shopTab, setShopTab] = useState<'shapes' | 'notes' | 'sounds' | 'mods'>('notes');
   const [noteProducts, setNoteProducts] = useState<NoteProduct[]>(() => {
     try {
-      return JSON.parse(localStorage.getItem('rhythmCanvasNoteProducts') || '[]');
+      return JSON.parse(safeGetStorage('rhythmCanvasNoteProducts') || '[]');
     } catch {
       return [];
     }
   });
   const [hitSounds, setHitSounds] = useState<HitSoundProduct[]>(() => {
     try {
-      const x = JSON.parse(localStorage.getItem('rhythmCanvasHitSounds') || '[]');
+      const x = JSON.parse(safeGetStorage('rhythmCanvasHitSounds') || '[]');
       return Array.isArray(x) ? x : [];
     } catch {
       return [];
@@ -262,7 +287,7 @@ export const ShopMenu: React.FC<ShopMenuProps> = ({ setScreen, playerInfo, setPl
         unlockedNoteProducts: owned ? unlocked : [...unlocked, p.id],
         equippedNoteProduct: p,
       };
-      localStorage.setItem('rhythmCanvasSave', JSON.stringify(next));
+      safeSetStorage('rhythmCanvasSave', JSON.stringify(next));
       return next;
     });
 
@@ -305,7 +330,7 @@ export const ShopMenu: React.FC<ShopMenuProps> = ({ setScreen, playerInfo, setPl
         unlockedHitSounds: owned ? u : [...u, p.id],
         equippedHitSound: p,
       };
-      localStorage.setItem('rhythmCanvasSave', JSON.stringify(next));
+      safeSetStorage('rhythmCanvasSave', JSON.stringify(next));
       return next;
     });
 
@@ -319,7 +344,7 @@ export const ShopMenu: React.FC<ShopMenuProps> = ({ setScreen, playerInfo, setPl
           unlockedShapes: [...prev.unlockedShapes, shapeKey],
           equippedShape: shapeKey,
         };
-        localStorage.setItem('rhythmCanvasSave', JSON.stringify(newData));
+        safeSetStorage('rhythmCanvasSave', JSON.stringify(newData));
         return newData;
       });
     }
@@ -328,39 +353,68 @@ export const ShopMenu: React.FC<ShopMenuProps> = ({ setScreen, playerInfo, setPl
   const handleEquipShape = (shapeKey: 'arrow' | 'circle') => {
     setPlayerInfo((prev) => {
       const newData = { ...prev, equippedShape: shapeKey };
-      localStorage.setItem('rhythmCanvasSave', JSON.stringify(newData));
+      safeSetStorage('rhythmCanvasSave', JSON.stringify(newData));
       return newData;
     });
   };
 
   return (
-    <div className="w-full h-full bg-indigo-950 flex flex-col pt-3 md:pt-8 pb-8 md:pb-12 px-3 sm:px-6 md:px-12 overflow-y-auto overflow-x-hidden bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCI+PGVsbGlwc2UgY3g9IjEwIiBjeT0iMTAiIHJ4PSI1IiByeT0iNSIgZmlsbD0iI2ZmZiIvPjwvc3ZnPg==')] bg-repeat relative custom-scrollbar safe-top safe-bottom">
-      <div className="flex flex-wrap justify-between items-center z-10 mb-5 sm:mb-8 pr-12 sm:pr-16 gap-3">
+    <div
+      className={`w-full h-full bg-indigo-950 flex flex-col overflow-y-auto overflow-x-hidden bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCI+PGVsbGlwc2UgY3g9IjEwIiBjeT0iMTAiIHJ4PSI1IiByeT0iNSIgZmlsbD0iI2ZmZiIvPjwvc3ZnPg==')] bg-repeat relative custom-scrollbar safe-top safe-bottom ${
+        isLandscapeCompact ? 'pt-2 pb-4 px-3' : 'pt-3 md:pt-8 pb-8 md:pb-12 px-3 sm:px-6 md:px-12'
+      }`}
+    >
+      <div
+        className={`flex flex-wrap justify-between items-center z-10 pr-12 ${
+          isLandscapeCompact ? 'mb-2.5 gap-2' : 'sm:pr-16 mb-5 sm:mb-8 gap-3'
+        }`}
+      >
         <button
           onClick={() => setScreen('menu')}
-          className="flex items-center gap-1 text-base md:text-2xl font-black bg-white border-4 border-black text-black px-3 md:px-6 py-2 md:py-3 hover:bg-gray-200 transition-all shadow-[5px_5px_0_#000] transform skew-x-[-10deg] min-h-[44px]"
+          className={`flex items-center gap-1 font-black bg-white border-black text-black hover:bg-gray-200 transition-all ${
+            isLandscapeCompact
+              ? 'text-xs px-3 py-1.5 border-2 rounded-lg shadow-[3px_3px_0_#000] min-h-[38px]'
+              : 'text-base md:text-2xl border-4 px-3 md:px-6 py-2 md:py-3 shadow-[5px_5px_0_#000] transform skew-x-[-10deg] min-h-[44px]'
+          }`}
         >
-          <span className="transform skew-x-[10deg] flex items-center">
-            <ChevronLeft className="w-5 h-5 md:w-7 md:h-7" /> BACK
+          <span className={`${isLandscapeCompact ? '' : 'transform skew-x-[10deg]'} flex items-center`}>
+            <ChevronLeft className={isLandscapeCompact ? 'w-4 h-4' : 'w-5 h-5 md:w-7 md:h-7'} /> BACK
           </span>
         </button>
         {ADMIN_EMAILS.includes(user?.email || '') && (
-          <button onClick={() => setScreen('admin_studio')} className="bg-red-600 border-4 border-white px-3 sm:px-4 py-2 font-black text-sm sm:text-base min-h-[44px]">
+          <button
+            onClick={() => setScreen('admin_studio')}
+            className={`bg-red-600 border-white font-black ${
+              isLandscapeCompact ? 'border-2 px-3 py-1.5 rounded-lg text-xs min-h-[38px]' : 'border-4 px-3 sm:px-4 py-2 text-sm sm:text-base min-h-[44px]'
+            }`}
+          >
             ADMIN STUDIO
           </button>
         )}
-        <h2 className="text-4xl sm:text-6xl md:text-8xl font-black italic tracking-wider text-yellow-400 drop-shadow-[4px_4px_0_#000] md:drop-shadow-[8px_8px_0_#000] transform -rotate-2">
+        <h2
+          className={`font-black italic tracking-wider text-yellow-400 ${
+            isLandscapeCompact
+              ? 'text-2xl drop-shadow-[3px_3px_0_#000]'
+              : 'text-4xl sm:text-6xl md:text-8xl drop-shadow-[4px_4px_0_#000] md:drop-shadow-[8px_8px_0_#000] transform -rotate-2'
+          }`}
+        >
           STORE
         </h2>
-        <div className="flex items-center gap-2 bg-black px-3 md:px-6 py-2 md:py-3 border-4 border-yellow-400 shadow-[5px_5px_0_#facc15] transform skew-x-[8deg]">
-          <Coins className="w-6 h-6 md:w-9 md:h-9 text-yellow-400 transform skew-x-[-8deg]" />
-          <span className="font-black text-xl md:text-4xl text-white tracking-widest transform skew-x-[-8deg]">
+        <div
+          className={`flex items-center gap-2 bg-black border-yellow-400 ${
+            isLandscapeCompact
+              ? 'px-3 py-1 border-2 rounded-lg shadow-[3px_3px_0_#facc15]'
+              : 'px-3 md:px-6 py-2 md:py-3 border-4 shadow-[5px_5px_0_#facc15] transform skew-x-[8deg]'
+          }`}
+        >
+          <Coins className={`${isLandscapeCompact ? 'w-4 h-4' : 'w-6 h-6 md:w-9 md:h-9 transform skew-x-[-8deg]'} text-yellow-400`} />
+          <span className={`font-black text-white tracking-widest ${isLandscapeCompact ? 'text-base' : 'text-xl md:text-4xl transform skew-x-[-8deg]'}`}>
             {playerInfo.coins}
           </span>
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2 sm:gap-4 mb-6 sm:mb-8 z-10 w-full justify-center">
+      <div className={`flex flex-wrap z-10 w-full justify-center ${isLandscapeCompact ? 'gap-2 mb-3' : 'gap-2 sm:gap-4 mb-6 sm:mb-8'}`}>
         {(
           [
             ['shapes', 'SHAPES'],
@@ -372,16 +426,18 @@ export const ShopMenu: React.FC<ShopMenuProps> = ({ setScreen, playerInfo, setPl
           <button
             key={tab}
             onClick={() => setShopTab(tab)}
-            className={`px-4 py-2.5 sm:px-8 sm:py-3 font-black text-sm sm:text-xl md:text-2xl border-4 border-black min-h-[44px] shadow-[4px_4px_0_#000] ${
-              shopTab === tab ? 'bg-pink-500 text-white' : 'bg-white text-black hover:bg-gray-200'
-            }`}
+            className={`font-black border-black ${
+              isLandscapeCompact
+                ? 'px-4 py-1.5 text-xs border-2 rounded-lg min-h-[36px] shadow-[2px_2px_0_#000]'
+                : 'px-4 py-2.5 sm:px-8 sm:py-3 text-sm sm:text-xl md:text-2xl border-4 min-h-[44px] shadow-[4px_4px_0_#000]'
+            } ${shopTab === tab ? 'bg-pink-500 text-white' : 'bg-white text-black hover:bg-gray-200'}`}
           >
             {label}
           </button>
         ))}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 md:gap-8 pb-12 z-10">
+      <div className={`grid z-10 ${isLandscapeCompact ? 'grid-cols-2 lg:grid-cols-3 gap-3 pb-4' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 md:gap-8 pb-12'}`}>
         {shopTab === 'shapes' &&
           (Object.keys(SHAPES) as Array<'arrow' | 'circle'>).map((key) => {
             const shape = SHAPES[key];
@@ -392,22 +448,24 @@ export const ShopMenu: React.FC<ShopMenuProps> = ({ setScreen, playerInfo, setPl
             return (
               <div
                 key={key}
-                className={`flex flex-col bg-white border-4 sm:border-8 p-4 md:p-6 shadow-[8px_8px_0_#000] sm:transform sm:skew-x-[-4deg] transition-all ${
-                  isEquipped ? 'border-green-500' : 'border-black'
-                }`}
+                className={`flex flex-col bg-white transition-all ${
+                  isLandscapeCompact
+                    ? 'border-4 rounded-xl p-3 shadow-[4px_4px_0_#000]'
+                    : 'border-4 sm:border-8 p-4 md:p-6 shadow-[8px_8px_0_#000] sm:transform sm:skew-x-[-4deg]'
+                } ${isEquipped ? 'border-green-500' : 'border-black'}`}
               >
-                <h3 className="text-2xl md:text-4xl font-black italic text-center mb-4 text-black uppercase">
+                <h3 className={`${isLandscapeCompact ? 'text-lg mb-2' : 'text-2xl md:text-4xl mb-4'} font-black italic text-center text-black uppercase`}>
                   {shape.name}
                 </h3>
 
-                <div className="flex justify-center gap-4 mb-5 bg-gray-200 border-4 border-black p-4 h-28 md:h-36 items-center">
+                <div className={`flex justify-center gap-4 bg-gray-200 border-4 border-black items-center ${isLandscapeCompact ? 'mb-3 p-2 h-20' : 'mb-5 p-4 h-28 md:h-36'}`}>
                   {key === 'arrow' && (
-                    <div className="w-16 h-16 border-4 border-black bg-pink-500 flex items-center justify-center shadow-[4px_4px_0_#000]">
+                    <div className={`${isLandscapeCompact ? 'w-12 h-12' : 'w-16 h-16'} border-4 border-black bg-pink-500 flex items-center justify-center shadow-[4px_4px_0_#000]`}>
                       <div className="w-0 h-0 border-l-[10px] border-l-transparent border-r-[10px] border-r-transparent border-b-[15px] border-b-white" />
                     </div>
                   )}
                   {key === 'circle' && (
-                    <div className="w-16 h-16 border-4 border-black bg-cyan-400 rounded-full flex items-center justify-center shadow-[4px_4px_0_#000]">
+                    <div className={`${isLandscapeCompact ? 'w-12 h-12' : 'w-16 h-16'} border-4 border-black bg-cyan-400 rounded-full flex items-center justify-center shadow-[4px_4px_0_#000]`}>
                       <div className="w-8 h-8 rounded-full border-4 border-white" />
                     </div>
                   )}
@@ -571,7 +629,7 @@ export const ShopMenu: React.FC<ShopMenuProps> = ({ setScreen, playerInfo, setPl
                             unlockedGameMods: [...unlocked, m.id],
                             activeGameMods: [...active.filter((id) => !['rhythm_hero', 'dance_rhythm_pitch'].includes(id)), m.id],
                           };
-                      localStorage.setItem('rhythmCanvasSave', JSON.stringify(next));
+                      safeSetStorage('rhythmCanvasSave', JSON.stringify(next));
                       return next;
                     })
                   }
