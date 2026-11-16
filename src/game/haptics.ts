@@ -3,13 +3,21 @@ import type { HapticsSettings } from './types.ts';
 
 export type HapticEvent = 'press' | 'hit' | 'holdTick' | 'miss' | 'demon' | 'comboMilestone' | 'menuTap';
 
+export interface HapticPulseTelemetry {
+  event: HapticEvent;
+  intensity: number;
+  quality?: 'sick' | 'good' | 'bad';
+  pattern: number[];
+  timestamp: number;
+}
+
 export const DEFAULT_HAPTICS_SETTINGS: HapticsSettings = {
   enabled: true,
-  intensity: 75,
+  intensity: 85,
   pulseDurationMs: 24,
   accuracyScaling: true,
   audioFallback: true,
-  alwaysAudioAssist: false,
+  alwaysAudioAssist: true,
   triggers: {
     onPress: true,
     onHit: true,
@@ -90,9 +98,9 @@ export const buildVibrationPattern = (
   const qualityScale = !norm.accuracyScaling
     ? 1
     : quality === 'sick'
-    ? 1.2
+    ? 1.24
     : quality === 'good'
-    ? 0.92
+    ? 0.94
     : quality === 'bad'
     ? 0.68
     : 1;
@@ -103,13 +111,13 @@ export const buildVibrationPattern = (
 
   switch (event) {
     case 'press':
-      return [scaled(0.75, 14)];
+      return [scaled(0.78, 14)];
     case 'hit':
       if (strength < 0.45) {
         const pulse = scaled(0.65, 12);
         return [pulse, 10, Math.max(10, Math.round(pulse * 0.75))];
       }
-      return [scaled(1.15, 18)];
+      return [scaled(1.18, 18)];
     case 'holdTick':
       return [scaled(0.55, 12)];
     case 'miss': {
@@ -122,11 +130,11 @@ export const buildVibrationPattern = (
       return [heavy, 22, heavy, 22, Math.round(heavy * 1.25)];
     }
     case 'comboMilestone': {
-      const pop = scaled(1.05, 18);
-      return [pop, 18, Math.round(pop * 1.3)];
+      const pop = scaled(1.08, 18);
+      return [pop, 18, Math.round(pop * 1.32)];
     }
     case 'menuTap':
-      return [scaled(0.6, 12)];
+      return [scaled(0.65, 12)];
   }
 };
 
@@ -147,8 +155,9 @@ const triggerIOSSwitchHaptic = (): boolean => {
     if (!iosSwitchLabelEl || !document.body.contains(iosSwitchLabelEl)) {
       const label = document.createElement('label');
       label.setAttribute('aria-hidden', 'true');
+      // Positioned inside viewport at (2px,2px) with 0.01 opacity so iOS Safari Taptic engine never skips offscreen clicks
       label.style.cssText =
-        'position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;opacity:0.01;pointer-events:none;overflow:hidden;';
+        'position:fixed;left:2px;top:2px;width:1px;height:1px;opacity:0.01;pointer-events:none;overflow:hidden;z-index:-1;';
       const input = document.createElement('input');
       input.type = 'checkbox';
       input.setAttribute('switch', '');
@@ -165,6 +174,7 @@ const triggerIOSSwitchHaptic = (): boolean => {
 };
 
 const lastHapticAt: Partial<Record<HapticEvent, number>> = {};
+const chordBurstCount: Partial<Record<HapticEvent, number>> = {};
 
 export const triggerHaptic = (
   event: HapticEvent,
@@ -175,8 +185,25 @@ export const triggerHaptic = (
   if (!isHapticEventEnabled(event, settings)) return;
 
   const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-  const minCooldown = event === 'holdTick' ? 95 : 14;
-  if (now - (lastHapticAt[event] || 0) < minCooldown) return;
+  const prevAt = lastHapticAt[event] || 0;
+  const delta = now - prevAt;
+
+  if (event === 'holdTick') {
+    if (delta < 85) return;
+  } else if (event === 'press' || event === 'hit') {
+    // Allow up to 4 simultaneous chord notes within 8ms, then enforce a tiny 10ms guard
+    if (delta < 8) {
+      const count = (chordBurstCount[event] || 0) + 1;
+      chordBurstCount[event] = count;
+      if (count > 4) return;
+    } else if (delta < 10) {
+      return;
+    } else {
+      chordBurstCount[event] = 1;
+    }
+  } else {
+    if (delta < 14) return;
+  }
   lastHapticAt[event] = now;
 
   const pattern = buildVibrationPattern(event, settings, quality);
@@ -205,18 +232,31 @@ export const triggerHaptic = (
     (settings.alwaysAudioAssist || (settings.audioFallback && (!hardwareFired || inCrossOriginFrame)));
 
   if (shouldPlayAudioThump) {
-    const strength = (settings.intensity / 100) * (quality === 'sick' ? 1.15 : quality === 'bad' ? 0.72 : 1);
+    const strength = (settings.intensity / 100) * (quality === 'sick' ? 1.2 : quality === 'bad' ? 0.72 : 1);
     const freq =
       event === 'miss'
         ? 92
         : event === 'demon'
-        ? 78
+        ? 76
         : event === 'comboMilestone'
-        ? 165
+        ? 172
         : event === 'menuTap'
-        ? 150
-        : 128;
-    const totalMs = Math.min(65, Math.max(20, pattern[0] || settings.pulseDurationMs));
+        ? 155
+        : event === 'hit'
+        ? 138
+        : 126;
+    const totalMs = Math.min(68, Math.max(20, pattern[0] || settings.pulseDurationMs));
     AudioEngine.playTactileThump(strength, freq, totalMs);
+  }
+
+  if (typeof window !== 'undefined' && typeof CustomEvent !== 'undefined') {
+    const detail: HapticPulseTelemetry = {
+      event,
+      intensity: settings.intensity,
+      quality,
+      pattern,
+      timestamp: now,
+    };
+    window.dispatchEvent(new CustomEvent('rc-haptic-pulse', { detail }));
   }
 };

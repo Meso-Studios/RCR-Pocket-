@@ -6,15 +6,18 @@ import {
   Globe,
   Infinity as InfinityIcon,
   Play,
+  Radio,
   SlidersHorizontal,
   Users,
   X,
 } from 'lucide-react';
-import { WaveformPulse } from '../game/audio';
+import { MenuMusicEngine, WaveformPulse } from '../game/audio';
+import { triggerHaptic } from '../game/haptics';
 import { getDurationString, getGrade, normalizeChart } from '../game/rhythmLogic';
 import { safeSetStorage } from '../game/storage';
 import { useIsCompactLandscape } from '../game/useViewport';
-import type { ChartNote, Difficulty, GameMode, Modifiers, PlayerInfo, ScreenId, Song } from '../game/types';
+import type { ChartNote, Difficulty, GameMode, MenuGenre, Modifiers, PlayerInfo, ScreenId, Song } from '../game/types';
+import { RaveStageCanvas } from './RaveStageCanvas';
 
 interface FreeplayMenuProps {
   songs: Song[];
@@ -84,7 +87,13 @@ export const FreeplayMenu: React.FC<FreeplayMenuProps> = ({
 
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
   const localSongs = useMemo(
-    () => songs.filter((s) => s.artist === 'Royalty Free' || s.artist === 'USER'),
+    () =>
+      songs.filter(
+        (s) =>
+          Boolean(s.audioUrl?.startsWith('synth:')) ||
+          s.artist === 'Royalty Free' ||
+          s.artist === 'USER'
+      ),
     [songs]
   );
 
@@ -111,6 +120,14 @@ export const FreeplayMenu: React.FC<FreeplayMenuProps> = ({
     }
   }, [displayedSongs, selectedSong, setSelectedSong]);
 
+  const activeStageGenre: MenuGenre = useMemo(() => {
+    if (selectedSong?.audioUrl?.startsWith('synth:')) {
+      const g = selectedSong.audioUrl.replace('synth:', '') as MenuGenre;
+      if (g === 'rave' || g === 'dubstep' || g === 'hardtekk') return g;
+    }
+    return playerInfo.menuGenre || 'rave';
+  }, [selectedSong, playerInfo.menuGenre]);
+
   useEffect(() => {
     if (!selectedSong || !selectedSong.audioUrl) {
       setIsPreviewing(false);
@@ -121,7 +138,23 @@ export const FreeplayMenu: React.FC<FreeplayMenuProps> = ({
       return;
     }
 
+    if (selectedSong.audioUrl.startsWith('synth:')) {
+      if (previewAudioRef.current) {
+        previewAudioRef.current.pause();
+        previewAudioRef.current.src = '';
+      }
+      setIsPreviewing(false);
+      const synthGenre = (selectedSong.audioUrl.replace('synth:', '') as MenuGenre) || 'rave';
+      if (!playerInfo.menuBgmMuted) {
+        MenuMusicEngine.start(synthGenre, modifiers?.speed || 1);
+      }
+      return () => {
+        MenuMusicEngine.setPlaybackRate(1);
+      };
+    }
+
     setIsPreviewing(true);
+    MenuMusicEngine.stop();
 
     if (previewAudioRef.current) {
       previewAudioRef.current.pause();
@@ -189,15 +222,17 @@ export const FreeplayMenu: React.FC<FreeplayMenuProps> = ({
       detachPulse();
       setIsPreviewing(false);
     };
-  }, [selectedSong, setIsPreviewing, modifiers?.speed]);
+  }, [selectedSong, setIsPreviewing, modifiers?.speed, playerInfo.menuBgmMuted]);
 
   const cycleDiff = (dir: number) => {
+    triggerHaptic('press', playerInfo.haptics);
     let nextIdx = diffs.indexOf(difficulty) + dir;
     if (nextIdx < 0) nextIdx = diffs.length - 1;
     if (nextIdx >= diffs.length) nextIdx = 0;
     setDifficulty(diffs[nextIdx]);
   };
   const cycleMode = (dir: number) => {
+    triggerHaptic('press', playerInfo.haptics);
     let nextIdx = modes.findIndex((m) => m.id === gameMode) + dir;
     if (nextIdx < 0) nextIdx = modes.length - 1;
     if (nextIdx >= modes.length) nextIdx = 0;
@@ -205,6 +240,7 @@ export const FreeplayMenu: React.FC<FreeplayMenuProps> = ({
   };
   const cycleSong = (dir: number) => {
     if (!displayedSongs.length) return;
+    triggerHaptic('press', playerInfo.haptics);
     const idx = displayedSongs.findIndex((s) => String(s.id) === String(selectedSong?.id));
     const safeIdx = idx < 0 ? 0 : idx;
     const nextIdx = (safeIdx + dir + displayedSongs.length) % displayedSongs.length;
@@ -213,6 +249,7 @@ export const FreeplayMenu: React.FC<FreeplayMenuProps> = ({
 
   const handlePlayClick = () => {
     if (!selectedSong) return;
+    triggerHaptic('hit', playerInfo.haptics, 'sick');
     if (modifiers.extreme && (bestGrades[String(selectedSong.id)] || 0) < 90) {
       setModifiers((m) => ({ ...m, extreme: false }));
     }
@@ -231,7 +268,8 @@ export const FreeplayMenu: React.FC<FreeplayMenuProps> = ({
 
   return (
     <div className="rc-stage relative w-full h-full flex flex-row overflow-hidden safe-top safe-bottom">
-      <div className="absolute inset-0 rc-stage-dots pointer-events-none" />
+      <RaveStageCanvas genre={activeStageGenre} intensity={0.82} />
+      <div className="absolute inset-0 rc-stage-dots pointer-events-none opacity-65" />
 
       {/* Left Track Browser Console */}
       <aside

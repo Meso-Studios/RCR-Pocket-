@@ -544,65 +544,68 @@ input, select {
    Rhythm Canvas Console Visual System (Matches Mockup + Original Resemblance)
    ========================================================================== */
 
-@layer components {
+@@layer components {
   .rc-stage {
     background:
-      radial-gradient(ellipse 75% 60% at 50% 24%, rgba(76, 36, 152, 0.75) 0%, rgba(36, 18, 86, 0.65) 48%, rgba(11, 8, 24, 0.98) 100%),
-      linear-gradient(180deg, #1b0f42 0%, #10092a 55%, #080614 100%);
+      radial-gradient(ellipse 80% 62% at 50% 22%, rgba(98, 38, 196, 0.82) 0%, rgba(42, 18, 102, 0.72) 48%, rgba(9, 6, 22, 0.99) 100%),
+      linear-gradient(180deg, #1e0f4c 0%, #10082c 55%, #070512 100%);
     position: relative;
   }
 
   .rc-stage-dots {
-    background-image: radial-gradient(rgba(167, 139, 250, 0.17) 1.5px, transparent 1.5px);
+    background-image: radial-gradient(rgba(192, 132, 252, 0.22) 1.5px, transparent 1.5px);
     background-size: 24px 24px;
   }
 
   .rc-dock-rail {
-    background: linear-gradient(180deg, #3c4257 0%, #242938 45%, #161a24 100%);
-    border: 2px solid #090b10;
+    background: linear-gradient(180deg, #434a63 0%, #262c3d 45%, #161a26 100%);
+    border: 2.5px solid #07090e;
     border-radius: 14px;
     box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.28),
-      inset 0 -2px 0 rgba(0, 0, 0, 0.55),
-      0 5px 14px rgba(0, 0, 0, 0.6);
+      inset 0 1.5px 0 rgba(255, 255, 255, 0.34),
+      inset 0 -2px 0 rgba(0, 0, 0, 0.62),
+      0 6px 18px rgba(0, 0, 0, 0.68),
+      0 0 22px rgba(139, 92, 246, 0.22);
   }
 
   .rc-dock-well {
-    background: linear-gradient(180deg, #0d1018 0%, #141824 100%);
+    background: linear-gradient(180deg, #0b0e16 0%, #141926 100%);
     border: 1.5px solid #06080c;
     border-radius: 9px;
     box-shadow:
-      inset 0 2px 4px rgba(0, 0, 0, 0.75),
-      0 1px 0 rgba(255, 255, 255, 0.14);
+      inset 0 2px 5px rgba(0, 0, 0, 0.82),
+      0 1px 0 rgba(255, 255, 255, 0.16);
   }
 
   .rc-console-tray {
-    background: linear-gradient(180deg, #393f54 0%, #232837 16%, #181c28 84%, #11141e 100%);
-    border: 3px solid #080a0f;
+    background: linear-gradient(180deg, #414860 0%, #262c3e 16%, #181c29 84%, #10131d 100%);
+    border: 3px solid #07090e;
     border-radius: 20px;
     box-shadow:
-      inset 0 2px 0 rgba(255, 255, 255, 0.24),
-      inset 0 -3px 0 rgba(0, 0, 0, 0.65),
-      0 16px 34px rgba(0, 0, 0, 0.68);
+      inset 0 2px 0 rgba(255, 255, 255, 0.3),
+      inset 0 -3px 0 rgba(0, 0, 0, 0.72),
+      0 18px 38px rgba(0, 0, 0, 0.75),
+      0 0 32px rgba(255, 46, 136, 0.22);
   }
 
   .rc-console-inset {
-    background: linear-gradient(180deg, #10131c 0%, #191e2b 100%);
-    border: 2px solid #090b10;
+    background: linear-gradient(180deg, #0e111a 0%, #181d2b 100%);
+    border: 2px solid #080a0f;
     border-radius: 14px;
     box-shadow:
-      inset 0 3px 8px rgba(0, 0, 0, 0.78),
-      0 1px 0 rgba(255, 255, 255, 0.12);
+      inset 0 3px 9px rgba(0, 0, 0, 0.84),
+      0 1px 0 rgba(255, 255, 255, 0.14);
   }
 
   .rc-panel {
-    background: linear-gradient(180deg, #272c3c 0%, #181c27 40%, #11141d 100%);
+    background: linear-gradient(180deg, #2b3145 0%, #191d29 42%, #10131c 100%);
     border: 2.5px solid #080a0f;
     border-radius: 16px;
     box-shadow:
-      inset 0 1.5px 0 rgba(255, 255, 255, 0.2),
-      inset 0 -2px 0 rgba(0, 0, 0, 0.5),
-      0 10px 26px rgba(0, 0, 0, 0.58);
+      inset 0 1.5px 0 rgba(255, 255, 255, 0.26),
+      inset 0 -2px 0 rgba(0, 0, 0, 0.56),
+      0 12px 28px rgba(0, 0, 0, 0.65),
+      0 0 24px rgba(54, 226, 255, 0.14);
   }
 
   .rc-bevel-btn {
@@ -610,102 +613,109 @@ input, select {
     overflow: hidden;
     border: 2.5px solid #080a0f;
     border-radius: 12px;
-    transition: transform 140ms cubic-bezier(0.16, 1, 0.3, 1), filter 140ms ease, box-shadow 140ms ease;
+    transition: transform 110ms cubic-bezier(0.16, 1, 0.3, 1), filter 120ms ease, box-shadow 120ms ease;
   }
 
   .rc-bevel-btn:hover:not(:disabled) {
-    filter: brightness(1.07);
+    filter: brightness(1.1) saturate(1.08);
+    transform: translateY(-1px);
+  }
+
+  .rc-bevel-btn:active:not(:disabled) {
+    transform: translateY(2px) scale(0.985);
+    filter: brightness(0.96);
   }
 
   .rc-tile-pink {
-    background: linear-gradient(180deg, #ff4799 0%, #f51d78 52%, #bf0b55 100%);
+    background: linear-gradient(180deg, #ff52a2 0%, #ff1a7a 52%, #c40958 100%);
     box-shadow:
-      inset 0 2px 0 rgba(255, 195, 224, 0.75),
-      inset 0 0 0 2px rgba(255, 130, 185, 0.32),
+      inset 0 2.5px 0 rgba(255, 210, 234, 0.85),
+      inset 0 0 0 2px rgba(255, 130, 185, 0.4),
       0 5px 0 #080a0f,
-      0 9px 18px rgba(0, 0, 0, 0.55);
+      0 10px 22px rgba(255, 26, 122, 0.42);
   }
 
   .rc-tile-green {
-    background: linear-gradient(180deg, #32ef74 0%, #1acb56 54%, #10943c 100%);
+    background: linear-gradient(180deg, #3bf77e 0%, #19d458 54%, #0f993d 100%);
     box-shadow:
-      inset 0 2px 0 rgba(190, 255, 212, 0.75),
-      inset 0 0 0 2px rgba(134, 239, 172, 0.35),
+      inset 0 2.5px 0 rgba(205, 255, 222, 0.85),
+      inset 0 0 0 2px rgba(134, 239, 172, 0.42),
       0 5px 0 #080a0f,
-      0 9px 18px rgba(0, 0, 0, 0.52);
+      0 10px 20px rgba(25, 212, 88, 0.35);
   }
 
   .rc-tile-gold {
-    background: linear-gradient(180deg, #ffe23b 0%, #f0b90b 54%, #bd8202 100%);
+    background: linear-gradient(180deg, #ffea47 0%, #f5bd0b 54%, #c28500 100%);
     box-shadow:
-      inset 0 2px 0 rgba(255, 250, 190, 0.85),
-      inset 0 0 0 2px rgba(254, 240, 138, 0.38),
+      inset 0 2.5px 0 rgba(255, 252, 204, 0.9),
+      inset 0 0 0 2px rgba(254, 240, 138, 0.44),
       0 5px 0 #080a0f,
-      0 9px 18px rgba(0, 0, 0, 0.52);
+      0 10px 20px rgba(245, 189, 11, 0.35);
   }
 
   .rc-tile-violet {
-    background: linear-gradient(180deg, #985cff 0%, #712ee3 54%, #4f18ad 100%);
+    background: linear-gradient(180deg, #a46bff 0%, #7832ec 54%, #5218b5 100%);
     box-shadow:
-      inset 0 2px 0 rgba(224, 200, 255, 0.7),
-      inset 0 0 0 2px rgba(196, 181, 253, 0.32),
+      inset 0 2.5px 0 rgba(232, 212, 255, 0.8),
+      inset 0 0 0 2px rgba(196, 181, 253, 0.38),
       0 5px 0 #080a0f,
-      0 9px 18px rgba(0, 0, 0, 0.55);
+      0 10px 20px rgba(120, 50, 236, 0.38);
   }
 
   .rc-tile-cyan {
-    background: linear-gradient(180deg, #3be0f7 0%, #12b5d1 54%, #097c94 100%);
+    background: linear-gradient(180deg, #47e8ff 0%, #10bde0 54%, #08809b 100%);
     box-shadow:
-      inset 0 2px 0 rgba(186, 248, 255, 0.8),
-      inset 0 0 0 2px rgba(103, 232, 249, 0.35),
+      inset 0 2px 0 rgba(200, 250, 255, 0.88),
+      inset 0 0 0 2px rgba(103, 232, 249, 0.42),
       0 4px 0 #080a0f,
-      0 7px 14px rgba(0, 0, 0, 0.48);
+      0 8px 18px rgba(16, 189, 224, 0.35);
   }
 
   .rc-tile-red {
-    background: linear-gradient(180deg, #f04848 0%, #d42020 55%, #991111 100%);
+    background: linear-gradient(180deg, #ff5252 0%, #dc2020 55%, #9c0f0f 100%);
     box-shadow:
-      inset 0 2px 0 rgba(255, 190, 190, 0.65),
-      0 3px 0 #080a0f;
+      inset 0 2px 0 rgba(255, 200, 200, 0.75),
+      0 3.5px 0 #080a0f,
+      0 6px 14px rgba(220, 32, 32, 0.35);
   }
 
   .rc-tile-slate {
-    background: linear-gradient(180deg, #383e52 0%, #242937 55%, #171a24 100%);
+    background: linear-gradient(180deg, #3e455c 0%, #262c3b 55%, #171a25 100%);
     box-shadow:
-      inset 0 1.5px 0 rgba(255, 255, 255, 0.24),
-      inset 0 0 0 1.5px rgba(255, 255, 255, 0.08),
+      inset 0 1.5px 0 rgba(255, 255, 255, 0.28),
+      inset 0 0 0 1.5px rgba(255, 255, 255, 0.1),
       0 4px 0 #080a0f;
   }
 
   .rc-sub-rose {
-    background: linear-gradient(180deg, #da3878 0%, #b4225b 55%, #841440 100%);
+    background: linear-gradient(180deg, #e83d82 0%, #bf2261 55%, #8b1343 100%);
     box-shadow:
-      inset 0 1.5px 0 rgba(255, 185, 215, 0.58),
-      inset 0 0 0 1.5px rgba(255, 130, 185, 0.28),
+      inset 0 1.5px 0 rgba(255, 195, 222, 0.68),
+      inset 0 0 0 1.5px rgba(255, 130, 185, 0.34),
       0 3.5px 0 #080a0f;
   }
 
   .rc-sub-teal {
-    background: linear-gradient(180deg, #338799 0%, #246574 55%, #16444f 100%);
+    background: linear-gradient(180deg, #3896aa 0%, #256f80 55%, #164955 100%);
     box-shadow:
-      inset 0 1.5px 0 rgba(165, 243, 252, 0.5),
-      inset 0 0 0 1.5px rgba(103, 232, 249, 0.26),
+      inset 0 1.5px 0 rgba(175, 246, 255, 0.6),
+      inset 0 0 0 1.5px rgba(103, 232, 249, 0.32),
       0 3.5px 0 #080a0f;
   }
 
   .rc-sub-amber {
-    background: linear-gradient(180deg, #9f7922 0%, #7d5d14 55%, #58400a 100%);
+    background: linear-gradient(180deg, #b58926 0%, #8b6715 55%, #61460a 100%);
     box-shadow:
-      inset 0 1.5px 0 rgba(254, 240, 138, 0.48),
-      inset 0 0 0 1.5px rgba(250, 204, 21, 0.28),
+      inset 0 1.5px 0 rgba(254, 243, 152, 0.58),
+      inset 0 0 0 1.5px rgba(250, 204, 21, 0.34),
       0 3.5px 0 #080a0f;
   }
 
   .rc-sub-dark {
-    background: linear-gradient(180deg, #272c3a 0%, #191d28 55%, #11141c 100%);
+    background: linear-gradient(180deg, #2b3142 0%, #1b202c 55%, #11141d 100%);
     box-shadow:
-      inset 0 1.5px 0 rgba(255, 255, 255, 0.22),
-      inset 0 0 0 1.5px rgba(255, 255, 255, 0.08),
+      inset 0 1.5px 0 rgba(255, 255, 255, 0.25),
+      inset 0 0 0 1.5px rgba(255, 255, 255, 0.1),
       0 3.5px 0 #080a0f;
   }
 
@@ -718,21 +728,30 @@ input, select {
   }
 
   .rc-word-rhythm {
-    background: linear-gradient(90deg, #ff2e88 0%, #ff7a45 55%, #ffd826 100%);
+    background: linear-gradient(90deg, #ff2e88 0%, #ff7a45 52%, #ffe23b 100%);
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
-    filter: drop-shadow(0 3px 0 #090b10) drop-shadow(3px 4px 0 #090b10);
+    filter:
+      drop-shadow(0 3px 0 #080a0f)
+      drop-shadow(3px 5px 0 #080a0f)
+      drop-shadow(0 0 18px rgba(255, 46, 136, 0.45));
   }
 
   .rc-word-canvas {
     color: #ffffff;
-    text-shadow: 0 3px 0 #090b10, 4px 5px 0 #090b10;
+    text-shadow:
+      0 3px 0 #080a0f,
+      4px 6px 0 #080a0f,
+      0 0 22px rgba(255, 255, 255, 0.32);
   }
 
   .rc-word-reboot {
     color: #36e2ff;
-    text-shadow: 0 2px 0 #090b10, 2px 3px 0 #090b10;
+    text-shadow:
+      0 2px 0 #080a0f,
+      2px 4px 0 #080a0f,
+      0 0 16px rgba(54, 226, 255, 0.65);
     letter-spacing: 0.34em;
   }
 }

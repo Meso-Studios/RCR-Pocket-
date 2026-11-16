@@ -25,8 +25,24 @@ import {
   pixelToLaneCoord,
 } from './layoutConfig.ts';
 import { buildVibrationPattern, DEFAULT_HAPTICS_SETTINGS, isHapticEventEnabled, normalizeHapticsSettings } from './haptics.ts';
+import { MENU_GENRE_CONFIGS, MENU_GENRE_ORDER, ROYALTY_FREE_SONGS } from './constants.ts';
 import { readGamepadLaneState, readGamepadStartPressed } from './gamepad.ts';
 import { isCompactLandscapeViewport, isLandscapeViewport, isPortraitViewport } from './useViewport.ts';
+
+test('rave, dubstep, and hardtekk menu music genres and playable synth tracks are configured with valid BPMs', () => {
+  assert.deepEqual(MENU_GENRE_ORDER, ['rave', 'dubstep', 'hardtekk']);
+  assert.equal(MENU_GENRE_CONFIGS.rave.bpm, 155);
+  assert.equal(MENU_GENRE_CONFIGS.dubstep.bpm, 140);
+  assert.equal(MENU_GENRE_CONFIGS.hardtekk.bpm, 180);
+
+  const synthSongs = ROYALTY_FREE_SONGS.filter((s) => s.audioUrl?.startsWith('synth:'));
+  assert.equal(synthSongs.length, 3);
+  assert.ok(synthSongs.some((s) => s.audioUrl === 'synth:rave' && s.bpm === 155));
+  assert.ok(synthSongs.some((s) => s.audioUrl === 'synth:dubstep' && s.bpm === 140));
+  assert.ok(synthSongs.some((s) => s.audioUrl === 'synth:hardtekk' && s.bpm === 180));
+  assert.equal(DEFAULT_HAPTICS_SETTINGS.alwaysAudioAssist, true);
+  assert.ok(DEFAULT_HAPTICS_SETTINGS.intensity >= 80);
+});
 
 test('normalizeChart sorts notes, clamps lanes, and sets hold duration defaults', () => {
   const normalized = normalizeChart([

@@ -14,6 +14,7 @@ export type Difficulty = 'easy' | 'normal' | 'hard' | 'insane';
 export type GameMode = 'standard' | 'endless' | 'online_vs' | 'battle_royale' | 'horse';
 export type NoteType = 'normal' | 'hold' | 'demon';
 export type SkinShape = 'arrow' | 'circle';
+export type MenuGenre = 'rave' | 'dubstep' | 'hardtekk';
 
 export interface ChartNote {
   time: number;
@@ -132,6 +133,8 @@ export interface PlayerInfo {
   customColors: string[];
   botplay: boolean;
   downscroll: boolean;
+  menuGenre?: MenuGenre;
+  menuBgmMuted?: boolean;
   haptics?: HapticsSettings;
   controlLayout?: ControlLayoutSettings;
   unlockedNoteProducts: string[];

@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Move, Smartphone, Trophy, Vibrate, X } from 'lucide-react';
-import { AudioEngine, WaveformPulse } from '../game/audio';
+import { AudioEngine, MenuMusicEngine, WaveformPulse } from '../game/audio';
 import { HIT_WINDOWS, KEY_CODE_MAP, KEY_MAP, SCROLL_SPEEDS, SKINS } from '../game/constants';
 import { pollActiveGamepadLanes, type LaneTuple } from '../game/gamepad';
 import { normalizeHapticsSettings, triggerHaptic } from '../game/haptics';
 import { normalizeControlLayout } from '../game/layoutConfig';
-import { drawNote, getHeroHighway, prewarmNoteSprites } from '../game/renderer';
+import { drawHoldTail, drawNote, getHeroHighway, prewarmNoteSprites } from '../game/renderer';
 import {
   applyNerfChart,
   createAltChart,
@@ -23,6 +23,7 @@ import type {
   Difficulty,
   GameMode,
   HapticsSettings,
+  MenuGenre,
   Modifiers,
   PeerConnectionLike,
   PlayerInfo,
@@ -102,7 +103,12 @@ export const GameEngine: React.FC<GameEngineProps> = ({
   const [maxCombo, setMaxCombo] = useState(0);
   const [health, setHealth] = useState(50);
   const [accuracy, setAccuracy] = useState(100);
-  const [audioStatus, setAudioStatus] = useState<'loading' | 'ready' | 'buffering' | 'error'>('loading');
+  const synthGenre: MenuGenre | null = song.audioUrl?.startsWith('synth:')
+    ? ((song.audioUrl.replace('synth:', '') as MenuGenre) || 'rave')
+    : null;
+  const [audioStatus, setAudioStatus] = useState<'loading' | 'ready' | 'buffering' | 'error'>(() =>
+    song.audioUrl?.startsWith('synth:') || !song.audioUrl ? 'ready' : 'loading'
+  );
   const [displayScore, setDisplayScore] = useState(0);
   const [isNewHigh, setIsNewHigh] = useState(false);
   const [previousHigh, setPreviousHigh] = useState(0);
@@ -147,6 +153,8 @@ export const GameEngine: React.FC<GameEngineProps> = ({
 
   const loopCountRef = useRef(0);
   const hitBursts = useRef<Array<{ lane: number; time: number; color: string }>>([]);
+  const lanePressAtRef = useRef<number[]>([0, 0, 0, 0]);
+  const laneHitAtRef = useRef<number[]>([0, 0, 0, 0]);
 
   const [opponentScore, setOpponentScore] = useState(0);
   const [shake, setShake] = useState(false);
@@ -190,12 +198,15 @@ export const GameEngine: React.FC<GameEngineProps> = ({
 
   useEffect(() => {
     return () => {
+      if (synthGenre) {
+        MenuMusicEngine.stop();
+      }
       if (bgmRef.current) {
         bgmRef.current.pause();
         bgmRef.current.src = '';
       }
     };
-  }, []);
+  }, [synthGenre]);
 
   // Pre-decode equipped custom hit sound into Web Audio API for zero-latency mobile touch playback
   useEffect(() => {
@@ -214,6 +225,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
   useEffect(() => {
     if (interruptionActive && gameState !== 'interrupted') {
       stateBeforeInterruption.current = gameState;
+      if (synthGenre) MenuMusicEngine.stop();
       bgmRef.current?.pause();
       setGameState('interrupted');
     } else if (!interruptionActive && gameState === 'interrupted') {
@@ -221,24 +233,31 @@ export const GameEngine: React.FC<GameEngineProps> = ({
       stateBeforeInterruption.current = null;
       lastTimeRef.current = performance.now();
       setGameState(resumeState);
-      if (resumeState === 'playing' && bgmRef.current && song.audioUrl) {
-        bgmRef.current.play().catch(() => {});
+      if (resumeState === 'playing') {
+        if (synthGenre) {
+          MenuMusicEngine.start(synthGenre, modifiers?.speed || 1);
+        } else if (bgmRef.current && song.audioUrl) {
+          bgmRef.current.play().catch(() => {});
+        }
       }
     }
-  }, [interruptionActive, gameState, song.audioUrl]);
+  }, [interruptionActive, gameState, song.audioUrl, synthGenre, modifiers?.speed]);
 
   useEffect(() => {
     if (gameState !== 'playing') return;
     if (showHapticsModal || showLayoutModal) {
+      if (synthGenre) MenuMusicEngine.stop();
       bgmRef.current?.pause();
     } else {
       lastTimeRef.current = performance.now();
       filteredDriftRef.current = 0;
-      if (bgmRef.current && song.audioUrl && bgmRef.current.paused) {
+      if (synthGenre) {
+        MenuMusicEngine.start(synthGenre, modifiers?.speed || 1);
+      } else if (bgmRef.current && song.audioUrl && bgmRef.current.paused) {
         bgmRef.current.play().catch(() => {});
       }
     }
-  }, [showHapticsModal, showLayoutModal, gameState, song.audioUrl]);
+  }, [showHapticsModal, showLayoutModal, gameState, song.audioUrl, synthGenre, modifiers?.speed]);
 
   const isVS = gameMode === 'online_vs';
   const isBattleRoyale = gameMode === 'battle_royale';
@@ -746,6 +765,9 @@ export const GameEngine: React.FC<GameEngineProps> = ({
       if (laneIdx < 0 || laneIdx > 3) return;
       if (isDown && keysPressed.current[laneIdx]) return;
       keysPressed.current[laneIdx] = isDown;
+      if (isDown) {
+        lanePressAtRef.current[laneIdx] = performance.now();
+      }
       if (gameStateRef.current !== 'playing') return;
 
       const loopBoost = gameMode === 'endless' || isBattleRoyale ? Math.pow(1.15, loopCountRef.current) : 1;
@@ -788,6 +810,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
       );
 
       if (targetNote) {
+        laneHitAtRef.current[laneIdx] = performance.now();
         if (targetNote.type === 'hold') {
           targetNote.holding = true;
           targetNote.holdStartedAt = currentAudioTime;
@@ -1013,7 +1036,9 @@ export const GameEngine: React.FC<GameEngineProps> = ({
         virtualTimeRef.current = 0;
         lastStepClickRef.current = -1;
         AudioEngine.init();
-        if (bgmRef.current && song.audioUrl) {
+        if (synthGenre) {
+          MenuMusicEngine.start(synthGenre, modifiers?.speed || 1);
+        } else if (bgmRef.current && song.audioUrl) {
           bgmRef.current.volume = 0.5;
           bgmRef.current.playbackRate = modifiers?.speed || 1;
           (bgmRef.current as any).preservesPitch = false;
@@ -1045,7 +1070,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
       }, 3000);
       return () => clearTimeout(timer);
     }
-  }, [gameState, customBeatmap, difficulty, gameMode, isVS, song, modifiers, spawnJudgment]);
+  }, [gameState, customBeatmap, difficulty, gameMode, isVS, song, modifiers, spawnJudgment, synthGenre]);
 
   useEffect(() => {
     if (gameState === 'finished') {
@@ -1053,6 +1078,9 @@ export const GameEngine: React.FC<GameEngineProps> = ({
         rewardsProcessed.current = true;
         addRewards(Math.floor(score / 200), Math.floor(score / 500));
         recordGrade?.(song.id, accuracy);
+      }
+      if (synthGenre) {
+        MenuMusicEngine.stop();
       }
       if (bgmRef.current) {
         bgmRef.current.pause();
@@ -1062,7 +1090,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
         if (bgmRef.current) bgmRef.current.playbackRate = 1;
       };
     }
-  }, [gameState, accuracy, addRewards, recordGrade, score, song.id]);
+  }, [gameState, accuracy, addRewards, recordGrade, score, song.id, synthGenre]);
 
   useEffect(() => {
     if (gameState !== 'finished') return;
@@ -1080,7 +1108,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
       if (resultsAudioStarted) return;
       resultsAudioStarted = true;
       const resultTrack = bgmRef.current;
-      if (resultTrack && song.audioUrl) {
+      if (resultTrack && song.audioUrl && !synthGenre) {
         resultTrack.pause();
         (resultTrack as any).preservesPitch = false;
         (resultTrack as any).mozPreservesPitch = false;
@@ -1119,9 +1147,12 @@ export const GameEngine: React.FC<GameEngineProps> = ({
         bgmRef.current.playbackRate = 1;
       }
     };
-  }, [gameState, score, song.id, song.audioUrl, song.coverUrl, difficulty]);
+  }, [gameState, score, song.id, song.audioUrl, song.coverUrl, difficulty, synthGenre]);
 
   const retryTrack = () => {
+    if (synthGenre) {
+      MenuMusicEngine.stop();
+    }
     if (bgmRef.current) {
       bgmRef.current.pause();
       bgmRef.current.currentTime = 0;
@@ -1250,7 +1281,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
 
       let currentAudioTime = 0;
       const bgm = bgmRef.current;
-      if (bgm && curSong.audioUrl && bgm.readyState >= 2 && !bgm.paused) {
+      if (!synthGenre && bgm && curSong.audioUrl && bgm.readyState >= 2 && !bgm.paused) {
         if (Math.abs(bgm.playbackRate - effectiveRate) > 0.001) {
           (bgm as any).preservesPitch = false;
           (bgm as any).mozPreservesPitch = false;
@@ -1281,6 +1312,9 @@ export const GameEngine: React.FC<GameEngineProps> = ({
         filteredDriftRef.current -= slew;
         currentAudioTime = smoothAudioTimeRef.current;
       } else {
+        if (synthGenre) {
+          MenuMusicEngine.setPlaybackRate(effectiveRate);
+        }
         virtualTimeRef.current += clampedDt * effectiveRate;
         smoothAudioTimeRef.current = virtualTimeRef.current;
         currentAudioTime = virtualTimeRef.current;
@@ -1306,19 +1340,55 @@ export const GameEngine: React.FC<GameEngineProps> = ({
       }
 
       const layout = playfieldLayoutRef.current;
+      const songBpm = Math.max(60, Number(curSong.bpm) || 120);
+      const beatMs = 60000 / songBpm;
+      const beatPhase = ((currentAudioTime % beatMs) + beatMs) % beatMs / beatMs;
+      const beatPulse = Math.pow(Math.max(0, 1 - beatPhase * 1.8), 2);
+
       ctx.fillStyle = '#060811';
       ctx.fillRect(0, 0, layout.width, layout.height);
-      if (heroMode) ctx.drawImage(getHeroHighway(layout.width, layout.height), 0, 0);
+
+      // Subtle BPM-reactive background pulse & horizon grid
+      if (!heroMode) {
+        ctx.save();
+        ctx.strokeStyle = curSong.color || '#36e2ff';
+        ctx.globalAlpha = 0.06 + beatPulse * 0.09;
+        ctx.lineWidth = 1.5;
+        const gridSpacing = 56;
+        const gridOffset = ((currentAudioTime * 0.18) % gridSpacing) * (curDownscroll ? 1 : -1);
+        for (let gy = -gridSpacing; gy < layout.height + gridSpacing; gy += gridSpacing) {
+          const yLine = gy + gridOffset;
+          ctx.beginPath();
+          ctx.moveTo(0, yLine);
+          ctx.lineTo(layout.width, yLine);
+          ctx.stroke();
+        }
+        // High-combo neon edge aura (10x / 25x / 50x+)
+        if (comboRef.current >= 10) {
+          const streakIntensity = Math.min(1, (comboRef.current - 5) / 45);
+          ctx.strokeStyle = comboRef.current >= 25 ? '#ff2e88' : '#36e2ff';
+          ctx.globalAlpha = (0.2 + beatPulse * 0.35) * streakIntensity;
+          ctx.lineWidth = 4 + beatPulse * 4;
+          ctx.strokeRect(2, 2, layout.width - 4, layout.height - 4);
+        }
+        ctx.restore();
+      } else {
+        ctx.drawImage(getHeroHighway(layout.width, layout.height), 0, 0);
+      }
 
       const visualSpeed = SCROLL_SPEEDS[curDifficulty] || 0.6;
 
       let activeNotesRemaining = false;
       let anyHolding = false;
+      const laneHolding = [false, false, false, false];
       if (!(curEliminated && isBattleRoyale)) {
         mapRef.current.forEach((note) => {
           if (!note.hit && !note.missed) {
             activeNotesRemaining = true;
-            if (note.holding && note.lane < 4) anyHolding = true;
+            if (note.holding && note.lane < 4) {
+              anyHolding = true;
+              laneHolding[note.lane] = true;
+            }
 
             if (
               note.type === 'hold' &&
@@ -1328,6 +1398,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
             ) {
               note.holding = false;
               note.hit = true;
+              laneHitAtRef.current[note.lane] = now;
               if (curBotplay) keysPressed.current[note.lane] = false;
               stats.current.total++;
               stats.current.hits++;
@@ -1354,6 +1425,8 @@ export const GameEngine: React.FC<GameEngineProps> = ({
               !note.holding
             ) {
               note.holding = true;
+              laneHolding[note.lane] = true;
+              laneHitAtRef.current[note.lane] = now;
               keysPressed.current[note.lane] = true;
             }
 
@@ -1365,6 +1438,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
               currentAudioTime >= note.time
             ) {
               note.hit = true;
+              laneHitAtRef.current[note.lane] = now;
               stats.current.total++;
               stats.current.hits++;
               stats.current.sick++;
@@ -1449,28 +1523,37 @@ export const GameEngine: React.FC<GameEngineProps> = ({
       const watchedBot =
         curEliminated && isBattleRoyale ? brBots.current.find((b) => b.id === curSpectateBotId) : null;
 
-      // Subtle FNF lane tracks + pressed receptor beams so direct tapping on gray receptors feels crisp
+      // FNF lane tracks + pressed receptor laser beams + hit-pop flash
       if (!heroMode) {
         for (let i = 0; i < 4; i++) {
           const lx = layout.playerLaneXs[i];
           const ly = layout.playerLaneYs[i] ?? layout.receptorY;
           const isPressed =
             curEliminated && isBattleRoyale ? (watchedBot?.pressed?.[i] || 0) > now : keysPressed.current[i];
+          const hitAge = now - (laneHitAtRef.current[i] || 0);
+          const hitGlow = hitAge >= 0 && hitAge < 180 ? 1 - hitAge / 180 : 0;
+
           if (layout.isLandscape) {
-            ctx.fillStyle = isPressed ? curSkinColors[i] : '#ffffff';
-            ctx.globalAlpha = isPressed ? 0.16 : 0.035;
+            ctx.fillStyle = isPressed || hitGlow > 0 ? curSkinColors[i] : '#ffffff';
+            ctx.globalAlpha = isPressed ? 0.18 + hitGlow * 0.14 : 0.035 + beatPulse * 0.015;
             ctx.fillRect(lx - 6, 0, layout.noteSize + 12, layout.height);
-          } else if (isPressed) {
+          } else if (isPressed || hitGlow > 0) {
             ctx.fillStyle = curSkinColors[i];
-            ctx.globalAlpha = 0.15;
+            ctx.globalAlpha = 0.16 + hitGlow * 0.12;
             ctx.fillRect(lx - 4, 0, layout.noteSize + 8, layout.height);
           }
-          if (isPressed) {
-            ctx.globalAlpha = 0.45;
+          if (isPressed || hitGlow > 0) {
+            ctx.globalAlpha = Math.max(isPressed ? 0.55 : 0, hitGlow * 0.85);
             ctx.strokeStyle = curSkinColors[i];
-            ctx.lineWidth = 3;
+            ctx.lineWidth = 3.5;
             ctx.beginPath();
-            ctx.arc(lx + layout.noteSize / 2, ly + layout.noteSize / 2, layout.noteSize * 0.56, 0, Math.PI * 2);
+            ctx.arc(
+              lx + layout.noteSize / 2,
+              ly + layout.noteSize / 2,
+              layout.noteSize * (0.56 + hitGlow * 0.18),
+              0,
+              Math.PI * 2
+            );
             ctx.stroke();
           }
         }
@@ -1487,27 +1570,46 @@ export const GameEngine: React.FC<GameEngineProps> = ({
         ctx.globalAlpha = 1;
       }
 
+      // Draw Receptors with elastic press-squash & hit-pop spring animation
       const numLanes = isVS ? 8 : 4;
       for (let i = 0; i < numLanes; i++) {
         const x = i < 4 ? layout.playerLaneXs[i] : layout.opponentLaneXs[i - 4];
         const y = i < 4 ? layout.playerLaneYs[i] ?? layout.receptorY : layout.receptorY;
+        const laneIdx = i % 4;
         const isPressed =
           isVS && i >= 4
             ? false
             : curEliminated && isBattleRoyale
-            ? (watchedBot?.pressed?.[i % 4] || 0) > now
-            : keysPressed.current[i % 4];
+            ? (watchedBot?.pressed?.[laneIdx] || 0) > now
+            : keysPressed.current[laneIdx];
+
+        let receptorScale = 1 + beatPulse * 0.03;
+        if (i < 4) {
+          const hitAge = now - (laneHitAtRef.current[laneIdx] || 0);
+          const pressAge = now - (lanePressAtRef.current[laneIdx] || 0);
+          if (hitAge >= 0 && hitAge < 190) {
+            const p = hitAge / 190;
+            // Elastic overshoot pop (1.34 -> 1.0)
+            receptorScale = 1 + Math.sin(p * Math.PI) * 0.34 * (1 - p * 0.4);
+          } else if (pressAge >= 0 && pressAge < 130) {
+            const p = pressAge / 130;
+            receptorScale = 1 - Math.sin(p * Math.PI) * 0.16;
+          }
+        }
+
+        const hitColorActive = i < 4 && (now - (laneHitAtRef.current[laneIdx] || 0) < 95 || laneHolding[laneIdx]);
         drawNote(
           ctx,
           x,
           y,
           layout.noteSize,
-          i % 4,
-          null,
+          laneIdx,
+          hitColorActive ? curSkinColors[laneIdx] : null,
           isPressed,
           curSkinShape,
           'normal',
-          curNoteProduct
+          curNoteProduct,
+          receptorScale
         );
       }
 
@@ -1579,18 +1681,26 @@ export const GameEngine: React.FC<GameEngineProps> = ({
             const remain = note.holding
               ? Math.max(0, note.time + (note.duration || 500) - currentAudioTime)
               : note.duration || 500;
-            const tailW = Math.round(layout.noteSize * 0.34);
-            const tailX = x + (layout.noteSize - tailW) / 2;
-            const tailY = y + layout.noteSize / 2;
-            ctx.fillStyle = curSkinColors[note.lane % 4];
-            ctx.globalAlpha = 0.72;
             const tail = remain * visualSpeed * (curDownscroll ? -1 : 1);
-            ctx.fillRect(tailX, tailY, tailW, tail);
-            ctx.strokeStyle = '#fff';
-            ctx.lineWidth = 3;
-            ctx.strokeRect(tailX, tailY, tailW, tail);
-            ctx.globalAlpha = 1;
+            drawHoldTail(
+              ctx,
+              x,
+              y,
+              layout.noteSize,
+              tail,
+              curSkinColors[note.lane % 4],
+              Boolean(note.holding),
+              currentAudioTime
+            );
           }
+
+          // Subtle BPM-synced note pulse + approach pop when entering perfect hit zone
+          const timeDist = Math.abs(note.time - currentAudioTime);
+          const approachPop = timeDist < HIT_WINDOWS.sick ? (1 - timeDist / HIT_WINDOWS.sick) * 0.08 : 0;
+          const noteAnimScale = note.holding
+            ? 1.1 + 0.06 * Math.sin(currentAudioTime * 0.03)
+            : 1 + beatPulse * 0.045 + approachPop;
+
           drawNote(
             ctx,
             x,
@@ -1601,7 +1711,8 @@ export const GameEngine: React.FC<GameEngineProps> = ({
             false,
             curSkinShape,
             note.type,
-            curNoteProduct
+            curNoteProduct,
+            noteAnimScale
           );
         }
       });
@@ -1609,24 +1720,50 @@ export const GameEngine: React.FC<GameEngineProps> = ({
       if (heroMode) {
         if (hitBursts.current.length) hitBursts.current = [];
       } else if (hitBursts.current.length) {
-        hitBursts.current = hitBursts.current.filter((b) => now - b.time < 420);
+        hitBursts.current = hitBursts.current.filter((b) => now - b.time < 440);
         hitBursts.current.forEach((b) => {
-          const life = (now - b.time) / 420;
+          const life = (now - b.time) / 440;
+          const easeOut = 1 - Math.pow(1 - life, 2.4);
           const x = (layout.playerLaneXs[b.lane % 4] ?? 20) + layout.noteSize / 2;
           const y = (layout.playerLaneYs[b.lane % 4] ?? layout.receptorY) + layout.noteSize / 2;
           ctx.save();
+          // Outer neon shockwave ring
           ctx.strokeStyle = b.color;
-          ctx.globalAlpha = 1 - life;
+          ctx.globalAlpha = (1 - life) * 0.95;
           ctx.lineWidth = 8 * (1 - life) + 2;
           ctx.beginPath();
-          ctx.arc(x, y, 18 + life * 65, 0, Math.PI * 2);
+          ctx.arc(x, y, 20 + easeOut * 68, 0, Math.PI * 2);
           ctx.stroke();
+
+          // Inner white flash ring
+          ctx.strokeStyle = '#ffffff';
+          ctx.globalAlpha = Math.max(0, 1 - life * 1.45) * 0.85;
+          ctx.lineWidth = 4 * (1 - life) + 1;
+          ctx.beginPath();
+          ctx.arc(x, y, 12 + easeOut * 44, 0, Math.PI * 2);
+          ctx.stroke();
+
+          // 8 directional diamond/chevron shards + rays
           for (let i = 0; i < 8; i++) {
-            const a = (i * Math.PI) / 4;
+            const a = (i * Math.PI) / 4 + life * 0.35;
+            const innerR = 22 + easeOut * 28;
+            const outerR = 36 + easeOut * 64;
+            ctx.strokeStyle = i % 2 === 0 ? '#ffffff' : b.color;
+            ctx.globalAlpha = 1 - life;
+            ctx.lineWidth = i % 2 === 0 ? 3.5 : 2.5;
             ctx.beginPath();
-            ctx.moveTo(x + Math.cos(a) * 25, y + Math.sin(a) * 25);
-            ctx.lineTo(x + Math.cos(a) * (35 + life * 55), y + Math.sin(a) * (35 + life * 55));
+            ctx.moveTo(x + Math.cos(a) * innerR, y + Math.sin(a) * innerR);
+            ctx.lineTo(x + Math.cos(a) * outerR, y + Math.sin(a) * outerR);
             ctx.stroke();
+
+            // Diamond shard at tip
+            const sx = x + Math.cos(a) * (outerR + 5);
+            const sy = y + Math.sin(a) * (outerR + 5);
+            const shardSize = Math.max(1.5, (1 - life) * 5.5);
+            ctx.fillStyle = i % 2 === 0 ? b.color : '#ffffff';
+            ctx.beginPath();
+            ctx.arc(sx, sy, shardSize, 0, Math.PI * 2);
+            ctx.fill();
           }
           ctx.restore();
         });
@@ -1654,17 +1791,22 @@ export const GameEngine: React.FC<GameEngineProps> = ({
       if (activeJudgments.current.length) {
         activeJudgments.current = activeJudgments.current.filter((j) => now - j.time < 800);
         activeJudgments.current.forEach((j) => {
-          const life = (now - j.time) / 800;
-          const yOffset = life * 50;
+          const age = now - j.time;
+          const life = age / 800;
+          const yOffset = life * 48;
+          // Elastic pop-in scale in the first 120ms (1.42 -> 1.0)
+          const popScale = age < 120 ? 1 + 0.42 * (1 - age / 120) : 1;
           ctx.save();
+          ctx.translate(j.x, j.y - yOffset);
+          ctx.scale(popScale, popScale);
           ctx.globalAlpha = 1 - Math.pow(life, 3);
           ctx.fillStyle = j.color;
-          ctx.font = j.compact ? '900 italic 25px Saira, sans-serif' : '900 italic 48px sans-serif';
+          ctx.font = j.compact ? '900 italic 25px Saira, sans-serif' : '900 italic 48px Saira, sans-serif';
           ctx.textAlign = 'center';
-          ctx.lineWidth = j.compact ? 4 : 6;
-          ctx.strokeStyle = '#000';
-          ctx.strokeText(j.text, j.x, j.y - yOffset);
-          ctx.fillText(j.text, j.x, j.y - yOffset);
+          ctx.lineWidth = j.compact ? 4 : 7;
+          ctx.strokeStyle = '#05070f';
+          ctx.strokeText(j.text, 0, 0);
+          ctx.fillText(j.text, 0, 0);
           ctx.restore();
         });
       }
@@ -1673,7 +1815,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
     };
     reqRef.current = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(reqRef.current);
-  }, [gameState, gameMode, isBattleRoyale, isVS, heroMode]);
+  }, [gameState, gameMode, isBattleRoyale, isVS, heroMode, synthGenre]);
 
   const cycleSpectateBot = useCallback(
     (dir: 1 | -1) => {
@@ -1710,7 +1852,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
     >
       <audio
         ref={bgmRef}
-        src={song.audioUrl || undefined}
+        src={synthGenre ? undefined : song.audioUrl || undefined}
         preload="auto"
         playsInline
         onLoadedMetadata={() => setAudioStatus('ready')}

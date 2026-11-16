@@ -1,4 +1,46 @@
-import type { Difficulty, Song } from './types';
+import type { Difficulty, MenuGenre, Song } from './types';
+
+export interface MenuGenreConfig {
+  id: MenuGenre;
+  label: string;
+  shortLabel: string;
+  trackTitle: string;
+  bpm: number;
+  accent: string;
+  secondaryAccent: string;
+}
+
+export const MENU_GENRE_CONFIGS: Record<MenuGenre, MenuGenreConfig> = {
+  rave: {
+    id: 'rave',
+    label: 'HYPER RAVE',
+    shortLabel: 'RAVE',
+    trackTitle: 'HYPER RAVE 2000',
+    bpm: 155,
+    accent: '#ff2e88',
+    secondaryAccent: '#36e2ff',
+  },
+  dubstep: {
+    id: 'dubstep',
+    label: 'WOBBLE DUBSTEP',
+    shortLabel: 'DUBSTEP',
+    trackTitle: 'WOBBLE PROTOCOL',
+    bpm: 140,
+    accent: '#22d3ee',
+    secondaryAccent: '#a855f7',
+  },
+  hardtekk: {
+    id: 'hardtekk',
+    label: 'SCHRANZ HARDTEKK',
+    shortLabel: 'HARDTEKK',
+    trackTitle: 'SCHRANZ TEKK 180',
+    bpm: 180,
+    accent: '#a3e635',
+    secondaryAccent: '#f97316',
+  },
+};
+
+export const MENU_GENRE_ORDER: MenuGenre[] = ['rave', 'dubstep', 'hardtekk'];
 
 export const KEY_MAP: Record<string, number> = {
   arrowleft: 0,
@@ -69,6 +111,9 @@ export const LANDSCAPE_CANVAS_WIDTH = 860;
 export const LANDSCAPE_CANVAS_HEIGHT = 440;
 
 export const ROYALTY_FREE_SONGS: Song[] = [
+  { id: 101, title: 'HYPER RAVE 2000', artist: 'Rave Core', bpm: 155, color: '#ff2e88', audioUrl: 'synth:rave', featured: true, stepClick: false },
+  { id: 102, title: 'WOBBLE PROTOCOL', artist: 'Sub Bass Labs', bpm: 140, color: '#22d3ee', audioUrl: 'synth:dubstep', featured: true, stepClick: false },
+  { id: 103, title: 'SCHRANZ TEKK 180', artist: 'Tekk Foundry', bpm: 180, color: '#a3e635', audioUrl: 'synth:hardtekk', featured: true, stepClick: false },
   { id: 1, title: 'Neon Drift', artist: 'Royalty Free', bpm: 120, color: '#f472b6', audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3', featured: false },
   { id: 2, title: 'Cyber City', artist: 'Royalty Free', bpm: 130, color: '#38bdf8', audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3', featured: false },
   { id: 3, title: 'Synthwave Nights', artist: 'Royalty Free', bpm: 140, color: '#a78bfa', audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3', featured: false },

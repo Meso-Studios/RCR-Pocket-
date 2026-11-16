@@ -1,18 +1,19 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Maximize, Minimize } from 'lucide-react';
+import { Maximize, Minimize, Radio, Volume2 } from 'lucide-react';
 import { auth, db } from './firebaseClient';
-import { AudioEngine } from './game/audio';
+import { AudioEngine, MenuMusicEngine } from './game/audio';
 import {
   APP_VERSION,
   CHANGELOG_STORAGE_KEY,
   CHANGELOG_VERSION,
   MENU_BGM,
+  MENU_GENRE_CONFIGS,
   ONLINE_BGM,
   ROYALTY_FREE_SONGS,
   SECRET_DEV_CODE,
 } from './game/constants';
 import { addRewardsCalc, normalizeChart } from './game/rhythmLogic';
-import { normalizeHapticsSettings } from './game/haptics';
+import { normalizeHapticsSettings, triggerHaptic } from './game/haptics';
 import { normalizeControlLayout } from './game/layoutConfig';
 import type {
   ChartNote,
@@ -39,6 +40,7 @@ import { HorseEngine } from './components/HorseEngine';
 import { MainMenu } from './components/MainMenu';
 import { OnlineLobby } from './components/OnlineLobby';
 import { OnlineTracksMenu } from './components/OnlineTracksMenu';
+import { RaveStageCanvas } from './components/RaveStageCanvas';
 import { ShopMenu } from './components/ShopMenu';
 import { SongEditor } from './components/SongEditor';
 
@@ -280,6 +282,8 @@ function RhythmCanvasApp() {
       equippedHitSound: null,
       unlockedGameMods: [],
       activeGameMods: [],
+      menuGenre: 'rave',
+      menuBgmMuted: false,
       ...parsed,
       downscroll: parsed.downscroll !== undefined ? Boolean(parsed.downscroll) : true,
       haptics: normalizeHapticsSettings(parsed.haptics),
@@ -369,7 +373,12 @@ function RhythmCanvasApp() {
           }
         });
         setSongs((prev) => {
-          const localOnly = prev.filter((x) => x.artist === 'Royalty Free' || x.artist === 'USER');
+          const localOnly = prev.filter(
+            (x) =>
+              Boolean(x.audioUrl?.startsWith('synth:')) ||
+              x.artist === 'Royalty Free' ||
+              x.artist === 'USER'
+          );
           return [...fetchedSongs, ...localOnly];
         });
         setSelectedSong((current) => {
@@ -502,32 +511,65 @@ function RhythmCanvasApp() {
 
   useEffect(() => {
     const bgm = menuBgmRef.current;
-    if (!bgm) return;
-    bgm.volume = 0.3;
+    const synthScreens: ScreenId[] = ['menu', 'freeplay', 'shop', 'lobby', 'events'];
+    const shouldPlaySynthBgm =
+      !isPortrait &&
+      synthScreens.includes(screen) &&
+      !isPreviewing &&
+      hasStarted &&
+      !interruptionShowing;
 
-    const menuScreens: ScreenId[] = ['menu', 'freeplay', 'online_tracks', 'shop', 'lobby', 'events'];
-    const shouldPlayBGM =
-      !isPortrait && menuScreens.includes(screen) && !isPreviewing && hasStarted && !interruptionShowing;
-
-    if (shouldPlayBGM) {
-      const targetSrc = screen === 'online_tracks' ? ONLINE_BGM : MENU_BGM;
-      if (!bgm.src.includes(targetSrc)) {
-        bgm.src = targetSrc;
+    if (shouldPlaySynthBgm) {
+      if (bgm && !bgm.paused) bgm.pause();
+      MenuMusicEngine.setMuted(Boolean(playerInfo.menuBgmMuted));
+      if (!playerInfo.menuBgmMuted) {
+        const targetGenre =
+          screen === 'freeplay' && selectedSong?.audioUrl?.startsWith('synth:')
+            ? ((selectedSong.audioUrl.replace('synth:', '') as any) || playerInfo.menuGenre || 'rave')
+            : playerInfo.menuGenre || 'rave';
+        MenuMusicEngine.start(targetGenre, screen === 'freeplay' ? modifiers?.speed || 1 : 1);
+      } else {
+        MenuMusicEngine.stop();
       }
-      if (bgm.paused) {
-        bgm.play().catch(() => {});
-      }
-    } else {
-      bgm.pause();
+      return;
     }
-  }, [screen, isPreviewing, hasStarted, interruptionShowing, isPortrait]);
+
+    if (!isPortrait && screen === 'online_tracks' && !isPreviewing && hasStarted && !interruptionShowing) {
+      MenuMusicEngine.stop();
+      if (bgm) {
+        bgm.volume = 0.3;
+        if (!bgm.src.includes(ONLINE_BGM)) bgm.src = ONLINE_BGM;
+        if (bgm.paused) bgm.play().catch(() => {});
+      }
+      return;
+    }
+
+    if (bgm && !bgm.paused) bgm.pause();
+    if (screen !== 'game') {
+      MenuMusicEngine.stop();
+    }
+  }, [
+    screen,
+    isPreviewing,
+    hasStarted,
+    interruptionShowing,
+    isPortrait,
+    playerInfo.menuGenre,
+    playerInfo.menuBgmMuted,
+    selectedSong,
+    modifiers?.speed,
+  ]);
 
   const handleStartTap = useCallback(() => {
     if (hasStarted) return;
     AudioEngine.init();
+    triggerHaptic('hit', playerInfo.haptics, 'sick');
+    if (!playerInfo.menuBgmMuted) {
+      MenuMusicEngine.start(playerInfo.menuGenre || 'rave');
+    }
     tryLockLandscape();
     setHasStarted(true);
-  }, [hasStarted, tryLockLandscape]);
+  }, [hasStarted, playerInfo.haptics, playerInfo.menuBgmMuted, playerInfo.menuGenre, tryLockLandscape]);
 
   useEffect(() => {
     if (hasStarted) return;
@@ -595,7 +637,16 @@ function RhythmCanvasApp() {
             }}
             onClick={handleStartTap}
           >
-            <div className="flex flex-col items-center justify-center gap-5 max-w-2xl w-full">
+            <RaveStageCanvas genre={playerInfo.menuGenre || 'rave'} intensity={0.95} />
+
+            <div className="relative z-10 flex flex-col items-center justify-center gap-4 max-w-2xl w-full">
+              <div className="rc-dock-well px-3.5 py-1 flex items-center gap-2 border border-cyan-400/40 shadow-[0_0_16px_rgba(34,211,238,0.28)]">
+                <Radio className="w-3.5 h-3.5 text-cyan-300 animate-pulse" />
+                <span className="text-[10px] sm:text-xs font-black uppercase tracking-[0.22em] text-cyan-200">
+                  LIVE SYNTH DECK · RAVE 155 · DUBSTEP 140 · HARDTEKK 180
+                </span>
+              </div>
+
               <h1 className="rc-hero-wordmark text-center uppercase flex flex-col items-center">
                 <span
                   className={`rc-word-rhythm block ${
@@ -627,15 +678,16 @@ function RhythmCanvasApp() {
                   e.stopPropagation();
                   handleStartTap();
                 }}
-                className={`rc-bevel-btn rc-tile-pink text-white font-black uppercase tracking-widest whitespace-nowrap ${
+                className={`rc-bevel-btn rc-tile-pink text-white font-black uppercase tracking-widest whitespace-nowrap flex items-center gap-2.5 shadow-[0_6px_0_#080a0f,0_0_28px_rgba(255,46,136,0.65)] ${
                   isLandscapeCompact ? 'px-8 py-3 text-lg min-h-[46px]' : 'px-10 py-4 text-2xl min-h-[56px]'
                 }`}
               >
-                CLICK TO START
+                <Volume2 className="w-6 h-6 shrink-0" />
+                <span>DROP THE BEAT · START</span>
               </button>
 
-              <p className="text-[11px] sm:text-xs font-bold tracking-[0.2em] uppercase text-slate-300/80 text-center">
-                LANDSCAPE MODE ONLY · KEYBOARD / CONTROLLER / TOUCH
+              <p className="text-[11px] sm:text-xs font-bold tracking-[0.2em] uppercase text-slate-200/90 text-center">
+                60 FPS RHYTHM ENGINE · TACTILE HAPTICS · KEYBOARD / CONTROLLER / TOUCH
               </p>
             </div>
           </div>
