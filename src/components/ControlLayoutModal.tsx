@@ -1,8 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { Move, RotateCcw, Smartphone, X } from 'lucide-react';
 import {
-  CANVAS_HEIGHT,
-  CANVAS_WIDTH,
   LANDSCAPE_CANVAS_HEIGHT,
   LANDSCAPE_CANVAS_WIDTH,
   LANE_LABELS,
@@ -40,22 +38,22 @@ export const ControlLayoutModal: React.FC<ControlLayoutModalProps> = ({
   downscroll,
   skinColors,
   skinShape = 'arrow',
-  initialOrientation,
+  initialOrientation: _initialOrientation,
   showTouchPads,
   onToggleTouchPads,
   onChange,
   onClose,
 }) => {
+  void _initialOrientation;
   const [tab, setTab] = useState<'lanes' | 'pads'>('lanes');
-  const [orientation, setOrientation] = useState<'portrait' | 'landscape'>(initialOrientation);
   const [activeDragIdx, setActiveDragIdx] = useState<number | null>(null);
   const isLandscapeCompact = useIsCompactLandscape();
 
   const normalized = normalizeControlLayout(controlLayout);
-  const isLandscape = orientation === 'landscape';
-  const playWidth = isLandscape ? LANDSCAPE_CANVAS_WIDTH : CANVAS_WIDTH;
-  const playHeight = isLandscape ? LANDSCAPE_CANVAS_HEIGHT : CANVAS_HEIGHT;
-  const noteSize = isLandscape ? 74 : 66;
+  const isLandscape = true;
+  const playWidth = LANDSCAPE_CANVAS_WIDTH;
+  const playHeight = LANDSCAPE_CANVAS_HEIGHT;
+  const noteSize = 74;
 
   const laneKey = isLandscape ? 'landscapeLanes' : 'portraitLanes';
   const padKey = isLandscape ? 'landscapePads' : 'portraitPads';
@@ -327,21 +325,21 @@ export const ControlLayoutModal: React.FC<ControlLayoutModalProps> = ({
     tab === 'lanes' ? (
       <div className="flex flex-wrap items-center justify-center gap-1.5">
         <button
-          onClick={() => updateLanes(getDefaultLaneCoords(isLandscape, downscroll))}
-          className="px-2.5 py-1.5 bg-gray-900 border-2 border-cyan-400/60 text-xs font-black text-cyan-200 min-h-[34px] rounded"
+          onClick={() => updateLanes(getDefaultLaneCoords(true, downscroll))}
+          className="rc-bevel-btn rc-tile-cyan text-black px-2.5 py-1.5 text-xs font-black min-h-[34px] whitespace-nowrap"
         >
           EVENLY SPACE
         </button>
         <button
           onClick={() => updateLanes([3, 2, 1, 0].map((idx) => currentLaneCoords[idx]))}
-          className="px-2.5 py-1.5 bg-gray-900 border-2 border-purple-400/60 text-xs font-black text-purple-200 min-h-[34px] rounded"
+          className="rc-bevel-btn rc-tile-violet text-white px-2.5 py-1.5 text-xs font-black min-h-[34px] whitespace-nowrap"
         >
           MIRROR SWAP
         </button>
         <button
           data-testid="layout-reset-btn"
           onClick={() => updateLanes(null)}
-          className="px-2.5 py-1.5 bg-gray-800 border-2 border-white/50 text-xs font-black text-white flex items-center gap-1 min-h-[34px] rounded"
+          className="rc-bevel-btn rc-tile-slate text-white px-2.5 py-1.5 text-xs font-black flex items-center gap-1 min-h-[34px] whitespace-nowrap"
         >
           <RotateCcw className="w-3.5 h-3.5" /> RESET
         </button>
@@ -350,34 +348,34 @@ export const ControlLayoutModal: React.FC<ControlLayoutModalProps> = ({
       <div className="flex flex-wrap items-center justify-center gap-1.5">
         <button
           onClick={() => updatePads(getDefaultPadCoords('row'))}
-          className="px-2.5 py-1.5 bg-gray-900 border-2 border-cyan-400/60 text-xs font-black text-cyan-200 min-h-[34px] rounded"
+          className="rc-bevel-btn rc-tile-cyan text-black px-2.5 py-1.5 text-xs font-black min-h-[34px] whitespace-nowrap"
         >
           ROW
         </button>
         <button
           onClick={() => updatePads(getDefaultPadCoords('split'))}
-          className="px-2.5 py-1.5 bg-gray-900 border-2 border-pink-400/60 text-xs font-black text-pink-200 min-h-[34px] rounded"
+          className="rc-bevel-btn rc-tile-pink text-white px-2.5 py-1.5 text-xs font-black min-h-[34px] whitespace-nowrap"
         >
           SPLIT 2+2
         </button>
         <button
           onClick={() => updatePads(getDefaultPadCoords('arc'))}
-          className="px-2.5 py-1.5 bg-gray-900 border-2 border-yellow-400/60 text-xs font-black text-yellow-200 min-h-[34px] rounded"
+          className="rc-bevel-btn rc-tile-gold text-black px-2.5 py-1.5 text-xs font-black min-h-[34px] whitespace-nowrap"
         >
           THUMB ARC
         </button>
         <button
           data-testid="layout-reset-btn"
           onClick={() => updatePads(null)}
-          className="px-2.5 py-1.5 bg-gray-800 border-2 border-white/50 text-xs font-black text-white flex items-center gap-1 min-h-[34px] rounded"
+          className="rc-bevel-btn rc-tile-slate text-white px-2.5 py-1.5 text-xs font-black flex items-center gap-1 min-h-[34px] whitespace-nowrap"
         >
           <RotateCcw className="w-3.5 h-3.5" /> RESET
         </button>
         {onToggleTouchPads && (
           <button
             onClick={onToggleTouchPads}
-            className={`px-2.5 py-1.5 border-2 border-black text-xs font-black flex items-center gap-1 min-h-[34px] rounded ${
-              showTouchPads ? 'bg-cyan-400 text-black' : 'bg-gray-900 text-gray-300 border-white/40'
+            className={`rc-bevel-btn px-2.5 py-1.5 text-xs font-black flex items-center gap-1 min-h-[34px] whitespace-nowrap ${
+              showTouchPads ? 'rc-tile-cyan text-black' : 'rc-tile-slate text-slate-300'
             }`}
           >
             <Smartphone className="w-3.5 h-3.5" />
@@ -387,174 +385,76 @@ export const ControlLayoutModal: React.FC<ControlLayoutModalProps> = ({
       </div>
     );
 
-  if (isLandscapeCompact) {
-    return (
-      <div
-        data-testid="control-layout-modal"
-        className="fixed inset-0 z-[1000] bg-black/88 backdrop-blur-md flex items-center justify-center p-2"
-      >
-        <div className="bg-gray-950 border-4 border-cyan-400 rounded-xl shadow-[8px_8px_0_#000] w-full max-w-4xl p-3 grid grid-cols-[1.25fr_1fr] gap-3 max-h-[94dvh] text-white items-center">
-          <div className="flex items-center justify-center min-w-0">{renderCanvas()}</div>
-
-          <div className="flex flex-col justify-between gap-2.5 h-full min-w-0">
-            <div className="flex items-center justify-between gap-2 border-b border-white/15 pb-2">
-              <div className="flex items-center gap-2 min-w-0">
-                <div className="bg-cyan-400 text-black p-1 rounded border border-black shrink-0">
-                  <Move className="w-4 h-4" />
-                </div>
-                <h2 className="text-base font-black italic text-cyan-300 truncate">DRAG CONTROLS</h2>
-              </div>
-              <button
-                onClick={onClose}
-                aria-label="Close layout editor"
-                className="bg-white text-black border-2 border-black p-1.5 rounded min-h-[34px] min-w-[34px] flex items-center justify-center font-black shrink-0"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="grid grid-cols-2 gap-1.5">
-              <button
-                data-testid="layout-tab-lanes"
-                onClick={() => setTab('lanes')}
-                className={`px-2 py-1.5 text-[11px] font-black border-2 border-black rounded min-h-[36px] ${
-                  tab === 'lanes' ? 'bg-pink-500 text-black' : 'bg-gray-800 text-gray-200'
-                }`}
-              >
-                NOTE LANES
-              </button>
-              <button
-                data-testid="layout-tab-pads"
-                onClick={() => setTab('pads')}
-                className={`px-2 py-1.5 text-[11px] font-black border-2 border-black rounded min-h-[36px] ${
-                  tab === 'pads' ? 'bg-yellow-400 text-black' : 'bg-gray-800 text-gray-200'
-                }`}
-              >
-                NOTE BUTTONS
-              </button>
-            </div>
-
-            <div className="grid grid-cols-2 gap-1.5">
-              <button
-                data-testid="layout-orient-portrait"
-                onClick={() => setOrientation('portrait')}
-                className={`px-2 py-1 text-[11px] font-black border-2 border-black rounded min-h-[34px] ${
-                  orientation === 'portrait' ? 'bg-cyan-400 text-black' : 'bg-gray-900 text-gray-300'
-                }`}
-              >
-                PORTRAIT
-              </button>
-              <button
-                data-testid="layout-orient-landscape"
-                onClick={() => setOrientation('landscape')}
-                className={`px-2 py-1 text-[11px] font-black border-2 border-black rounded min-h-[34px] ${
-                  orientation === 'landscape' ? 'bg-cyan-400 text-black' : 'bg-gray-900 text-gray-300'
-                }`}
-              >
-                LANDSCAPE
-              </button>
-            </div>
-
-            {renderPresets()}
-
-            <button
-              data-testid="layout-done-btn"
-              onClick={onClose}
-              className="w-full py-2 bg-cyan-400 text-black font-black text-sm border-2 border-black rounded-lg shadow-[3px_3px_0_#000] min-h-[40px] mt-auto"
-            >
-              SAVE &amp; DONE
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div
       data-testid="control-layout-modal"
-      className="fixed inset-0 z-[1000] bg-black/88 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 overflow-y-auto"
+      className="fixed inset-0 z-[1000] bg-black/85 flex items-center justify-center p-2 sm:p-4"
     >
-      <div className="bg-gray-950 border-4 border-cyan-400 shadow-[10px_10px_0_#000] w-full max-w-2xl p-3 sm:p-5 flex flex-col gap-3 max-h-[95dvh] overflow-y-auto custom-scrollbar text-white">
-        <div className="flex items-center justify-between gap-3 border-b-2 border-white/20 pb-2.5">
-          <div className="flex items-center gap-2.5">
-            <div className="bg-cyan-400 text-black p-1.5 border-2 border-black">
-              <Move className="w-5 h-5" />
-            </div>
-            <div>
-              <h2 className="text-lg sm:text-2xl font-black italic text-cyan-300 tracking-wide">
-                DRAG CONTROLS LAYOUT
-              </h2>
-              <p className="text-[11px] sm:text-xs text-gray-300 font-bold">
-                Drag gray note receptors or note buttons anywhere inside the dashed boundary
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            aria-label="Close layout editor"
-            className="bg-white text-black border-2 border-black p-2 min-h-[42px] min-w-[42px] flex items-center justify-center font-black"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+      <div
+        className={`rc-console-tray w-full max-w-4xl grid grid-cols-[1.25fr_1fr] gap-3 max-h-[94dvh] text-white items-center ${
+          isLandscapeCompact ? 'p-3' : 'p-4 sm:p-5'
+        }`}
+      >
+        <div className="rc-console-inset p-2.5 flex items-center justify-center min-w-0 h-full">{renderCanvas()}</div>
 
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex gap-1.5">
+        <div className="flex flex-col justify-between gap-2.5 h-full min-w-0">
+          <div className="rc-dock-rail flex items-center justify-between gap-2 px-3 py-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="rc-bevel-btn rc-tile-cyan text-black p-1 shrink-0">
+                <Move className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-sm sm:text-base font-black italic text-white truncate">DRAG CONTROLS</h2>
+                <p className="text-[10px] font-black text-cyan-300 tracking-wider uppercase truncate">
+                  LANDSCAPE PLAYFIELD
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={onClose}
+              aria-label="Close layout editor"
+              className="rc-bevel-btn rc-tile-slate text-white p-1.5 min-h-[34px] min-w-[34px] flex items-center justify-center font-black shrink-0"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
             <button
               data-testid="layout-tab-lanes"
               onClick={() => setTab('lanes')}
-              className={`px-3 py-2 text-xs sm:text-sm font-black border-2 border-black min-h-[40px] ${
-                tab === 'lanes' ? 'bg-pink-500 text-black' : 'bg-gray-800 text-gray-200'
+              className={`rc-bevel-btn px-2 py-2 text-xs font-black min-h-[38px] whitespace-nowrap ${
+                tab === 'lanes' ? 'rc-tile-pink text-white' : 'rc-tile-slate text-slate-300'
               }`}
             >
-              NOTE LANES (GRAY)
+              NOTE LANES
             </button>
             <button
               data-testid="layout-tab-pads"
               onClick={() => setTab('pads')}
-              className={`px-3 py-2 text-xs sm:text-sm font-black border-2 border-black min-h-[40px] ${
-                tab === 'pads' ? 'bg-yellow-400 text-black' : 'bg-gray-800 text-gray-200'
+              className={`rc-bevel-btn px-2 py-2 text-xs font-black min-h-[38px] whitespace-nowrap ${
+                tab === 'pads' ? 'rc-tile-gold text-black' : 'rc-tile-slate text-slate-300'
               }`}
             >
-              NOTE BUTTONS (PADS)
+              NOTE BUTTONS
             </button>
           </div>
 
-          <div className="flex gap-1.5">
-            <button
-              data-testid="layout-orient-portrait"
-              onClick={() => setOrientation('portrait')}
-              className={`px-2.5 py-1.5 text-xs font-black border-2 border-black min-h-[38px] ${
-                orientation === 'portrait' ? 'bg-cyan-400 text-black' : 'bg-gray-900 text-gray-300'
-              }`}
-            >
-              PORTRAIT
-            </button>
-            <button
-              data-testid="layout-orient-landscape"
-              onClick={() => setOrientation('landscape')}
-              className={`px-2.5 py-1.5 text-xs font-black border-2 border-black min-h-[38px] ${
-                orientation === 'landscape' ? 'bg-cyan-400 text-black' : 'bg-gray-900 text-gray-300'
-              }`}
-            >
-              LANDSCAPE
-            </button>
+          <div className="rc-console-inset p-2.5 space-y-2">
+            <div className="text-[10px] font-black text-slate-300 tracking-widest uppercase text-center">
+              Drag Inside Dashed Boundary • Presets
+            </div>
+            {renderPresets()}
           </div>
-        </div>
 
-        <div className="flex flex-col items-center gap-2.5">
-          {renderCanvas()}
-          {renderPresets()}
+          <button
+            data-testid="layout-done-btn"
+            onClick={onClose}
+            className="rc-bevel-btn rc-tile-cyan w-full py-2.5 text-black font-black text-sm min-h-[42px] mt-auto whitespace-nowrap"
+          >
+            SAVE &amp; DONE
+          </button>
         </div>
-
-        <button
-          data-testid="layout-done-btn"
-          onClick={onClose}
-          className="w-full py-3 bg-cyan-400 text-black font-black text-base sm:text-lg border-4 border-black shadow-[4px_4px_0_#000] min-h-[46px]"
-        >
-          SAVE &amp; DONE
-        </button>
       </div>
     </div>
   );

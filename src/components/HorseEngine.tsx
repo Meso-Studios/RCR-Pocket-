@@ -35,20 +35,18 @@ export const HorseEngine: React.FC<HorseEngineProps> = ({ networkConnection, set
   hapticsRef.current = normalizeHapticsSettings(playerInfo.haptics);
 
   const effectiveControlLayout = normalizeControlLayout(playerInfo.controlLayout);
-  const customLanes = isLandscapeCompact
-    ? effectiveControlLayout.landscapeLanes
-    : effectiveControlLayout.portraitLanes;
+  const customLanes = effectiveControlLayout.landscapeLanes;
 
   const playfieldLayout = useMemo(
     () =>
       getPlayfieldLayout({
-        isLandscape: isLandscapeCompact,
+        isLandscape: true,
         isVS: false,
         downscroll: playerInfo.downscroll,
         heroMode: false,
         customLanes,
       }),
-    [isLandscapeCompact, playerInfo.downscroll, customLanes]
+    [playerInfo.downscroll, customLanes]
   );
   const playfieldLayoutRef = useRef(playfieldLayout);
   playfieldLayoutRef.current = playfieldLayout;
@@ -220,7 +218,7 @@ export const HorseEngine: React.FC<HorseEngineProps> = ({ networkConnection, set
       window.removeEventListener('pointerup', onPointerUp);
       window.removeEventListener('pointercancel', onPointerUp);
     };
-  }, [handleLaneDown, handleLaneUp, isLandscapeCompact]);
+  }, [handleLaneDown, handleLaneUp]);
 
   const handleDownRef = useRef(handleLaneDown);
   handleDownRef.current = handleLaneDown;
@@ -324,45 +322,46 @@ export const HorseEngine: React.FC<HorseEngineProps> = ({ networkConnection, set
   }, [phase, currentSkinColors, currentSkinShape, networkConnection, playerInfo.downscroll]);
 
   return (
-    <div className="w-full h-[100dvh] flex flex-col items-center justify-between bg-gray-900 transition-colors overflow-hidden px-3 pt-2 sm:pt-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] gap-1.5 sm:gap-2">
+    <div className="rc-stage w-full h-[100dvh] flex flex-col items-center justify-between transition-colors overflow-hidden px-3 pt-2 sm:pt-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] gap-1.5 sm:gap-2">
+      <div className="rc-stage-dots absolute inset-0 pointer-events-none" />
       <div
-        className={`text-center z-10 bg-black border-4 border-white shadow-[6px_6px_0_#fff] transform skew-x-[-5deg] w-full max-w-3xl pr-14 sm:pr-16 shrink-0 ${
-          isLandscapeCompact ? 'py-1.5 px-3 flex items-center justify-between gap-2' : 'p-3 sm:p-4'
+        className={`relative z-10 rc-dock-rail w-full max-w-3xl pr-14 sm:pr-16 shrink-0 flex items-center justify-between gap-3 ${
+          isLandscapeCompact ? 'py-1.5 px-3' : 'px-4 py-2'
         }`}
       >
         <h2
-          className={`font-black text-white italic transform skew-x-[5deg] ${
-            isLandscapeCompact ? 'text-base sm:text-xl' : 'text-xl sm:text-3xl md:text-4xl'
+          className={`font-black text-white italic uppercase truncate ${
+            isLandscapeCompact ? 'text-sm sm:text-base' : 'text-lg sm:text-xl'
           }`}
         >
-          {phase === 'recording' && <span className="text-red-500 animate-pulse">RECORDING... TAP GRAY NOTES!</span>}
-          {phase === 'waiting' && <span className="text-yellow-400 animate-pulse">HOST IS CREATING PATTERN...</span>}
-          {phase === 'waiting_for_result' && <span className="text-cyan-400 animate-pulse">GUEST IS PLAYING...</span>}
-          {phase === 'playing' && <span className="text-green-400">SURVIVE THEIR PATTERN!</span>}
-          {phase === 'finished' && <span className="text-pink-500">ROUND OVER!</span>}
+          {phase === 'recording' && <span className="text-red-400 animate-pulse">RECORDING... TAP GRAY NOTES!</span>}
+          {phase === 'waiting' && <span className="text-yellow-300 animate-pulse">HOST IS CREATING PATTERN...</span>}
+          {phase === 'waiting_for_result' && <span className="text-cyan-300 animate-pulse">GUEST IS PLAYING...</span>}
+          {phase === 'playing' && <span className="text-emerald-400">SURVIVE THEIR PATTERN!</span>}
+          {phase === 'finished' && <span className="text-pink-400">ROUND OVER!</span>}
           {phase === 'error' && <span className="text-red-400">CONNECTION LOST</span>}
         </h2>
         {(phase === 'playing' || phase === 'finished') && (
-          <div className={`font-black text-white transform skew-x-[5deg] ${isLandscapeCompact ? 'text-base' : 'text-lg sm:text-2xl mt-2'}`}>
+          <div className="rc-dock-well px-3 py-1 font-black text-white text-sm sm:text-base tabular-nums shrink-0">
             SCORE: {score}
           </div>
         )}
       </div>
 
-      <div className="flex-1 min-h-0 w-full flex items-center justify-center">
+      <div className="relative z-10 flex-1 min-h-0 w-full flex items-center justify-center">
         <canvas
           ref={canvasRef}
           width={playfieldLayout.width}
           height={playfieldLayout.height}
           style={{ aspectRatio: `${playfieldLayout.width} / ${playfieldLayout.height}` }}
-          className="touch-surface bg-black border-4 sm:border-8 border-white shadow-[8px_8px_0_#000] max-h-full max-w-full w-auto h-auto object-contain rounded-xl"
+          className="touch-surface bg-[#060811] border-4 border-white/90 shadow-[0_12px_28px_rgba(0,0,0,0.7)] max-h-full max-w-full w-auto h-auto object-contain rounded-2xl"
         />
       </div>
 
       {(phase === 'finished' || phase === 'error') && (
         <button
           onClick={() => setScreen('events')}
-          className="bg-pink-500 text-black border-4 border-black px-8 py-3 font-black text-xl sm:text-3xl uppercase shadow-[6px_6px_0_#000] hover:translate-y-[-2px] transition-transform transform skew-x-[-5deg] shrink-0"
+          className="relative z-10 rc-bevel-btn rc-tile-pink text-white px-8 py-2.5 font-black text-lg sm:text-xl uppercase shrink-0 whitespace-nowrap"
         >
           EXIT TO EVENTS
         </button>

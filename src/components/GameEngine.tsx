@@ -180,13 +180,13 @@ export const GameEngine: React.FC<GameEngineProps> = ({
   useEffect(() => {
     document.body.dataset.gameState = gameState;
     document.body.dataset.downscroll = playerInfo.downscroll ? 'true' : 'false';
-    document.body.dataset.landscape = isLandscapeCompact ? 'true' : 'false';
+    document.body.dataset.landscape = 'true';
     return () => {
       delete document.body.dataset.gameState;
       delete document.body.dataset.downscroll;
       delete document.body.dataset.landscape;
     };
-  }, [gameState, playerInfo.downscroll, isLandscapeCompact]);
+  }, [gameState, playerInfo.downscroll]);
 
   useEffect(() => {
     return () => {
@@ -354,22 +354,17 @@ export const GameEngine: React.FC<GameEngineProps> = ({
   }, [isBattleRoyale, gameState, playerEliminated]);
 
   const heroMode = !isVS && (playerInfo.activeGameMods || []).includes('rhythm_hero');
-  const activeCustomLanes =
-    !isVS && !heroMode
-      ? isLandscapeCompact
-        ? effectiveControlLayout.landscapeLanes
-        : effectiveControlLayout.portraitLanes
-      : null;
+  const activeCustomLanes = !isVS && !heroMode ? effectiveControlLayout.landscapeLanes : null;
   const playfieldLayout = useMemo(
     () =>
       getPlayfieldLayout({
-        isLandscape: isLandscapeCompact,
+        isLandscape: true,
         isVS,
         downscroll: playerInfo.downscroll,
         heroMode,
         customLanes: activeCustomLanes,
       }),
-    [isLandscapeCompact, isVS, playerInfo.downscroll, heroMode, activeCustomLanes]
+    [isVS, playerInfo.downscroll, heroMode, activeCustomLanes]
   );
   const playfieldLayoutRef = useRef(playfieldLayout);
   playfieldLayoutRef.current = playfieldLayout;
@@ -987,7 +982,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
       canvas.removeEventListener('touchstart', blockTouch);
       canvas.removeEventListener('touchmove', blockTouch);
     };
-  }, [gameState, handleLaneInput, isLandscapeCompact, isVS]);
+  }, [gameState, handleLaneInput, isVS]);
 
   useEffect(() => {
     if (health <= 0 && gameState === 'playing') {
@@ -1800,59 +1795,56 @@ export const GameEngine: React.FC<GameEngineProps> = ({
         </div>
       )}
 
-      {/* Top HUD Bar (respects top-right fullscreen button) */}
+      {/* Top Console HUD Bar (respects top-right fullscreen button) */}
       <div
         className={`relative z-20 w-full flex items-center justify-between gap-2 shrink-0 ${
-          isLandscapeCompact ? 'pl-2.5 pr-12 pt-1 pb-0.5' : 'pl-3 sm:pl-6 pr-16 md:pr-24 pt-2 sm:pt-4'
+          isLandscapeCompact ? 'pl-2.5 pr-12 pt-1 pb-0.5' : 'pl-4 sm:pl-6 pr-16 md:pr-20 pt-2.5 sm:pt-3'
         }`}
       >
-        <button
-          data-testid="game-exit-btn"
-          onClick={() => setScreen('freeplay')}
-          className={`bg-white text-black hover:bg-gray-200 transition-colors transform skew-x-[-10deg] shrink-0 ${
-            isLandscapeCompact
-              ? 'border-2 border-black p-1 shadow-[2px_2px_0_#000]'
-              : 'border-4 border-black p-1.5 sm:p-2.5 shadow-[4px_4px_0_#000]'
-          }`}
-          aria-label="Exit track"
-        >
-          <X className={`${isLandscapeCompact ? 'w-4 h-4' : 'w-5 h-5 sm:w-7 sm:h-7'} text-black transform skew-x-[10deg]`} />
-        </button>
+        <div className="rc-dock-rail flex items-center gap-1.5 p-1 shrink-0">
+          <button
+            data-testid="game-exit-btn"
+            onClick={() => setScreen('freeplay')}
+            className={`rc-bevel-btn rc-tile-slate text-white flex items-center justify-center gap-1 font-black whitespace-nowrap ${
+              isLandscapeCompact ? 'px-2 py-1 text-[10px]' : 'px-3 py-1.5 text-xs'
+            }`}
+            aria-label="Exit track"
+          >
+            <X className={isLandscapeCompact ? 'w-3.5 h-3.5' : 'w-4 h-4'} />
+            <span className="hidden md:inline">EXIT</span>
+          </button>
+        </div>
 
-        {isLandscapeCompact ? (
-          <div className="bg-black/80 border border-white/35 rounded-lg px-3 py-0.5 flex items-center gap-2 min-w-0 max-w-[46vw]">
-            <h3 className="font-black italic text-white uppercase text-xs sm:text-sm truncate">{song.title}</h3>
-            <span className="text-[10px] text-pink-400 font-black uppercase tracking-wider shrink-0">
+        <div
+          className={`rc-dock-rail flex items-center justify-center gap-2 min-w-0 max-w-[48vw] ${
+            isLandscapeCompact ? 'px-2.5 py-1' : 'px-4 py-1.5'
+          }`}
+        >
+          <div className="rc-dock-well px-3 py-0.5 flex items-center gap-2.5 min-w-0">
+            <h3
+              className={`font-black italic text-white uppercase truncate ${
+                isLandscapeCompact ? 'text-xs' : 'text-sm sm:text-base'
+              }`}
+            >
+              {song.title}
+            </h3>
+            <span className="text-[10px] sm:text-xs text-pink-400 font-black uppercase tracking-wider shrink-0 whitespace-nowrap">
               {gameMode} • {difficulty}
             </span>
             {gameMode === 'endless' && (
-              <span className="text-cyan-300 font-black text-[10px] shrink-0">
+              <span className="text-cyan-300 font-black text-[10px] sm:text-xs shrink-0 whitespace-nowrap tabular-nums">
                 L{loopCount + 1} ({Math.round(Math.pow(1.15, loopCount) * 100)}%)
               </span>
             )}
           </div>
-        ) : (
-          <div className="text-center bg-black border-2 sm:border-4 border-white shadow-[4px_4px_0_#fff] sm:shadow-[8px_8px_0_#fff] transform skew-x-[5deg] min-w-0 px-3 sm:px-6 py-1 sm:py-2">
-            <h3 className="font-black italic text-white uppercase transform skew-x-[-5deg] truncate text-base sm:text-2xl md:text-3xl max-w-[175px] sm:max-w-md">
-              {song.title}
-            </h3>
-            {gameMode === 'endless' && (
-              <div className="text-cyan-300 font-black text-[10px] sm:text-xs">
-                LOOP {loopCount + 1} • {Math.round(Math.pow(1.15, loopCount) * 100)}% SPEED
-              </div>
-            )}
-            <p className="text-[10px] sm:text-sm text-pink-400 font-black uppercase tracking-widest transform skew-x-[-5deg] truncate">
-              {gameMode} • {difficulty}
-            </p>
-          </div>
-        )}
+        </div>
 
-        <div className="flex items-center gap-1.5 shrink-0">
+        <div className="rc-dock-rail flex items-center gap-1.5 p-1 shrink-0">
           {isBattleRoyale && (
             <button
               onClick={() => setShowBrDrawer((v) => !v)}
-              className={`lg:hidden bg-yellow-400 text-black border-2 border-black font-black flex items-center gap-1 shadow-[2px_2px_0_#000] ${
-                isLandscapeCompact ? 'px-2 py-1 text-[10px]' : 'px-2 py-1.5 text-xs'
+              className={`lg:hidden rc-bevel-btn rc-tile-gold text-black font-black flex items-center gap-1 whitespace-nowrap ${
+                isLandscapeCompact ? 'px-2 py-1 text-[10px]' : 'px-2.5 py-1.5 text-xs'
               }`}
             >
               <Trophy className="w-3.5 h-3.5" /> {brAlive}/50
@@ -1867,8 +1859,8 @@ export const GameEngine: React.FC<GameEngineProps> = ({
               }}
               title="Arrange Note Lanes & Note Buttons"
               aria-label="Arrange Note Lanes and Buttons"
-              className={`border-2 border-black font-black flex items-center gap-1 shadow-[2px_2px_0_#000] bg-pink-500 text-black ${
-                isLandscapeCompact ? 'px-2 py-1 text-[10px] rounded' : 'px-2 py-1.5 text-[10px] sm:text-xs'
+              className={`rc-bevel-btn rc-tile-pink text-white font-black flex items-center gap-1 whitespace-nowrap ${
+                isLandscapeCompact ? 'px-2 py-1 text-[10px]' : 'px-2.5 py-1.5 text-xs'
               }`}
             >
               <Move className="w-3.5 h-3.5" />
@@ -1883,12 +1875,14 @@ export const GameEngine: React.FC<GameEngineProps> = ({
             }}
             title="Haptics Settings"
             aria-label="Haptics Settings"
-            className={`border-2 border-black font-black flex items-center gap-1 shadow-[2px_2px_0_#000] ${
-              isLandscapeCompact ? 'px-2 py-1 text-[10px] rounded' : 'px-2 py-1.5 text-[10px] sm:text-xs'
-            } ${effectiveHaptics.enabled ? 'bg-yellow-400 text-black' : 'bg-gray-900 text-gray-300 border-white/50'}`}
+            className={`rc-bevel-btn font-black flex items-center gap-1 whitespace-nowrap ${
+              isLandscapeCompact ? 'px-2 py-1 text-[10px]' : 'px-2.5 py-1.5 text-xs'
+            } ${effectiveHaptics.enabled ? 'rc-tile-gold text-black' : 'rc-tile-slate text-slate-300'}`}
           >
             <Vibrate className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">{effectiveHaptics.enabled ? `${effectiveHaptics.intensity}%` : 'OFF'}</span>
+            <span className="hidden sm:inline tabular-nums">
+              {effectiveHaptics.enabled ? `${effectiveHaptics.intensity}%` : 'OFF'}
+            </span>
           </button>
           <button
             data-testid="toggle-pads-btn"
@@ -1898,9 +1892,9 @@ export const GameEngine: React.FC<GameEngineProps> = ({
             }}
             title="Toggle Extra On-Screen Touch Pads"
             aria-label="Toggle On-Screen Touch Pads"
-            className={`border-2 border-black font-black flex items-center gap-1 shadow-[2px_2px_0_#000] ${
-              isLandscapeCompact ? 'px-2 py-1 text-[10px] rounded' : 'px-2 py-1.5 text-[10px] sm:text-xs'
-            } ${showTouchPads ? 'bg-cyan-400 text-black' : 'bg-gray-900 text-white border-white/50'}`}
+            className={`rc-bevel-btn font-black flex items-center gap-1 whitespace-nowrap ${
+              isLandscapeCompact ? 'px-2 py-1 text-[10px]' : 'px-2.5 py-1.5 text-xs'
+            } ${showTouchPads ? 'rc-tile-cyan text-black' : 'rc-tile-slate text-slate-200'}`}
           >
             <Smartphone className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">{showTouchPads ? 'PADS' : 'NO PADS'}</span>
@@ -1908,42 +1902,13 @@ export const GameEngine: React.FC<GameEngineProps> = ({
         </div>
       </div>
 
-      {/* Compact Active Mods / Botplay / Demon status (portrait/non-landscape compact) */}
-      {!isLandscapeCompact && (
-        <div className="relative z-20 w-full px-3 mt-1.5 flex flex-wrap items-center justify-center gap-1.5 shrink-0 lg:hidden">
-        <span className="hud-chip px-2 py-0.5 text-[10px] font-black text-cyan-300">
-          ×{modifiers?.speed?.toFixed(2) || '1.00'}
-        </span>
-        {modifiers?.altChart && <span className="hud-chip px-2 py-0.5 text-[10px] font-black">ALT</span>}
-        {modifiers?.nerf > 0 && (
-          <span className="hud-chip px-2 py-0.5 text-[10px] font-black text-orange-300">-{modifiers.nerf}%</span>
-        )}
-        {modifiers?.noFail && (
-          <span className="hud-chip px-2 py-0.5 text-[10px] font-black text-green-400">NO FAIL</span>
-        )}
-        {modifiers?.extreme && (
-          <span className="hud-chip px-2 py-0.5 text-[10px] font-black text-red-400">EXTREME</span>
-        )}
-        {playerInfo.botplay && (
-          <span className="bg-black/80 border border-yellow-400 px-2 py-0.5 text-[10px] font-black text-yellow-400 animate-pulse">
-            BOTPLAY
-          </span>
-        )}
-        {inDemonModeNow && (
-          <span className="bg-black/90 border border-red-500 px-2 py-0.5 text-[10px] font-black text-red-400 animate-pulse">
-            DEMON: ONE MISS = DEATH
-          </span>
-        )}
-        </div>
-      )}
-
-      {/* Desktop Left Active Mods HUD */}
-      <div className="hidden lg:block absolute left-5 top-24 z-30 hud-chip p-3 text-xs font-black space-y-1">
+      {/* Desktop Left Active Mods Well (sits cleanly beside 860x440 playfield) */}
+      <div className="hidden lg:block absolute left-4 top-20 z-30 rc-panel p-3 text-xs font-black space-y-1">
         <div className="text-cyan-300 tracking-widest">ACTIVE MODS</div>
-        <div>×{modifiers?.speed?.toFixed(2) || '1.00'} SPEED</div>
+        <div className="tabular-nums">×{modifiers?.speed?.toFixed(2) || '1.00'} SPEED</div>
         {modifiers?.altChart && <div>ALT CHART</div>}
-        {modifiers?.nerf > 0 && <div className="text-orange-300">NERF −{modifiers.nerf}% NOTES</div>}
-        {modifiers?.noFail && <div className="text-green-400">NO FAIL</div>}
+        {modifiers?.nerf > 0 && <div className="text-orange-300 tabular-nums">NERF −{modifiers.nerf}% NOTES</div>}
+        {modifiers?.noFail && <div className="text-emerald-400">NO FAIL</div>}
         {modifiers?.extreme && <div className="text-red-400">EXTREME</div>}
       </div>
 
@@ -1952,41 +1917,47 @@ export const GameEngine: React.FC<GameEngineProps> = ({
         <div
           className={`${
             showBrDrawer ? 'block' : 'hidden lg:block'
-          } absolute right-2 sm:right-3 top-14 lg:top-24 z-30 hud-chip p-2.5 sm:p-3 w-52 sm:w-56 max-h-[65vh] overflow-y-auto`}
+          } absolute right-3 top-16 lg:top-20 z-30 rc-panel p-3 w-52 sm:w-56 max-h-[65vh] overflow-y-auto`}
         >
           <div className="flex items-center justify-between">
-            <div className="text-yellow-300 text-lg sm:text-2xl font-black">{brAlive}/50 ALIVE</div>
-            <button onClick={() => setShowBrDrawer(false)} className="lg:hidden text-xs font-black text-gray-300">
+            <div className="text-yellow-300 text-lg sm:text-xl font-black tabular-nums">{brAlive}/50 ALIVE</div>
+            <button onClick={() => setShowBrDrawer(false)} className="lg:hidden text-xs font-black text-slate-300">
               CLOSE
             </button>
           </div>
-          <div className="text-[10px] text-green-400 font-black">DEFAULT NOTES ENFORCED • BOT LEVELS 1–5 BY 0.5</div>
-          <div className="text-xs text-cyan-300 mb-2">
+          <div className="text-[10px] text-emerald-400 font-black">DEFAULT NOTES ENFORCED • BOT LEVELS 1–5</div>
+          <div className="text-xs text-cyan-300 mb-2 tabular-nums">
             LOOP {loopCount + 1} • {Math.round(Math.pow(1.15, loopCount) * 100)}%
           </div>
-          {brBoard.map((b, i) => (
-            <button
-              key={b.id}
-              disabled={!playerEliminated || b.isPlayer}
-              onClick={() => setSpectateBotId(Number(b.id))}
-              className={`w-full flex justify-between text-xs px-2 py-1 ${
-                b.isPlayer ? 'bg-green-500 text-black' : spectateBotId === b.id ? 'bg-cyan-500 text-black' : 'bg-black/60'
-              }`}
-            >
-              <span>
-                #{i + 1} {b.name}
-                {!b.isPlayer && b.rating !== undefined && <em className="text-cyan-300 ml-1">★{b.rating.toFixed(2)}</em>}
-              </span>
-              <b>{b.score}</b>
-            </button>
-          ))}
+          <div className="space-y-1">
+            {brBoard.map((b, i) => (
+              <button
+                key={b.id}
+                disabled={!playerEliminated || b.isPlayer}
+                onClick={() => setSpectateBotId(Number(b.id))}
+                className={`w-full flex justify-between text-xs px-2 py-1 rounded-lg border ${
+                  b.isPlayer
+                    ? 'bg-emerald-500 text-black border-black font-black'
+                    : spectateBotId === b.id
+                    ? 'bg-cyan-400 text-black border-black font-black'
+                    : 'bg-[#0d1018] text-white border-white/10'
+                }`}
+              >
+                <span className="truncate">
+                  #{i + 1} {b.name}
+                  {!b.isPlayer && b.rating !== undefined && <em className="text-cyan-300 ml-1">★{b.rating.toFixed(1)}</em>}
+                </span>
+                <b className="tabular-nums">{b.score}</b>
+              </button>
+            ))}
+          </div>
           {playerEliminated && (
             <>
               <div className="mt-2 text-red-400 font-black text-center text-xs">ELIMINATED • SPECTATE</div>
               <select
                 value={spectateBotId || ''}
                 onChange={(e) => setSpectateBotId(Number(e.target.value))}
-                className="w-full bg-black border border-cyan-400 p-1 text-xs mt-1"
+                className="w-full bg-[#0d1018] border border-cyan-400 rounded-lg p-1 text-xs mt-1 text-white"
               >
                 {brBots.current
                   .filter((b) => b.alive)
@@ -2002,10 +1973,10 @@ export const GameEngine: React.FC<GameEngineProps> = ({
       )}
 
       {isBattleRoyale && playerEliminated && (
-        <div className="relative z-30 mx-auto bg-black/90 border-2 border-cyan-400 px-3 sm:px-5 py-1.5 font-black text-xs sm:text-sm flex items-center gap-2 shrink-0">
+        <div className="relative z-30 mx-auto rc-dock-rail px-3 py-1 font-black text-xs sm:text-sm flex items-center gap-2 shrink-0">
           <button
             onClick={() => cycleSpectateBot(-1)}
-            className="bg-cyan-400 text-black px-2 py-1 font-black flex items-center"
+            className="rc-bevel-btn rc-tile-cyan text-black px-2 py-1 font-black flex items-center"
             aria-label="Previous bot"
           >
             <ChevronLeft className="w-4 h-4" />
@@ -2022,7 +1993,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
           </div>
           <button
             onClick={() => cycleSpectateBot(1)}
-            className="bg-cyan-400 text-black px-2 py-1 font-black flex items-center"
+            className="rc-bevel-btn rc-tile-cyan text-black px-2 py-1 font-black flex items-center"
             aria-label="Next bot"
           >
             <ChevronRight className="w-4 h-4" />
@@ -2031,92 +2002,93 @@ export const GameEngine: React.FC<GameEngineProps> = ({
       )}
 
       {playerInfo.botplay && (
-        <div className="hidden lg:block mx-auto z-20 text-yellow-400 font-black text-xl animate-pulse transform skew-x-[-5deg] border-2 border-yellow-400 bg-black/60 px-4 py-0.5 shrink-0">
+        <div className="hidden lg:block mx-auto z-20 text-yellow-300 font-black text-base animate-pulse rounded-lg border-2 border-yellow-400 bg-[#0d1018]/90 px-4 py-0.5 shrink-0">
           BOTPLAY ENABLED
         </div>
       )}
 
       {inDemonModeNow && (
-        <div className="hidden lg:block mx-auto z-20 text-red-500 font-black text-2xl animate-[shake_0.2s_ease-in-out_infinite] transform skew-x-[-5deg] border-4 border-red-500 bg-black/80 px-5 py-1 shadow-[0_0_20px_#ef4444] shrink-0">
+        <div className="hidden lg:block mx-auto z-20 text-red-400 font-black text-lg animate-[shake_0.2s_ease-in-out_infinite] rounded-lg border-2 border-red-500 bg-[#0d1018]/95 px-4 py-0.5 shrink-0">
           DEMON MODE: ONE MISS = DEATH
         </div>
       )}
 
-      {/* Main Playfield Container */}
-      {isLandscapeCompact ? (
-        <div
-          data-testid="landscape-playfield"
-          className={`relative z-10 flex-1 min-h-0 w-full flex flex-col items-center justify-between px-2 pb-[max(0.35rem,env(safe-area-inset-bottom))] gap-1 ${
-            shake ? 'animate-[shake_0.2s_ease-in-out]' : ''
-          }`}
-        >
-          {/* FNF-Style Wide Playfield with spaced-out receptor notes at the bottom */}
-          <div className="relative flex-1 min-h-0 w-full flex items-center justify-center">
-            <canvas
-              ref={canvasRef}
-              data-testid="game-canvas"
-              data-playfield-mode="fnf-landscape"
-              width={playfieldLayout.width}
-              height={playfieldLayout.height}
-              style={{ aspectRatio: `${playfieldLayout.width} / ${playfieldLayout.height}`, willChange: 'transform' }}
-              className={`touch-surface bg-[#060811] border-4 shadow-[6px_6px_0_#000] rounded-xl h-full max-h-full max-w-full w-auto object-contain ${
-                inDemonModeNow ? 'border-red-600' : 'border-white'
-              } ${isPulsing ? 'pulse-border-active' : ''}`}
-            />
+      {/* Landscape-Only FNF Playfield Container (all landscape viewports) */}
+      <div
+        data-testid="landscape-playfield"
+        className={`relative z-10 flex-1 min-h-0 w-full flex flex-col items-center justify-between px-2 sm:px-4 pb-[max(0.35rem,env(safe-area-inset-bottom))] gap-1.5 ${
+          shake ? 'animate-[shake_0.2s_ease-in-out]' : ''
+        }`}
+      >
+        <div className="relative flex-1 min-h-0 w-full flex items-center justify-center">
+          <canvas
+            ref={canvasRef}
+            data-testid="game-canvas"
+            data-playfield-mode="fnf-landscape"
+            width={playfieldLayout.width}
+            height={playfieldLayout.height}
+            style={{ aspectRatio: `${playfieldLayout.width} / ${playfieldLayout.height}`, willChange: 'transform' }}
+            className={`touch-surface bg-[#060811] border-4 shadow-[0_10px_28px_rgba(0,0,0,0.7)] rounded-2xl h-full max-h-full max-w-full w-auto object-contain ${
+              inDemonModeNow ? 'border-red-500' : 'border-white/90'
+            } ${isPulsing ? 'pulse-border-active' : ''}`}
+          />
+
+          <div
+            className={`absolute pointer-events-none flex ${
+              heroMode
+                ? 'top-3 left-3 w-auto justify-start'
+                : `${playerInfo.downscroll ? 'top-[22%]' : 'top-[48%]'} left-0 w-full justify-center text-center`
+            }`}
+          >
+            {combo > 5 && (
+              <div
+                data-testid="game-combo"
+                className={`${
+                  heroMode
+                    ? 'text-xl bg-[#0d1018] border-2 border-yellow-400 rounded-lg px-2.5 py-0.5 text-left'
+                    : 'text-4xl sm:text-5xl'
+                } font-black italic text-white drop-shadow-[4px_4px_0_#000] animate-[pulse-fast_0.5s_infinite_alternate] tabular-nums`}
+              >
+                {combo}
+                {heroMode && (
+                  <span className="block text-[9px] not-italic tracking-widest text-yellow-300">COMBO</span>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Bottom Console Telemetry Strip */}
+        <div className="w-full max-w-[860px] flex flex-col gap-1 shrink-0">
+          <div className="rc-dock-rail w-full flex items-center justify-between gap-2 sm:gap-3 px-2.5 py-1.5">
+            <div className="rc-dock-well flex items-center gap-2 px-2.5 py-0.5 font-black text-xs sm:text-sm text-white shrink-0 tabular-nums">
+              <span data-testid="game-score">SCORE: {spectatedBot ? spectatedBot.score : score}</span>
+              {isVS && <span className="text-pink-400">• OPP: {opponentScore}</span>}
+            </div>
 
             <div
-              className={`absolute pointer-events-none flex ${
-                heroMode
-                  ? 'top-3 left-3 w-auto justify-start'
-                  : `${playerInfo.downscroll ? 'top-[22%]' : 'top-[48%]'} left-0 w-full justify-center text-center`
+              data-testid="game-health"
+              className={`flex-1 max-w-[380px] h-3.5 sm:h-4 bg-[#07090f] border-2 rounded-full relative overflow-hidden ${
+                inDemonModeNow ? 'border-red-500' : 'border-white/80'
               }`}
             >
-              {combo > 5 && (
-                <div
-                  data-testid="game-combo"
-                  className={`${
-                    heroMode ? 'text-xl bg-black/70 border-l-4 border-yellow-400 px-2 py-0.5 text-left' : 'text-4xl sm:text-5xl'
-                  } font-black italic text-white drop-shadow-[4px_4px_0_#000] animate-[pulse-fast_0.5s_infinite_alternate]`}
-                >
-                  {combo}
-                  {heroMode && (
-                    <span className="block text-[9px] not-italic tracking-widest text-yellow-300">COMBO</span>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* FNF-style Bottom Health Bar + Score / Accuracy / Active Mods */}
-          <div className="w-full max-w-[860px] flex flex-col gap-1 shrink-0">
-            <div className="w-full flex items-center justify-between gap-2 sm:gap-3 px-1">
-              <div className="flex items-center gap-1.5 font-black text-xs sm:text-sm text-white shrink-0">
-                <span data-testid="game-score">SCORE: {spectatedBot ? spectatedBot.score : score}</span>
-                {isVS && <span className="text-pink-400">• OPP: {opponentScore}</span>}
-              </div>
-
               <div
-                data-testid="game-health"
-                className={`flex-1 max-w-[380px] h-3.5 bg-black border-2 relative overflow-hidden shadow-[3px_3px_0_#000] transform skew-x-[-15deg] ${
-                  inDemonModeNow ? 'border-red-500' : 'border-white'
+                className={`h-full transition-all duration-200 ${
+                  inDemonModeNow ? 'bg-red-600' : 'bg-gradient-to-l from-emerald-400 to-green-500'
                 }`}
-              >
-                <div
-                  className={`h-full transition-all duration-200 ${
-                    inDemonModeNow ? 'bg-red-600' : 'bg-gradient-to-l from-green-400 to-green-600'
-                  }`}
-                  style={{ width: `${spectatedBot ? spectatedBot.health : health}%`, float: 'right' }}
-                />
-              </div>
+                style={{ width: `${spectatedBot ? spectatedBot.health : health}%`, float: 'right' }}
+              />
+            </div>
 
-              <div className="flex items-center gap-1.5 font-black text-xs sm:text-sm shrink-0">
-                {playerInfo.botplay && (
-                  <span className="bg-yellow-400 text-black px-1.5 py-0.5 text-[10px]">BOT</span>
-                )}
-                {inDemonModeNow && (
-                  <span className="bg-red-600 text-white px-1.5 py-0.5 text-[10px] animate-pulse">DEMON</span>
-                )}
-                <span data-testid="game-accuracy" className="text-cyan-400 text-sm sm:text-base">
+            <div className="flex items-center gap-1.5 font-black text-xs sm:text-sm shrink-0">
+              {playerInfo.botplay && (
+                <span className="bg-yellow-400 text-black px-1.5 py-0.5 rounded text-[10px]">BOT</span>
+              )}
+              {inDemonModeNow && (
+                <span className="bg-red-600 text-white px-1.5 py-0.5 rounded text-[10px] animate-pulse">DEMON</span>
+              )}
+              <div className="rc-dock-well px-2.5 py-0.5">
+                <span data-testid="game-accuracy" className="text-cyan-300 text-xs sm:text-sm tabular-nums">
                   {spectatedBot
                     ? Math.round((100 * spectatedBot.hits) / Math.max(1, spectatedBot.hits + spectatedBot.misses))
                     : accuracy}
@@ -2124,104 +2096,10 @@ export const GameEngine: React.FC<GameEngineProps> = ({
                 </span>
               </div>
             </div>
-
-            {showTouchPads && (
-              <div className="w-full flex justify-center">
-                <TouchLanePads
-                  colors={gameplaySkinColors}
-                  shape={gameplaySkinShape}
-                  onLaneDown={handleLaneDown}
-                  onLaneUp={handleLaneUp}
-                  pressedRef={keysPressed}
-                  disabled={playerEliminated && isBattleRoyale}
-                  customPads={effectiveControlLayout.landscapePads}
-                  compact
-                />
-              </div>
-            )}
-          </div>
-        </div>
-      ) : (
-        <>
-          <div
-            className={`relative z-10 flex-1 min-h-0 w-full flex flex-col items-center justify-center px-1.5 sm:px-3 py-1 ${
-              shake ? 'animate-[shake_0.2s_ease-in-out]' : ''
-            }`}
-          >
-            <div className="relative flex-1 min-h-0 w-full flex items-center justify-center">
-              <canvas
-                ref={canvasRef}
-                data-testid="game-canvas"
-                data-playfield-mode="portrait"
-                width={playfieldLayout.width}
-                height={playfieldLayout.height}
-                style={{ aspectRatio: `${playfieldLayout.width} / ${playfieldLayout.height}`, willChange: 'transform' }}
-                className={`touch-surface bg-[#060811] border-4 md:border-8 shadow-[6px_6px_0_#000] md:shadow-[16px_16px_0_#000] rounded-2xl max-h-full max-w-full w-auto h-auto object-contain ${
-                  inDemonModeNow ? 'border-red-600' : 'border-white'
-                } ${isPulsing ? 'pulse-border-active' : ''}`}
-              />
-
-              <div
-                className={`absolute pointer-events-none flex ${
-                  heroMode
-                    ? 'top-4 left-3 w-auto justify-start'
-                    : `${playerInfo.downscroll ? 'top-[34%]' : 'top-[42%]'} left-0 w-full justify-center text-center`
-                }`}
-              >
-                {combo > 5 && (
-                  <div
-                    data-testid="game-combo"
-                    className={`${
-                      heroMode
-                        ? 'text-2xl sm:text-3xl bg-black/70 border-l-4 border-yellow-400 px-3 py-1 text-left'
-                        : 'text-5xl sm:text-7xl md:text-8xl'
-                    } font-black italic text-white drop-shadow-[4px_4px_0_#000] animate-[pulse-fast_0.5s_infinite_alternate]`}
-                  >
-                    {combo}
-                    {heroMode && (
-                      <span className="block text-[10px] not-italic tracking-widest text-yellow-300">COMBO</span>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Score & Accuracy strip directly under canvas */}
-            <div className="w-full max-w-[560px] flex justify-between items-center px-2 pt-1 pointer-events-none shrink-0">
-              <div data-testid="game-score" className="font-black text-base sm:text-2xl drop-shadow-[3px_3px_0_#000] text-white">
-                SCORE: {spectatedBot ? spectatedBot.score : score}
-              </div>
-              {isVS && (
-                <div className="font-black text-base sm:text-2xl drop-shadow-[3px_3px_0_#000] text-pink-400">
-                  OPP: {opponentScore}
-                </div>
-              )}
-              <div data-testid="game-accuracy" className="font-black text-base sm:text-2xl text-cyan-400 drop-shadow-[3px_3px_0_#000]">
-                {spectatedBot
-                  ? Math.round((100 * spectatedBot.hits) / Math.max(1, spectatedBot.hits + spectatedBot.misses))
-                  : accuracy}
-                %
-              </div>
-            </div>
           </div>
 
-          {/* Health Bar + Optional Bottom Mobile Touch Lane Pads */}
-          <div className="relative z-20 w-full flex flex-col items-center gap-2 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shrink-0">
-            <div
-              data-testid="game-health"
-              className={`w-11/12 md:w-[760px] h-4 sm:h-6 md:h-8 bg-black border-2 sm:border-4 relative overflow-hidden shadow-[4px_4px_0_#000] transform skew-x-[-15deg] ${
-                inDemonModeNow ? 'border-red-500' : 'border-white'
-              }`}
-            >
-              <div
-                className={`h-full transition-all duration-200 ${
-                  inDemonModeNow ? 'bg-red-600' : 'bg-gradient-to-l from-green-400 to-green-600'
-                }`}
-                style={{ width: `${spectatedBot ? spectatedBot.health : health}%`, float: 'right' }}
-              />
-            </div>
-
-            {showTouchPads && (
+          {showTouchPads && (
+            <div className="w-full flex justify-center">
               <TouchLanePads
                 colors={gameplaySkinColors}
                 shape={gameplaySkinShape}
@@ -2229,117 +2107,140 @@ export const GameEngine: React.FC<GameEngineProps> = ({
                 onLaneUp={handleLaneUp}
                 pressedRef={keysPressed}
                 disabled={playerEliminated && isBattleRoyale}
-                customPads={effectiveControlLayout.portraitPads}
+                customPads={effectiveControlLayout.landscapePads}
                 compact
               />
-            )}
-          </div>
-        </>
-      )}
+            </div>
+          )}
+        </div>
+      </div>
 
       {gameState === 'countdown' && (
         <div
           data-testid="game-countdown"
           className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 z-50 pointer-events-none"
         >
-          <div className="text-6xl md:text-[10rem] font-black italic text-white drop-shadow-[8px_8px_0_#eab308] animate-bounce transform -rotate-6">
+          <div className="rc-hero-wordmark text-6xl md:text-[8rem] text-white drop-shadow-[6px_6px_0_#ec4899] animate-bounce transform -rotate-3">
             READY?
           </div>
-          <div className="mt-4 text-xs sm:text-lg font-black text-cyan-300 tracking-widest uppercase text-center px-4">
+          <div className="mt-4 rc-dock-rail px-4 py-1.5 text-xs sm:text-base font-black text-cyan-300 tracking-widest uppercase text-center">
             TAP GRAY NOTES • KEYBOARD • CONTROLLER
           </div>
         </div>
       )}
 
       {gameState === 'finished' && (
-        <div data-testid="game-results" className="results-shell absolute inset-0 z-50 overflow-hidden bg-[#080a12]">
+        <div data-testid="game-results" className="results-shell rc-stage absolute inset-0 z-50 overflow-hidden">
+          <div className="rc-stage-dots absolute inset-0 pointer-events-none" />
           {song.coverUrl && (
             <img
               src={song.coverUrl}
               data-results-wave-cover={String(song.id)}
-              className="reactive-cover absolute inset-0 w-full h-full object-cover opacity-65"
+              className="reactive-cover absolute inset-0 w-full h-full object-cover opacity-35"
               style={{ transformOrigin: 'center' }}
             />
           )}
-          <div className="absolute inset-0 bg-gradient-to-r from-black/95 via-black/55 to-black/30" />
-          <div className={`relative z-10 w-full h-full flex flex-col overflow-y-auto custom-scrollbar ${isLandscapeCompact ? 'p-3' : 'p-4 md:p-7'}`}>
-            <div className={`result-header flex items-start justify-between gap-4 pr-12 md:pr-16 ${isLandscapeCompact ? 'mb-2' : 'mb-4'}`}>
-              <div>
-                <div className="text-xs md:text-sm text-gray-300 uppercase tracking-widest">{song.artist}</div>
-                <h2 className={`${isLandscapeCompact ? 'text-xl' : 'text-2xl md:text-4xl'} font-black italic uppercase text-white drop-shadow-[4px_4px_0_#000]`}>
+          <div className="absolute inset-0 bg-gradient-to-r from-[#090714]/95 via-[#090714]/75 to-[#090714]/65" />
+          <div
+            className={`relative z-10 w-full h-full flex flex-col overflow-y-auto custom-scrollbar max-w-6xl mx-auto ${
+              isLandscapeCompact ? 'p-3 gap-2' : 'p-5 md:p-7 gap-4'
+            }`}
+          >
+            <div className="rc-dock-rail flex items-center justify-between gap-4 px-4 py-2.5 pr-14 shrink-0">
+              <div className="min-w-0">
+                <div className="text-[11px] text-cyan-300 font-black uppercase tracking-widest truncate">
+                  {song.artist} • {difficulty} • {gameMode}
+                </div>
+                <h2 className={`${isLandscapeCompact ? 'text-xl' : 'text-2xl md:text-3xl'} font-black italic uppercase text-white truncate`}>
                   {song.title}
                 </h2>
-                <div className={`text-yellow-300 font-black uppercase ${isLandscapeCompact ? 'text-xs' : ''}`}>
-                  {difficulty} • {gameMode}
-                </div>
               </div>
-              <div className={`text-right font-black uppercase ${health <= 0 ? 'text-red-400' : 'text-white'}`}>
-                <div className={`${isLandscapeCompact ? 'text-2xl' : 'text-3xl md:text-6xl'} italic`}>{health <= 0 ? 'GAME OVER' : 'RANKING'}</div>
-                {isNewHigh && <div className="text-yellow-300 animate-pulse text-sm sm:text-xl">★ NEW HIGH SCORE ★</div>}
+              <div className={`text-right font-black uppercase shrink-0 ${health <= 0 ? 'text-red-400' : 'text-white'}`}>
+                <div className={`${isLandscapeCompact ? 'text-xl' : 'text-3xl md:text-4xl'} italic`}>
+                  {health <= 0 ? 'GAME OVER' : 'RANKING'}
+                </div>
+                {isNewHigh && <div className="text-yellow-300 animate-pulse text-xs sm:text-sm">★ NEW HIGH SCORE ★</div>}
               </div>
             </div>
-            <div
-              className={`flex-1 grid items-stretch min-h-0 ${
-                isLandscapeCompact
-                  ? 'grid-cols-2 gap-2.5'
-                  : 'grid-cols-1 md:grid-cols-[minmax(280px,48%)_1fr] gap-4'
-              }`}
-            >
-              <section className={`result-stats flex flex-col justify-between ${isLandscapeCompact ? 'p-2.5' : 'p-4 md:p-6'}`}>
-                <div className={`result-score text-black border-4 border-black text-right font-black tracking-wider ${isLandscapeCompact ? 'px-2.5 py-0.5 text-xl' : 'px-4 py-2 text-3xl md:text-5xl'}`}>
+
+            <div className={`flex-1 grid grid-cols-2 items-stretch min-h-0 ${isLandscapeCompact ? 'gap-2.5' : 'gap-4'}`}>
+              <section className={`rc-console-tray flex flex-col justify-between ${isLandscapeCompact ? 'p-3' : 'p-5'}`}>
+                <div
+                  className={`rc-console-inset text-yellow-300 text-right font-black tracking-wider tabular-nums ${
+                    isLandscapeCompact ? 'px-3 py-1.5 text-2xl' : 'px-4 py-2.5 text-4xl md:text-5xl'
+                  }`}
+                >
                   {String(displayScore).padStart(7, '0')}
                 </div>
-                <div className={`grid grid-cols-[auto_1fr_auto] gap-x-3 font-black relative z-10 ${isLandscapeCompact ? 'text-xs mt-1.5' : 'text-lg md:text-2xl mt-4'}`}>
-                  <div className="judgment-row text-xs text-cyan-200">350</div>
-                  <div className="judgment-row text-cyan-100">SICK</div>
-                  <div className="judgment-row text-right">{stats.current.sick}x</div>
-                  <div className="judgment-row text-xs text-green-200">200</div>
-                  <div className="judgment-row text-green-200">GOOD</div>
-                  <div className="judgment-row text-right">{stats.current.good}x</div>
-                  <div className="judgment-row text-xs text-yellow-200">50</div>
-                  <div className="judgment-row text-yellow-200">BAD</div>
-                  <div className="judgment-row text-right">{stats.current.bad}x</div>
-                  <div className="judgment-row text-xs text-red-300">×</div>
-                  <div className="judgment-row text-red-300">MISS</div>
-                  <div className="judgment-row text-right">{stats.current.miss}x</div>
+                <div
+                  className={`grid grid-cols-[auto_1fr_auto] gap-x-3 gap-y-1 font-black relative z-10 tabular-nums ${
+                    isLandscapeCompact ? 'text-xs mt-2' : 'text-base md:text-xl mt-4'
+                  }`}
+                >
+                  <div className="text-xs text-cyan-300 self-center">350</div>
+                  <div className="text-cyan-100">SICK!!</div>
+                  <div className="text-right text-white">{stats.current.sick}x</div>
+                  <div className="text-xs text-emerald-300 self-center">200</div>
+                  <div className="text-emerald-200">GOOD</div>
+                  <div className="text-right text-white">{stats.current.good}x</div>
+                  <div className="text-xs text-yellow-300 self-center">50</div>
+                  <div className="text-yellow-200">BAD</div>
+                  <div className="text-right text-white">{stats.current.bad}x</div>
+                  <div className="text-xs text-red-400 self-center">×</div>
+                  <div className="text-red-300">MISS</div>
+                  <div className="text-right text-white">{stats.current.miss}x</div>
                 </div>
-                <div className={`grid grid-cols-2 border-t-2 border-white/40 ${isLandscapeCompact ? 'mt-1.5 pt-1.5' : 'mt-5 pt-3'}`}>
+                <div
+                  className={`rc-console-inset grid grid-cols-2 px-3 py-2 tabular-nums ${
+                    isLandscapeCompact ? 'mt-2' : 'mt-4'
+                  }`}
+                >
                   <div>
-                    <div className="text-[10px] sm:text-sm text-cyan-100">MAX COMBO</div>
-                    <div className={`${isLandscapeCompact ? 'text-lg' : 'text-3xl'} font-black`}>{maxCombo}x</div>
+                    <div className="text-[10px] sm:text-xs text-cyan-300 font-black">MAX COMBO</div>
+                    <div className={`${isLandscapeCompact ? 'text-lg' : 'text-2xl'} font-black text-white`}>
+                      {maxCombo}x
+                    </div>
                   </div>
                   <div className="text-right">
-                    <div className="text-[10px] sm:text-sm text-cyan-100">ACCURACY</div>
-                    <div className={`${isLandscapeCompact ? 'text-lg' : 'text-3xl'} font-black`}>{accuracy}%</div>
+                    <div className="text-[10px] sm:text-xs text-cyan-300 font-black">ACCURACY</div>
+                    <div className={`${isLandscapeCompact ? 'text-lg' : 'text-2xl'} font-black text-white`}>
+                      {accuracy}%
+                    </div>
                   </div>
                 </div>
               </section>
-              <section className={`result-rank flex flex-col items-center justify-center ${isLandscapeCompact ? 'min-h-0 p-2 gap-1.5' : 'min-h-[220px] p-4 gap-3'}`}>
-                <div
-                  className={`result-grade leading-none font-black italic ${
-                    isLandscapeCompact ? 'text-5xl sm:text-6xl' : 'text-[7rem] sm:text-[9rem] md:text-[15rem]'
-                  } ${
-                    health <= 0 ? 'text-red-600' : 'text-green-500'
-                  }`}
-                >
-                  {getGrade(accuracy)}
+
+              <section className={`rc-panel flex flex-col items-center justify-between ${isLandscapeCompact ? 'p-3 gap-2' : 'p-5 gap-3'}`}>
+                <div className="flex-1 flex flex-col items-center justify-center">
+                  <div
+                    className={`leading-none font-black italic drop-shadow-[0_6px_0_#080a0f] ${
+                      isLandscapeCompact ? 'text-6xl' : 'text-[7rem] md:text-[10rem]'
+                    } ${health <= 0 ? 'text-red-500' : 'text-emerald-400'}`}
+                  >
+                    {getGrade(accuracy)}
+                  </div>
+                  <div
+                    className={`rc-dock-well font-black text-white tabular-nums mt-2 ${
+                      isLandscapeCompact ? 'px-3 py-1 text-xs' : 'px-5 py-2 text-sm sm:text-base'
+                    }`}
+                  >
+                    BEST: {Math.max(previousHigh, score)} • SCORE: {score}
+                  </div>
                 </div>
-                <div className={`result-record border border-white/30 font-black ${isLandscapeCompact ? 'px-3 py-1 text-xs' : 'px-5 sm:px-7 py-2 sm:py-3 text-base sm:text-lg'}`}>
-                  BEST: {Math.max(previousHigh, score)} • SCORE: {score}
-                </div>
-                <div className={`result-actions w-full max-w-lg flex gap-2.5 ${isLandscapeCompact ? 'mt-0.5 pb-0.5' : 'mt-2 pb-4'}`}>
+
+                <div className="w-full max-w-md flex gap-3 shrink-0">
                   <button
                     onClick={retryTrack}
-                    className={`flex-1 bg-gradient-to-r from-yellow-500 to-orange-500 text-black border-4 border-black font-black shadow-[4px_4px_0_#000] ${
-                      isLandscapeCompact ? 'p-2 text-base' : 'p-3 text-xl md:text-3xl shadow-[6px_6px_0_#000]'
+                    className={`rc-bevel-btn rc-tile-gold flex-1 text-black font-black whitespace-nowrap ${
+                      isLandscapeCompact ? 'py-2 text-sm' : 'py-3 text-lg md:text-xl'
                     }`}
                   >
                     RETRY
                   </button>
                   <button
                     onClick={() => setScreen('freeplay')}
-                    className={`flex-1 bg-gradient-to-r from-cyan-500 to-blue-600 text-white border-4 border-black font-black shadow-[4px_4px_0_#000] ${
-                      isLandscapeCompact ? 'p-2 text-base' : 'p-3 text-xl md:text-3xl shadow-[6px_6px_0_#000]'
+                    className={`rc-bevel-btn rc-tile-cyan flex-1 text-black font-black whitespace-nowrap ${
+                      isLandscapeCompact ? 'py-2 text-sm' : 'py-3 text-lg md:text-xl'
                     }`}
                   >
                     BACK
@@ -2366,7 +2267,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
           downscroll={playerInfo.downscroll}
           skinColors={gameplaySkinColors}
           skinShape={gameplaySkinShape}
-          initialOrientation={isLandscapeCompact ? 'landscape' : 'portrait'}
+          initialOrientation="landscape"
           showTouchPads={showTouchPads}
           onToggleTouchPads={() => setShowTouchPads((v) => !v)}
           onChange={(nextLayout) => {

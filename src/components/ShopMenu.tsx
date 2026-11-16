@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ChevronLeft, Coins } from 'lucide-react';
+import { ChevronLeft, Coins, ShoppingCart } from 'lucide-react';
 import { db } from '../firebaseClient';
 import { AudioEngine } from '../game/audio';
 import {
@@ -9,7 +9,6 @@ import {
   NOTE_RARITIES,
   ROYALTY_FREE_SONGS,
   SHAPES,
-  SKINS,
 } from '../game/constants';
 import { drawNote } from '../game/renderer';
 import { safeGetStorage, safeSetStorage } from '../game/storage';
@@ -57,8 +56,8 @@ export const NoteTestArena: React.FC<{ product: Partial<NoteProduct>; onClose: (
       }
       const t = smoothTimeRef.current;
       const g = ctx.createLinearGradient(0, 0, 0, 520);
-      g.addColorStop(0, '#121633');
-      g.addColorStop(1, '#05060d');
+      g.addColorStop(0, '#161136');
+      g.addColorStop(1, '#080a12');
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, 360, 520);
       for (let l = 0; l < 4; l++) {
@@ -96,7 +95,7 @@ export const NoteTestArena: React.FC<{ product: Partial<NoteProduct>; onClose: (
       }
       ctx.fillStyle = '#fff';
       ctx.font = '900 18px Saira';
-      ctx.fillText('NEON DRIFT • NOTE TEST', 14, 28);
+      ctx.fillText('NEON DRIFT · NOTE TEST', 14, 28);
       ctx.fillStyle = '#facc15';
       ctx.fillText(`TEST HITS ${hitsRef.current}`, 14, 52);
       raf.current = requestAnimationFrame(loop);
@@ -139,16 +138,12 @@ export const NoteTestArena: React.FC<{ product: Partial<NoteProduct>; onClose: (
     return () => window.removeEventListener('keydown', k);
   }, []);
 
-  const isLandscapeCompact = useIsCompactLandscape();
+  const isCompact = useIsCompactLandscape();
 
   return (
-    <div className="fixed inset-0 z-[999] bg-black/90 flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
-      <div
-        className={`bg-gray-950 border-4 border-cyan-400 max-w-3xl w-full flex ${
-          isLandscapeCompact ? 'flex-row p-2.5 gap-3' : 'flex-col md:flex-row p-3 sm:p-4 gap-4'
-        } max-h-[95dvh] overflow-y-auto`}
-      >
-        <div className="flex flex-col items-center gap-1.5">
+    <div className="fixed inset-0 z-[999] bg-black/85 flex items-center justify-center p-3">
+      <div className="rc-panel max-w-3xl w-full flex flex-row p-3 sm:p-4 gap-4 max-h-[94dvh] overflow-y-auto text-white">
+        <div className="flex flex-col items-center gap-2 shrink-0">
           <canvas
             ref={canvasRef}
             width="360"
@@ -157,55 +152,46 @@ export const NoteTestArena: React.FC<{ product: Partial<NoteProduct>; onClose: (
               e.preventDefault();
               hit();
             }}
-            className={`touch-surface ${
-              isLandscapeCompact ? 'max-h-[58dvh]' : 'max-h-[45dvh] md:max-h-[65dvh]'
-            } w-auto border-4 border-white mx-auto`}
+            className={`touch-surface rounded-xl border-2 border-cyan-400 ${
+              isCompact ? 'max-h-[58dvh]' : 'max-h-[65dvh]'
+            } w-auto`}
           />
-          <TouchLanePads
-            colors={['#ec4899', '#22d3ee', '#4ade80', '#ef4444']}
-            onLaneDown={() => hit()}
-            compact
-          />
+          <TouchLanePads colors={['#ec4899', '#22d3ee', '#4ade80', '#ef4444']} onLaneDown={() => hit()} compact />
         </div>
-        <div className="flex-1 flex flex-col min-w-0">
-          <h2 className={`${isLandscapeCompact ? 'text-lg' : 'text-2xl sm:text-3xl'} font-black text-cyan-300`}>
-            NEON DRIFT TEST
-          </h2>
-          <p className={`text-gray-300 mb-2 ${isLandscapeCompact ? 'text-xs' : 'text-sm sm:text-base'}`}>
+        <div className="flex-1 flex flex-col gap-2.5 min-w-0">
+          <h2 className="text-xl sm:text-2xl font-black italic text-cyan-300 uppercase">Note Effect Test</h2>
+          <p className="text-xs sm:text-sm text-slate-300 font-bold">
             Tap the touch pads, canvas, or press arrow/WASD keys to test hits.
           </p>
           <audio ref={audioRef} src={ROYALTY_FREE_SONGS[0].audioUrl || undefined} loop playsInline />
           <button
+            type="button"
             onClick={startTest}
-            className={`w-full bg-green-400 text-black font-black ${
-              isLandscapeCompact ? 'p-2 text-xs min-h-[38px]' : 'p-3 min-h-[48px]'
-            }`}
+            className="w-full rc-bevel-btn rc-tile-green text-black font-black py-2.5 text-sm uppercase min-h-[42px]"
           >
             START TEST
           </button>
           <button
+            type="button"
             onClick={hit}
-            className={`w-full bg-pink-500 text-black font-black mt-2 ${
-              isLandscapeCompact ? 'p-2 text-xs min-h-[38px]' : 'p-3 min-h-[48px]'
-            }`}
+            className="w-full rc-bevel-btn rc-tile-pink text-white font-black py-2.5 text-sm uppercase min-h-[42px]"
           >
             SIMULATE HIT + EFFECTS
           </button>
-          <div className="mt-2 space-y-1.5 overflow-y-auto">
+          <div className="space-y-1.5 overflow-y-auto">
             {(product.effects || []).map((e) => (
-              <div className="bg-purple-900 p-1.5 text-xs" key={e.id}>
-                {NOTE_EFFECTS.find((x) => x.id === e.id)?.name} • {e.intensity}%
+              <div className="rc-dock-well px-2.5 py-1.5 text-xs font-bold text-violet-200" key={e.id}>
+                {NOTE_EFFECTS.find((x) => x.id === e.id)?.name} · {e.intensity}%
               </div>
             ))}
           </div>
           <button
+            type="button"
             onClick={() => {
               audioRef.current?.pause();
               onClose();
             }}
-            className={`w-full bg-white text-black font-black mt-auto ${
-              isLandscapeCompact ? 'p-2 text-xs min-h-[38px]' : 'p-3 pt-3 min-h-[48px]'
-            }`}
+            className="w-full rc-bevel-btn rc-tile-slate text-white font-black py-2.5 text-sm uppercase mt-auto min-h-[42px]"
           >
             CLOSE TEST
           </button>
@@ -223,7 +209,7 @@ interface ShopMenuProps {
 }
 
 export const ShopMenu: React.FC<ShopMenuProps> = ({ setScreen, playerInfo, setPlayerInfo, user }) => {
-  const isLandscapeCompact = useIsCompactLandscape();
+  const isCompact = useIsCompactLandscape();
   const [shopTab, setShopTab] = useState<'shapes' | 'notes' | 'sounds' | 'mods'>('notes');
   const [noteProducts, setNoteProducts] = useState<NoteProduct[]>(() => {
     try {
@@ -359,295 +345,309 @@ export const ShopMenu: React.FC<ShopMenuProps> = ({ setScreen, playerInfo, setPl
   };
 
   return (
-    <div
-      className={`w-full h-full bg-indigo-950 flex flex-col overflow-y-auto overflow-x-hidden bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCI+PGVsbGlwc2UgY3g9IjEwIiBjeT0iMTAiIHJ4PSI1IiByeT0iNSIgZmlsbD0iI2ZmZiIvPjwvc3ZnPg==')] bg-repeat relative custom-scrollbar safe-top safe-bottom ${
-        isLandscapeCompact ? 'pt-2 pb-4 px-3' : 'pt-3 md:pt-8 pb-8 md:pb-12 px-3 sm:px-6 md:px-12'
-      }`}
-    >
-      <div
-        className={`flex flex-wrap justify-between items-center z-10 pr-12 ${
-          isLandscapeCompact ? 'mb-2.5 gap-2' : 'sm:pr-16 mb-5 sm:mb-8 gap-3'
-        }`}
-      >
-        <button
-          onClick={() => setScreen('menu')}
-          className={`flex items-center gap-1 font-black bg-white border-black text-black hover:bg-gray-200 transition-all ${
-            isLandscapeCompact
-              ? 'text-xs px-3 py-1.5 border-2 rounded-lg shadow-[3px_3px_0_#000] min-h-[38px]'
-              : 'text-base md:text-2xl border-4 px-3 md:px-6 py-2 md:py-3 shadow-[5px_5px_0_#000] transform skew-x-[-10deg] min-h-[44px]'
-          }`}
-        >
-          <span className={`${isLandscapeCompact ? '' : 'transform skew-x-[10deg]'} flex items-center`}>
-            <ChevronLeft className={isLandscapeCompact ? 'w-4 h-4' : 'w-5 h-5 md:w-7 md:h-7'} /> BACK
-          </span>
-        </button>
-        {ADMIN_EMAILS.includes(user?.email || '') && (
+    <div className="rc-stage w-full h-full flex flex-col overflow-hidden safe-top safe-bottom p-3 sm:p-4">
+      <div className="absolute inset-0 rc-stage-dots pointer-events-none" />
+
+      {/* Centered Top Store Dock */}
+      <header className="relative z-10 w-full flex items-center justify-center pr-12 shrink-0 mb-3">
+        <div className="rc-dock-rail flex flex-wrap items-center justify-center gap-2 sm:gap-3 px-2.5 py-1.5">
           <button
-            onClick={() => setScreen('admin_studio')}
-            className={`bg-red-600 border-white font-black ${
-              isLandscapeCompact ? 'border-2 px-3 py-1.5 rounded-lg text-xs min-h-[38px]' : 'border-4 px-3 sm:px-4 py-2 text-sm sm:text-base min-h-[44px]'
-            }`}
+            type="button"
+            onClick={() => setScreen('menu')}
+            className="rc-bevel-btn rc-tile-slate text-white flex items-center gap-1 text-xs font-black px-3 py-1.5 rounded-lg min-h-[36px] whitespace-nowrap"
           >
-            ADMIN STUDIO
+            <ChevronLeft className="w-4 h-4" />
+            <span>BACK</span>
           </button>
-        )}
-        <h2
-          className={`font-black italic tracking-wider text-yellow-400 ${
-            isLandscapeCompact
-              ? 'text-2xl drop-shadow-[3px_3px_0_#000]'
-              : 'text-4xl sm:text-6xl md:text-8xl drop-shadow-[4px_4px_0_#000] md:drop-shadow-[8px_8px_0_#000] transform -rotate-2'
-          }`}
-        >
-          STORE
-        </h2>
-        <div
-          className={`flex items-center gap-2 bg-black border-yellow-400 ${
-            isLandscapeCompact
-              ? 'px-3 py-1 border-2 rounded-lg shadow-[3px_3px_0_#facc15]'
-              : 'px-3 md:px-6 py-2 md:py-3 border-4 shadow-[5px_5px_0_#facc15] transform skew-x-[8deg]'
-          }`}
-        >
-          <Coins className={`${isLandscapeCompact ? 'w-4 h-4' : 'w-6 h-6 md:w-9 md:h-9 transform skew-x-[-8deg]'} text-yellow-400`} />
-          <span className={`font-black text-white tracking-widest ${isLandscapeCompact ? 'text-base' : 'text-xl md:text-4xl transform skew-x-[-8deg]'}`}>
-            {playerInfo.coins}
-          </span>
+
+          <div className="rc-dock-well px-3.5 py-1.5 flex items-center gap-2">
+            <ShoppingCart className="w-4 h-4 text-yellow-400 shrink-0" />
+            <h2 className="text-sm sm:text-lg font-black italic text-yellow-300 uppercase tracking-wider whitespace-nowrap">
+              STORE
+            </h2>
+          </div>
+
+          <div className="rc-dock-well px-3 py-1.5 flex items-center gap-1.5">
+            <Coins className="w-4 h-4 text-yellow-400 shrink-0" />
+            <span className="font-black text-sm sm:text-base text-white tabular-nums">{playerInfo.coins}</span>
+          </div>
+
+          {ADMIN_EMAILS.includes(user?.email || '') && (
+            <button
+              type="button"
+              onClick={() => setScreen('admin_studio')}
+              className="rc-bevel-btn rc-tile-red text-white px-3 py-1.5 rounded-lg text-xs font-black uppercase min-h-[36px] whitespace-nowrap"
+            >
+              ADMIN STUDIO
+            </button>
+          )}
+        </div>
+      </header>
+
+      {/* Category Tabs Dock */}
+      <div className="relative z-10 flex justify-center mb-3 shrink-0">
+        <div className="rc-dock-rail flex flex-wrap items-center justify-center gap-1.5 p-1.5">
+          {(
+            [
+              ['shapes', 'SHAPES'],
+              ['notes', 'NOTES'],
+              ['sounds', 'HIT SOUNDS'],
+              ['mods', 'MODS'],
+            ] as const
+          ).map(([tab, label]) => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setShopTab(tab)}
+              className={`rc-bevel-btn px-4 py-1.5 rounded-lg text-xs sm:text-sm font-black uppercase tracking-wide whitespace-nowrap min-h-[36px] ${
+                shopTab === tab ? 'rc-tile-pink text-white' : 'rc-sub-dark text-slate-300 hover:text-white'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
       </div>
 
-      <div className={`flex flex-wrap z-10 w-full justify-center ${isLandscapeCompact ? 'gap-2 mb-3' : 'gap-2 sm:gap-4 mb-6 sm:mb-8'}`}>
-        {(
-          [
-            ['shapes', 'SHAPES'],
-            ['notes', 'NOTES'],
-            ['sounds', 'HIT SOUNDS'],
-            ['mods', 'MODS'],
-          ] as const
-        ).map(([tab, label]) => (
-          <button
-            key={tab}
-            onClick={() => setShopTab(tab)}
-            className={`font-black border-black ${
-              isLandscapeCompact
-                ? 'px-4 py-1.5 text-xs border-2 rounded-lg min-h-[36px] shadow-[2px_2px_0_#000]'
-                : 'px-4 py-2.5 sm:px-8 sm:py-3 text-sm sm:text-xl md:text-2xl border-4 min-h-[44px] shadow-[4px_4px_0_#000]'
-            } ${shopTab === tab ? 'bg-pink-500 text-white' : 'bg-white text-black hover:bg-gray-200'}`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      {/* Product Grid */}
+      <div className="relative z-10 flex-1 min-h-0 overflow-y-auto custom-scrollbar px-1 pb-4">
+        <div
+          className={`max-w-6xl mx-auto grid ${
+            isCompact ? 'grid-cols-2 lg:grid-cols-3 gap-3' : 'grid-cols-2 lg:grid-cols-3 gap-4'
+          }`}
+        >
+          {shopTab === 'shapes' &&
+            (Object.keys(SHAPES) as Array<'arrow' | 'circle'>).map((key) => {
+              const shape = SHAPES[key];
+              const isUnlocked = playerInfo.unlockedShapes.includes(key);
+              const isEquipped = playerInfo.equippedShape === key;
+              const canAfford = playerInfo.coins >= shape.price;
 
-      <div className={`grid z-10 ${isLandscapeCompact ? 'grid-cols-2 lg:grid-cols-3 gap-3 pb-4' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 md:gap-8 pb-12'}`}>
-        {shopTab === 'shapes' &&
-          (Object.keys(SHAPES) as Array<'arrow' | 'circle'>).map((key) => {
-            const shape = SHAPES[key];
-            const isUnlocked = playerInfo.unlockedShapes.includes(key);
-            const isEquipped = playerInfo.equippedShape === key;
-            const canAfford = playerInfo.coins >= shape.price;
-
-            return (
-              <div
-                key={key}
-                className={`flex flex-col bg-white transition-all ${
-                  isLandscapeCompact
-                    ? 'border-4 rounded-xl p-3 shadow-[4px_4px_0_#000]'
-                    : 'border-4 sm:border-8 p-4 md:p-6 shadow-[8px_8px_0_#000] sm:transform sm:skew-x-[-4deg]'
-                } ${isEquipped ? 'border-green-500' : 'border-black'}`}
-              >
-                <h3 className={`${isLandscapeCompact ? 'text-lg mb-2' : 'text-2xl md:text-4xl mb-4'} font-black italic text-center text-black uppercase`}>
-                  {shape.name}
-                </h3>
-
-                <div className={`flex justify-center gap-4 bg-gray-200 border-4 border-black items-center ${isLandscapeCompact ? 'mb-3 p-2 h-20' : 'mb-5 p-4 h-28 md:h-36'}`}>
-                  {key === 'arrow' && (
-                    <div className={`${isLandscapeCompact ? 'w-12 h-12' : 'w-16 h-16'} border-4 border-black bg-pink-500 flex items-center justify-center shadow-[4px_4px_0_#000]`}>
-                      <div className="w-0 h-0 border-l-[10px] border-l-transparent border-r-[10px] border-r-transparent border-b-[15px] border-b-white" />
-                    </div>
-                  )}
-                  {key === 'circle' && (
-                    <div className={`${isLandscapeCompact ? 'w-12 h-12' : 'w-16 h-16'} border-4 border-black bg-cyan-400 rounded-full flex items-center justify-center shadow-[4px_4px_0_#000]`}>
-                      <div className="w-8 h-8 rounded-full border-4 border-white" />
-                    </div>
-                  )}
-                </div>
-
-                <div className="mt-auto">
-                  {isEquipped ? (
-                    <button
-                      disabled
-                      className="w-full py-3 border-4 border-black font-black text-xl md:text-2xl tracking-widest bg-green-500 text-black shadow-[4px_4px_0_#000] min-h-[48px]"
-                    >
-                      EQUIPPED
-                    </button>
-                  ) : isUnlocked ? (
-                    <button
-                      onClick={() => handleEquipShape(key)}
-                      className="w-full py-3 border-4 border-black font-black text-xl md:text-2xl tracking-widest bg-blue-500 hover:bg-blue-400 text-black shadow-[4px_4px_0_#000] min-h-[48px]"
-                    >
-                      EQUIP
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => handlePurchaseShape(key)}
-                      disabled={!canAfford}
-                      className={`w-full py-3 border-4 border-black font-black text-xl md:text-2xl tracking-widest flex items-center justify-center gap-2 shadow-[4px_4px_0_#000] min-h-[48px] ${
-                        canAfford ? 'bg-yellow-400 text-black' : 'bg-gray-400 text-gray-600 cursor-not-allowed'
-                      }`}
-                    >
-                      {shape.price === 0 ? 'FREE' : <><Coins className="w-6 h-6" /> {shape.price}</>}
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-
-        {shopTab === 'notes' &&
-          noteProducts.map((p) => {
-            const owned = (playerInfo.unlockedNoteProducts || []).includes(p.id);
-            const equipped = playerInfo.equippedNoteProduct?.id === p.id;
-            return (
-              <div
-                key={p.id}
-                className="bg-gray-950 border-4 p-5 flex flex-col"
-                style={{
-                  borderColor: NOTE_RARITIES[p.rarity] || '#fff',
-                  boxShadow: `0 0 24px ${NOTE_RARITIES[p.rarity] || '#fff'}66`,
-                }}
-              >
+              return (
                 <div
-                  className="note-cutout w-28 h-28 mx-auto flex items-center justify-center text-3xl font-black"
-                  style={{ '--note-fill': p.fill, '--note-outline': p.outline } as React.CSSProperties}
+                  key={key}
+                  className={`rc-panel p-4 flex flex-col gap-3 ${isEquipped ? 'border-emerald-400' : ''}`}
                 >
-                  {p.sticker && (
-                    <img
-                      src={p.sticker}
-                      alt={p.name}
-                      className="absolute inset-0 w-full h-full object-cover"
-                      style={{ transform: `scale(${p.stickerScaleX || 1},${p.stickerScaleY || 1})` }}
-                    />
-                  )}
-                  <span className="relative">{p.text}</span>
-                </div>
-                <h3 className="text-2xl font-black mt-3">{p.name}</h3>
-                <div className="uppercase font-black" style={{ color: NOTE_RARITIES[p.rarity] }}>
-                  {p.rarity}
-                </div>
-                <p className="text-gray-300 flex-1 text-sm">{p.description}</p>
-                <div className="text-xs my-3 flex flex-wrap gap-1">
-                  {(p.effects || []).map((x) => (
-                    <span key={x.id} className="inline-block bg-purple-800 px-2 py-1">
-                      {NOTE_EFFECTS.find((f) => f.id === x.id)?.name} {x.intensity}%
-                    </span>
-                  ))}
-                </div>
-                <button
-                  onClick={() => buyOrEquipProduct(p)}
-                  className={`p-3 font-black text-xl min-h-[48px] ${
-                    equipped ? 'bg-green-500 text-black' : owned ? 'bg-cyan-500 text-black' : 'bg-yellow-400 text-black'
-                  }`}
-                >
-                  {equipped ? 'EQUIPPED' : owned ? 'EQUIP' : `BUY ${p.price}`}
-                </button>
-              </div>
-            );
-          })}
+                  <h3 className="text-lg sm:text-xl font-black italic text-center text-white uppercase">
+                    {shape.name}
+                  </h3>
 
-        {shopTab === 'sounds' &&
-          hitSounds.map((p) => {
-            const owned = (playerInfo.unlockedHitSounds || []).includes(p.id);
-            const equipped = playerInfo.equippedHitSound?.id === p.id;
-            return (
-              <div key={p.id} className="bg-gray-950 border-4 border-cyan-400 p-5 flex flex-col">
-                <div className="text-5xl text-center">♫</div>
-                <h3 className="text-2xl font-black">{p.name}</h3>
-                <p className="text-cyan-300 uppercase font-black">{p.kind === 'pack' ? '4-LANE PACK' : 'HIT SOUND'}</p>
-                <button
-                  onClick={() => {
-                    const u = p.kind === 'pack' ? p.sounds?.[0] : p.sound;
-                    if (u) new Audio(u).play().catch(() => {});
-                  }}
-                  className="bg-gray-700 p-2 my-3 min-h-[44px] font-black"
-                >
-                  PREVIEW
-                </button>
-                <button
-                  onClick={() => buyOrEquipSound(p)}
-                  className={`p-3 font-black text-xl min-h-[48px] ${
-                    equipped ? 'bg-green-500' : owned ? 'bg-cyan-500' : 'bg-yellow-400'
-                  } text-black`}
-                >
-                  {equipped ? 'EQUIPPED' : owned ? 'EQUIP' : `BUY ${p.price}`}
-                </button>
-              </div>
-            );
-          })}
+                  <div className="rc-console-inset flex justify-center gap-4 items-center p-3 h-24">
+                    {key === 'arrow' && (
+                      <div className="w-12 h-12 rounded-lg border-2 border-black bg-pink-500 flex items-center justify-center shadow-md">
+                        <div className="w-0 h-0 border-l-[10px] border-l-transparent border-r-[10px] border-r-transparent border-b-[15px] border-b-white" />
+                      </div>
+                    )}
+                    {key === 'circle' && (
+                      <div className="w-12 h-12 border-2 border-black bg-cyan-400 rounded-full flex items-center justify-center shadow-md">
+                        <div className="w-7 h-7 rounded-full border-4 border-white" />
+                      </div>
+                    )}
+                  </div>
 
-        {shopTab === 'mods' &&
-          [
-            {
-              id: 'rhythm_hero',
-              name: 'RHYTHM HERO DLC',
-              price: 5000,
-              desc: 'Four-lane perspective note highway.',
-              colors: 'from-yellow-500 to-purple-900',
-            },
-          ].map((m) => {
-            const owned = (playerInfo.unlockedGameMods || []).includes(m.id);
-            const isEquipped = (playerInfo.activeGameMods || []).includes(m.id);
-            return (
-              <div key={m.id} className="bg-black border-4 border-yellow-400 p-5 sm:p-6 flex flex-col">
-                <div className={`h-40 sm:h-44 relative overflow-hidden bg-gradient-to-br ${m.colors}`}>
-                  <div className="absolute inset-x-[25%] top-2 bottom-0 bg-gray-950 [clip-path:polygon(40%_0,60%_0,100%_100%,0_100%)] border-b-4 border-yellow-300" />
-                  {[0, 1, 2, 3].map((i) => (
-                    <i
-                      key={i}
-                      className="absolute bottom-3 w-7 h-3 rounded-full border-2 border-white"
-                      style={{ left: `${29 + i * 14}%`, background: ['#22c55e', '#ef4444', '#eab308', '#3b82f6'][i] }}
-                    />
-                  ))}
-                  <b className="absolute left-2 top-2 text-yellow-300">RHYTHM HERO</b>
+                  <div className="mt-auto">
+                    {isEquipped ? (
+                      <button
+                        type="button"
+                        disabled
+                        className="rc-bevel-btn rc-tile-green w-full py-2.5 font-black text-sm uppercase tracking-wider text-black min-h-[42px]"
+                      >
+                        EQUIPPED
+                      </button>
+                    ) : isUnlocked ? (
+                      <button
+                        type="button"
+                        onClick={() => handleEquipShape(key)}
+                        className="rc-bevel-btn rc-tile-cyan w-full py-2.5 font-black text-sm uppercase tracking-wider text-black min-h-[42px]"
+                      >
+                        EQUIP
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handlePurchaseShape(key)}
+                        disabled={!canAfford}
+                        className={`rc-bevel-btn w-full py-2.5 font-black text-sm uppercase tracking-wider flex items-center justify-center gap-1.5 min-h-[42px] ${
+                          canAfford ? 'rc-tile-gold text-black' : 'rc-sub-dark text-slate-500 cursor-not-allowed'
+                        }`}
+                      >
+                        {shape.price === 0 ? (
+                          'FREE'
+                        ) : (
+                          <>
+                            <Coins className="w-4 h-4" />
+                            <span>{shape.price}</span>
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
                 </div>
-                <h3 className="text-2xl sm:text-3xl font-black text-yellow-300 mt-4">{m.name}</h3>
-                <p className="text-gray-300 flex-1">{m.desc}</p>
-                <button
-                  disabled={!owned && playerInfo.coins < m.price}
-                  onClick={() =>
-                    setPlayerInfo((p) => {
-                      const unlocked = p.unlockedGameMods || [];
-                      const active = p.activeGameMods || [];
-                      const next: PlayerInfo = owned
-                        ? {
-                            ...p,
-                            activeGameMods: active.includes(m.id)
-                              ? active.filter((id) => id !== m.id)
-                              : [...active.filter((id) => !['rhythm_hero', 'dance_rhythm_pitch'].includes(id)), m.id],
-                          }
-                        : {
-                            ...p,
-                            coins: p.coins - m.price,
-                            unlockedGameMods: [...unlocked, m.id],
-                            activeGameMods: [...active.filter((id) => !['rhythm_hero', 'dance_rhythm_pitch'].includes(id)), m.id],
-                          };
-                      safeSetStorage('rhythmCanvasSave', JSON.stringify(next));
-                      return next;
-                    })
-                  }
-                  className={`p-4 font-black text-xl mt-4 min-h-[48px] ${
-                    owned
-                      ? isEquipped
-                        ? 'bg-green-500 text-black'
-                        : 'bg-cyan-400 text-black'
-                      : playerInfo.coins >= m.price
-                      ? 'bg-yellow-400 text-black'
-                      : 'bg-gray-700'
-                  }`}
+              );
+            })}
+
+          {shopTab === 'notes' && noteProducts.length === 0 && (
+            <div className="col-span-full rc-panel p-6 text-center text-sm font-bold text-slate-300">
+              No custom note packs available right now. Check the SHAPES or MODS tabs!
+            </div>
+          )}
+
+          {shopTab === 'notes' &&
+            noteProducts.map((p) => {
+              const owned = (playerInfo.unlockedNoteProducts || []).includes(p.id);
+              const equipped = playerInfo.equippedNoteProduct?.id === p.id;
+              return (
+                <div
+                  key={p.id}
+                  className="rc-panel p-4 flex flex-col gap-2.5"
+                  style={{ borderColor: NOTE_RARITIES[p.rarity] || '#080a0f' }}
                 >
-                  {owned ? (isEquipped ? 'EQUIPPED • UNEQUIP' : 'EQUIP DLC') : `BUY ${m.price}`}
-                </button>
-              </div>
-            );
-          })}
+                  <div
+                    className="note-cutout w-20 h-20 mx-auto flex items-center justify-center text-2xl font-black"
+                    style={{ '--note-fill': p.fill, '--note-outline': p.outline } as React.CSSProperties}
+                  >
+                    {p.sticker && (
+                      <img
+                        src={p.sticker}
+                        alt={p.name}
+                        className="absolute inset-0 w-full h-full object-cover"
+                        style={{ transform: `scale(${p.stickerScaleX || 1},${p.stickerScaleY || 1})` }}
+                      />
+                    )}
+                    <span className="relative">{p.text}</span>
+                  </div>
+                  <h3 className="text-lg font-black text-white">{p.name}</h3>
+                  <div className="uppercase font-black text-xs" style={{ color: NOTE_RARITIES[p.rarity] }}>
+                    {p.rarity}
+                  </div>
+                  <p className="text-slate-300 flex-1 text-xs leading-relaxed">{p.description}</p>
+                  <div className="text-[11px] flex flex-wrap gap-1.5 text-violet-300 font-bold">
+                    {(p.effects || []).map((x) => (
+                      <span key={x.id}>
+                        {NOTE_EFFECTS.find((f) => f.id === x.id)?.name} {x.intensity}%
+                      </span>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => buyOrEquipProduct(p)}
+                    className={`rc-bevel-btn py-2.5 font-black text-sm uppercase min-h-[42px] text-black ${
+                      equipped ? 'rc-tile-green' : owned ? 'rc-tile-cyan' : 'rc-tile-gold'
+                    }`}
+                  >
+                    {equipped ? 'EQUIPPED' : owned ? 'EQUIP' : `BUY ${p.price}`}
+                  </button>
+                </div>
+              );
+            })}
+
+          {shopTab === 'sounds' && hitSounds.length === 0 && (
+            <div className="col-span-full rc-panel p-6 text-center text-sm font-bold text-slate-300">
+              No custom hit sound packs available right now.
+            </div>
+          )}
+
+          {shopTab === 'sounds' &&
+            hitSounds.map((p) => {
+              const owned = (playerInfo.unlockedHitSounds || []).includes(p.id);
+              const equipped = playerInfo.equippedHitSound?.id === p.id;
+              return (
+                <div key={p.id} className="rc-panel p-4 flex flex-col gap-2.5">
+                  <div className="text-4xl text-center text-cyan-300">♫</div>
+                  <h3 className="text-lg font-black text-white">{p.name}</h3>
+                  <p className="text-cyan-300 uppercase font-black text-xs">
+                    {p.kind === 'pack' ? '4-LANE PACK' : 'HIT SOUND'}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const u = p.kind === 'pack' ? p.sounds?.[0] : p.sound;
+                      if (u) new Audio(u).play().catch(() => {});
+                    }}
+                    className="rc-bevel-btn rc-sub-dark text-white py-2 min-h-[38px] font-black text-xs uppercase"
+                  >
+                    PREVIEW
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => buyOrEquipSound(p)}
+                    className={`rc-bevel-btn py-2.5 font-black text-sm uppercase min-h-[42px] text-black ${
+                      equipped ? 'rc-tile-green' : owned ? 'rc-tile-cyan' : 'rc-tile-gold'
+                    }`}
+                  >
+                    {equipped ? 'EQUIPPED' : owned ? 'EQUIP' : `BUY ${p.price}`}
+                  </button>
+                </div>
+              );
+            })}
+
+          {shopTab === 'mods' &&
+            [
+              {
+                id: 'rhythm_hero',
+                name: 'RHYTHM HERO DLC',
+                price: 5000,
+                desc: 'Four-lane perspective note highway.',
+                colors: 'from-yellow-500 to-purple-900',
+              },
+            ].map((m) => {
+              const owned = (playerInfo.unlockedGameMods || []).includes(m.id);
+              const isEquipped = (playerInfo.activeGameMods || []).includes(m.id);
+              return (
+                <div key={m.id} className="rc-panel p-4 flex flex-col gap-3">
+                  <div className={`h-32 relative overflow-hidden rounded-xl border border-black bg-gradient-to-br ${m.colors}`}>
+                    <div className="absolute inset-x-[25%] top-2 bottom-0 bg-gray-950 [clip-path:polygon(40%_0,60%_0,100%_100%,0_100%)] border-b-4 border-yellow-300" />
+                    {[0, 1, 2, 3].map((i) => (
+                      <i
+                        key={i}
+                        className="absolute bottom-3 w-7 h-3 rounded-full border-2 border-white"
+                        style={{ left: `${29 + i * 14}%`, background: ['#22c55e', '#ef4444', '#eab308', '#3b82f6'][i] }}
+                      />
+                    ))}
+                    <b className="absolute left-2 top-2 text-xs text-yellow-300">RHYTHM HERO</b>
+                  </div>
+                  <h3 className="text-xl font-black text-yellow-300">{m.name}</h3>
+                  <p className="text-slate-300 text-xs flex-1">{m.desc}</p>
+                  <button
+                    type="button"
+                    disabled={!owned && playerInfo.coins < m.price}
+                    onClick={() =>
+                      setPlayerInfo((p) => {
+                        const unlocked = p.unlockedGameMods || [];
+                        const active = p.activeGameMods || [];
+                        const next: PlayerInfo = owned
+                          ? {
+                              ...p,
+                              activeGameMods: active.includes(m.id)
+                                ? active.filter((id) => id !== m.id)
+                                : [...active.filter((id) => !['rhythm_hero', 'dance_rhythm_pitch'].includes(id)), m.id],
+                            }
+                          : {
+                              ...p,
+                              coins: p.coins - m.price,
+                              unlockedGameMods: [...unlocked, m.id],
+                              activeGameMods: [...active.filter((id) => !['rhythm_hero', 'dance_rhythm_pitch'].includes(id)), m.id],
+                            };
+                        safeSetStorage('rhythmCanvasSave', JSON.stringify(next));
+                        return next;
+                      })
+                    }
+                    className={`rc-bevel-btn py-2.5 font-black text-sm uppercase min-h-[42px] ${
+                      owned
+                        ? isEquipped
+                          ? 'rc-tile-green text-black'
+                          : 'rc-tile-cyan text-black'
+                        : playerInfo.coins >= m.price
+                        ? 'rc-tile-gold text-black'
+                        : 'rc-sub-dark text-slate-500 cursor-not-allowed'
+                    }`}
+                  >
+                    {owned ? (isEquipped ? 'EQUIPPED · UNEQUIP' : 'EQUIP DLC') : `BUY ${m.price}`}
+                  </button>
+                </div>
+              );
+            })}
+        </div>
       </div>
     </div>
   );

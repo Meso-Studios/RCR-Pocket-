@@ -43,21 +43,59 @@ import { ShopMenu } from './components/ShopMenu';
 import { SongEditor } from './components/SongEditor';
 
 import { safeGetStorage, safeSetStorage } from './game/storage';
-import { useIsCompactLandscape } from './game/useViewport';
+import { useViewportOrientation } from './game/useViewport';
 
 const InterruptionOverlay: React.FC<{ message?: string }> = ({ message }) => (
-  <div className="absolute inset-0 z-[99998] flex flex-col items-center justify-center bg-black/95 p-6 text-center text-white crt">
-    <h1 className="text-4xl md:text-7xl font-black italic text-yellow-300">GAME INTERRUPTED</h1>
-    <p className="mt-6 max-w-3xl border-4 border-cyan-400 bg-gray-950 p-6 text-xl md:text-3xl font-bold">
-      {message || 'The administrator has paused gameplay.'}
-    </p>
-    <p className="mt-8 text-lg font-black text-cyan-300">DONATING CAN REDUCE INTERUPTION FREQUENCY</p>
+  <div className="fixed inset-0 z-[99998] rc-stage flex flex-col items-center justify-center p-6 text-center text-white">
+    <div className="absolute inset-0 rc-stage-dots pointer-events-none" />
+    <div className="relative z-10 rc-panel max-w-xl w-full p-6 flex flex-col items-center gap-4">
+      <h1 className="rc-hero-wordmark text-3xl sm:text-5xl text-yellow-300 uppercase">GAME INTERRUPTED</h1>
+      <p className="w-full rc-console-inset p-4 text-base sm:text-xl font-bold text-cyan-100">
+        {message || 'The administrator has paused gameplay.'}
+      </p>
+      <p className="text-xs sm:text-sm font-black tracking-wider text-cyan-300 uppercase">
+        DONATING CAN REDUCE INTERRUPTION FREQUENCY
+      </p>
+    </div>
+  </div>
+);
+
+const RotateToLandscapeOverlay: React.FC<{ onTryLock: () => void }> = ({ onTryLock }) => (
+  <div
+    data-testid="rotate-landscape-overlay"
+    className="fixed inset-0 z-[99995] rc-stage flex flex-col items-center justify-center p-6 text-center text-white select-none"
+  >
+    <div className="absolute inset-0 rc-stage-dots pointer-events-none" />
+    <div className="relative z-10 rc-console-tray max-w-sm w-full p-6 flex flex-col items-center gap-5">
+      <div className="rc-console-inset w-24 h-24 flex items-center justify-center">
+        <svg viewBox="0 0 64 64" className="w-16 h-16 text-cyan-300" fill="none" aria-hidden="true">
+          <rect x="14" y="18" width="36" height="24" rx="4" stroke="currentColor" strokeWidth="3.5" fill="#131722" />
+          <circle cx="44" cy="30" r="2.2" fill="#ff2e88" />
+          <path d="M18 11 C26 5, 38 5, 46 11" stroke="#ffd826" strokeWidth="3" strokeLinecap="round" />
+          <path d="M42 6 L47 11.5 L40 13" stroke="#ffd826" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </div>
+      <div className="flex flex-col items-center gap-1">
+        <span className="rc-hero-wordmark rc-word-rhythm text-2xl uppercase">LANDSCAPE</span>
+        <span className="rc-hero-wordmark rc-word-canvas text-2xl uppercase">MODE ONLY</span>
+      </div>
+      <p className="text-sm font-bold text-slate-300 leading-relaxed max-w-[28ch]">
+        Rotate your device sideways to play Rhythm Canvas Reboot in widescreen landscape.
+      </p>
+      <button
+        type="button"
+        onClick={onTryLock}
+        className="rc-bevel-btn rc-tile-pink px-6 py-3 font-black text-sm text-white tracking-wider uppercase whitespace-nowrap min-h-[44px]"
+      >
+        LOCK LANDSCAPE &amp; FULLSCREEN
+      </button>
+    </div>
   </div>
 );
 
 function RhythmCanvasApp() {
   const appRef = useRef<HTMLDivElement | null>(null);
-  const isLandscapeCompact = useIsCompactLandscape();
+  const { isPortrait, isLandscapeCompact } = useViewportOrientation();
   const [rhythmList, setRhythmList] = useState<Array<string | number>>([]);
 
   useEffect(() => {
@@ -403,7 +441,15 @@ function RhythmCanvasApp() {
     }
   }, [hasStarted, peerInstance]);
 
-  const toggleFullscreen = () => {
+  const tryLockLandscape = useCallback(() => {
+    try {
+      (window.screen?.orientation as any)?.lock?.('landscape')?.catch?.(() => {});
+    } catch {
+      // Orientation lock is browser/PWA gated
+    }
+  }, []);
+
+  const toggleFullscreen = useCallback(() => {
     const doc = document as Document & {
       webkitFullscreenElement?: Element | null;
       webkitExitFullscreen?: () => Promise<void> | void;
@@ -426,6 +472,7 @@ function RhythmCanvasApp() {
           window.scrollTo(0, 1);
           setIsFullscreen(false);
         }
+        tryLockLandscape();
       } else {
         const exit = doc.exitFullscreen || doc.webkitExitFullscreen;
         if (typeof exit === 'function') {
@@ -439,7 +486,7 @@ function RhythmCanvasApp() {
     } catch {
       setIsFullscreen(!!(doc.fullscreenElement ?? doc.webkitFullscreenElement));
     }
-  };
+  }, [tryLockLandscape]);
 
   useEffect(() => {
     const doc = document as Document & { webkitFullscreenElement?: Element | null };
@@ -459,7 +506,8 @@ function RhythmCanvasApp() {
     bgm.volume = 0.3;
 
     const menuScreens: ScreenId[] = ['menu', 'freeplay', 'online_tracks', 'shop', 'lobby', 'events'];
-    const shouldPlayBGM = menuScreens.includes(screen) && !isPreviewing && hasStarted && !interruptionShowing;
+    const shouldPlayBGM =
+      !isPortrait && menuScreens.includes(screen) && !isPreviewing && hasStarted && !interruptionShowing;
 
     if (shouldPlayBGM) {
       const targetSrc = screen === 'online_tracks' ? ONLINE_BGM : MENU_BGM;
@@ -472,212 +520,245 @@ function RhythmCanvasApp() {
     } else {
       bgm.pause();
     }
-  }, [screen, isPreviewing, hasStarted, interruptionShowing]);
+  }, [screen, isPreviewing, hasStarted, interruptionShowing, isPortrait]);
 
-  const handleStartTap = () => {
+  const handleStartTap = useCallback(() => {
     if (hasStarted) return;
     AudioEngine.init();
+    tryLockLandscape();
     setHasStarted(true);
-  };
+  }, [hasStarted, tryLockLandscape]);
+
+  useEffect(() => {
+    if (hasStarted) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        handleStartTap();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [hasStarted, handleStartTap]);
 
   if (updateAvailable && !interruptionsDisabled) {
     return (
-      <div className="absolute inset-0 z-[99999] flex flex-col items-center justify-center bg-black/95 text-white p-4 md:p-8 overflow-hidden crt">
-        <h1 className="text-5xl md:text-8xl font-black italic text-red-500 mb-4 animate-pulse transform skew-x-[-5deg] drop-shadow-[6px_6px_0_#000] text-center">
-          UPDATE REQUIRED
-        </h1>
-        <p className="text-lg md:text-4xl font-bold text-cyan-400 mb-8 md:mb-12 max-w-3xl text-center transform skew-x-[5deg] bg-gray-900 p-6 border-4 border-cyan-400 shadow-[8px_8px_0_#000]">
-          {updateMessage}
-        </p>
-        <button
-          onClick={() => {
-            window.location.href = window.location.pathname + '?v=' + Date.now();
-          }}
-          className="bg-yellow-400 text-black px-8 md:px-12 py-4 md:py-6 font-black text-2xl md:text-4xl border-4 border-white shadow-[8px_8px_0_#fff] transform skew-x-[-10deg] hover:-translate-y-2 transition-all active:translate-y-0 active:shadow-none"
-        >
-          RESTART GAME
-        </button>
+      <div className="fixed inset-0 z-[99999] rc-stage flex flex-col items-center justify-center text-white p-6 overflow-hidden">
+        <div className="absolute inset-0 rc-stage-dots pointer-events-none" />
+        <div className="relative z-10 rc-console-tray max-w-xl w-full p-6 flex flex-col items-center gap-5 text-center">
+          <h1 className="rc-hero-wordmark text-4xl sm:text-6xl text-red-400 uppercase">UPDATE REQUIRED</h1>
+          <p className="w-full rc-console-inset p-4 text-base sm:text-xl font-bold text-cyan-200">{updateMessage}</p>
+          <button
+            onClick={() => {
+              window.location.href = window.location.pathname + '?v=' + Date.now();
+            }}
+            className="rc-bevel-btn rc-tile-gold px-8 py-3.5 font-black text-xl text-black tracking-wider uppercase whitespace-nowrap min-h-[48px]"
+          >
+            RESTART GAME
+          </button>
+        </div>
       </div>
     );
   }
 
-  const disableCrtOverlay = hasStarted && (screen === 'game' || screen === 'horse');
-
   return (
     <div
       ref={appRef}
-      className={`relative w-full h-full min-h-full game-bg font-sans text-white select-none overflow-hidden ${
-        disableCrtOverlay ? '' : 'crt'
-      }`}
+      className="relative w-full h-full min-h-full rc-stage font-sans text-white select-none overflow-hidden"
     >
-      <button
-        onClick={toggleFullscreen}
-        aria-label="Toggle fullscreen"
-        className={`absolute top-2 right-2 z-50 bg-black border-white text-white hover:bg-white hover:text-black transition-colors transform skew-x-[-5deg] active:translate-y-1 active:shadow-none ${
-          isLandscapeCompact
-            ? 'p-1.5 border-2 shadow-[3px_3px_0_#fff]'
-            : 'md:top-5 md:right-5 p-2 md:p-3 border-2 md:border-4 shadow-[4px_4px_0_#fff] md:shadow-[6px_6px_0_#fff]'
-        }`}
-      >
-        {isFullscreen ? (
-          <Minimize className={`${isLandscapeCompact ? 'w-4 h-4' : 'w-5 h-5 md:w-7 md:h-7'} transform skew-x-[5deg]`} />
-        ) : (
-          <Maximize className={`${isLandscapeCompact ? 'w-4 h-4' : 'w-5 h-5 md:w-7 md:h-7'} transform skew-x-[5deg]`} />
+      <div className="absolute inset-0 rc-stage-dots pointer-events-none opacity-80" />
+
+      <div className={isPortrait ? 'hidden' : 'relative w-full h-full'}>
+        {!isPortrait && (
+          <button
+            onClick={toggleFullscreen}
+            aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+            className={`fixed z-50 rc-bevel-btn rc-tile-slate text-slate-100 flex items-center justify-center ${
+              isLandscapeCompact ? 'top-2 right-2 w-9 h-9 rounded-lg' : 'top-3 right-3 w-10 h-10 rounded-xl'
+            }`}
+          >
+            {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+          </button>
         )}
-      </button>
 
-      {showDevConsole && (
-        <DevConsole playerInfo={playerInfo} setPlayerInfo={setPlayerInfo} setShowDevConsole={setShowDevConsole} />
-      )}
+        {showDevConsole && (
+          <DevConsole playerInfo={playerInfo} setPlayerInfo={setPlayerInfo} setShowDevConsole={setShowDevConsole} />
+        )}
 
-      {!hasStarted ? (
-        <div
-          data-testid="start-screen"
-          className="w-full h-full flex flex-col items-center justify-center cursor-pointer px-4 overflow-y-auto touch-surface"
-          onPointerDown={(e) => {
-            e.preventDefault();
-            handleStartTap();
-          }}
-          onClick={handleStartTap}
-        >
-          <h1
-            className={`reboot-title font-black italic text-pink-500 drop-shadow-[6px_6px_0_#000] animate-pulse transform skew-x-[-10deg] text-center leading-tight ${
-              isLandscapeCompact ? 'text-4xl sm:text-5xl mb-3' : 'text-5xl sm:text-7xl md:text-8xl lg:text-9xl mb-8'
-            }`}
-          >
-            RHYTHM
-            <br />
-            <span className="text-yellow-400">CANVAS</span>
-            <div className={`${isLandscapeCompact ? 'text-xl sm:text-2xl mt-1' : 'text-2xl sm:text-3xl md:text-5xl mt-2'} text-cyan-300 tracking-[.35em]`}>
-              REBOOT
-            </div>
-          </h1>
+        {!hasStarted ? (
           <div
-            className={`font-black text-white bg-black border-4 border-white ${
-              isLandscapeCompact
-                ? 'text-base px-5 py-2.5 shadow-[5px_5px_0_#fff]'
-                : 'text-xl sm:text-2xl md:text-3xl px-6 sm:px-8 py-3 sm:py-4 shadow-[8px_8px_0_#fff]'
-            }`}
+            data-testid="start-screen"
+            className="relative z-10 w-full h-full flex flex-col items-center justify-center cursor-pointer px-6 py-4 overflow-hidden touch-surface"
+            onPointerDown={(e) => {
+              e.preventDefault();
+              handleStartTap();
+            }}
+            onClick={handleStartTap}
           >
-            CLICK TO START
+            <div className="flex flex-col items-center justify-center gap-5 max-w-2xl w-full">
+              <h1 className="rc-hero-wordmark text-center uppercase flex flex-col items-center">
+                <span
+                  className={`rc-word-rhythm block ${
+                    isLandscapeCompact ? 'text-4xl sm:text-5xl' : 'text-5xl sm:text-7xl md:text-8xl'
+                  }`}
+                >
+                  RHYTHM
+                </span>
+                <span
+                  className={`rc-word-canvas block -mt-1 ${
+                    isLandscapeCompact ? 'text-4xl sm:text-5xl' : 'text-5xl sm:text-7xl md:text-8xl'
+                  }`}
+                >
+                  CANVAS
+                </span>
+                <span
+                  className={`rc-word-reboot block mt-0.5 ${
+                    isLandscapeCompact ? 'text-lg sm:text-xl' : 'text-xl sm:text-3xl md:text-4xl'
+                  }`}
+                >
+                  REBOOT
+                </span>
+              </h1>
+
+              <button
+                type="button"
+                data-start="true"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleStartTap();
+                }}
+                className={`rc-bevel-btn rc-tile-pink text-white font-black uppercase tracking-widest whitespace-nowrap ${
+                  isLandscapeCompact ? 'px-8 py-3 text-lg min-h-[46px]' : 'px-10 py-4 text-2xl min-h-[56px]'
+                }`}
+              >
+                CLICK TO START
+              </button>
+
+              <p className="text-[11px] sm:text-xs font-bold tracking-[0.2em] uppercase text-slate-300/80 text-center">
+                LANDSCAPE MODE ONLY · KEYBOARD / CONTROLLER / TOUCH
+              </p>
+            </div>
           </div>
-        </div>
-      ) : (
-        <>
-          <audio ref={menuBgmRef} loop className="hidden" />
+        ) : (
+          <>
+            <audio ref={menuBgmRef} loop className="hidden" />
 
-          {screen === 'menu' && (
-            <MainMenu
-              setScreen={setScreen}
-              playerInfo={playerInfo}
-              setPlayerInfo={setPlayerInfo}
-              user={user}
-              interruption={interruption}
-              interruptionsDisabled={interruptionsDisabled}
-              onToggleInterruptions={handleToggleInterruptions}
-              onOpenDevConsole={() => setShowDevConsole(true)}
-              onOpenChangelog={() => setShowChangelog(true)}
-            />
-          )}
+            {screen === 'menu' && (
+              <MainMenu
+                setScreen={setScreen}
+                playerInfo={playerInfo}
+                setPlayerInfo={setPlayerInfo}
+                user={user}
+                interruption={interruption}
+                interruptionsDisabled={interruptionsDisabled}
+                onToggleInterruptions={handleToggleInterruptions}
+                onOpenDevConsole={() => setShowDevConsole(true)}
+                onOpenChangelog={() => setShowChangelog(true)}
+                isFullscreen={isFullscreen}
+                onToggleFullscreen={toggleFullscreen}
+              />
+            )}
 
-          {screen === 'events' && <EventsMenu setScreen={setScreen} setGameMode={setGameMode} />}
+            {screen === 'events' && <EventsMenu setScreen={setScreen} setGameMode={setGameMode} />}
 
-          {screen === 'freeplay' && (
-            <FreeplayMenu
-              songs={songs}
-              selectedSong={selectedSong}
-              setSelectedSong={setSelectedSong}
-              difficulty={difficulty}
-              setDifficulty={setDifficulty}
-              gameMode={gameMode}
-              setGameMode={setGameMode}
-              setScreen={setScreen}
-              setCustomBeatmap={setCustomBeatmap}
-              setIsPreviewing={setIsPreviewing}
-              rhythmList={rhythmList}
-              playerInfo={playerInfo}
-              setPlayerInfo={setPlayerInfo}
-              modifiers={modifiers}
-              setModifiers={setModifiers}
-              bestGrades={bestGrades}
-            />
-          )}
+            {screen === 'freeplay' && (
+              <FreeplayMenu
+                songs={songs}
+                selectedSong={selectedSong}
+                setSelectedSong={setSelectedSong}
+                difficulty={difficulty}
+                setDifficulty={setDifficulty}
+                gameMode={gameMode}
+                setGameMode={setGameMode}
+                setScreen={setScreen}
+                setCustomBeatmap={setCustomBeatmap}
+                setIsPreviewing={setIsPreviewing}
+                rhythmList={rhythmList}
+                playerInfo={playerInfo}
+                setPlayerInfo={setPlayerInfo}
+                modifiers={modifiers}
+                setModifiers={setModifiers}
+                bestGrades={bestGrades}
+              />
+            )}
 
-          {screen === 'online_tracks' && (
-            <OnlineTracksMenu
-              songs={songs}
-              setSongs={setSongs}
-              selectedSong={selectedSong}
-              setSelectedSong={setSelectedSong}
-              difficulty={difficulty}
-              setDifficulty={setDifficulty}
-              gameMode={gameMode}
-              setGameMode={setGameMode}
-              setScreen={setScreen}
-              setCustomBeatmap={setCustomBeatmap}
-              user={user}
-              setIsPreviewing={setIsPreviewing}
-              playerInfo={playerInfo}
-              setPlayerInfo={setPlayerInfo}
-              modifiers={modifiers}
-              setModifiers={setModifiers}
-              bestGrades={bestGrades}
-            />
-          )}
+            {screen === 'online_tracks' && (
+              <OnlineTracksMenu
+                songs={songs}
+                setSongs={setSongs}
+                selectedSong={selectedSong}
+                setSelectedSong={setSelectedSong}
+                difficulty={difficulty}
+                setDifficulty={setDifficulty}
+                gameMode={gameMode}
+                setGameMode={setGameMode}
+                setScreen={setScreen}
+                setCustomBeatmap={setCustomBeatmap}
+                user={user}
+                setIsPreviewing={setIsPreviewing}
+                playerInfo={playerInfo}
+                setPlayerInfo={setPlayerInfo}
+                modifiers={modifiers}
+                setModifiers={setModifiers}
+                bestGrades={bestGrades}
+              />
+            )}
 
-          {screen === 'lobby' && (
-            <OnlineLobby
-              peer={peerInstance}
-              myPeerId={myPeerId}
-              setNetworkConnection={setNetworkConnection}
-              setScreen={setScreen}
-              gameMode={gameMode}
-            />
-          )}
+            {screen === 'lobby' && (
+              <OnlineLobby
+                peer={peerInstance}
+                myPeerId={myPeerId}
+                setNetworkConnection={setNetworkConnection}
+                setScreen={setScreen}
+                gameMode={gameMode}
+              />
+            )}
 
-          {screen === 'game' && selectedSong && (
-            <GameEngine
-              key={`${selectedSong.id}_${selectedSong.customMap?.length || 0}`}
-              song={selectedSong}
-              difficulty={difficulty}
-              gameMode={gameMode}
-              setScreen={setScreen}
-              customBeatmap={Array.isArray(selectedSong.customMap) ? normalizeChart(selectedSong.customMap) : customBeatmap}
-              playerInfo={playerInfo}
-              onUpdateHaptics={updateHaptics}
-              onUpdateControlLayout={updateControlLayout}
-              addRewards={addRewards}
-              networkConnection={networkConnection}
-              modifiers={modifiers}
-              recordGrade={recordGrade}
-              interruptionActive={interruptionShowing}
-            />
-          )}
+            {screen === 'game' && selectedSong && (
+              <GameEngine
+                key={`${selectedSong.id}_${selectedSong.customMap?.length || 0}`}
+                song={selectedSong}
+                difficulty={difficulty}
+                gameMode={gameMode}
+                setScreen={setScreen}
+                customBeatmap={Array.isArray(selectedSong.customMap) ? normalizeChart(selectedSong.customMap) : customBeatmap}
+                playerInfo={playerInfo}
+                onUpdateHaptics={updateHaptics}
+                onUpdateControlLayout={updateControlLayout}
+                addRewards={addRewards}
+                networkConnection={networkConnection}
+                modifiers={modifiers}
+                recordGrade={recordGrade}
+                interruptionActive={interruptionShowing}
+              />
+            )}
 
-          {screen === 'horse' && (
-            <HorseEngine networkConnection={networkConnection} setScreen={setScreen} playerInfo={playerInfo} />
-          )}
+            {screen === 'horse' && (
+              <HorseEngine networkConnection={networkConnection} setScreen={setScreen} playerInfo={playerInfo} />
+            )}
 
-          {screen === 'editor' && (
-            <SongEditor
-              setScreen={setScreen}
-              setSongs={setSongs}
-              songs={songs}
-              setSelectedSong={setSelectedSong}
-              user={user}
-            />
-          )}
+            {screen === 'editor' && (
+              <SongEditor
+                setScreen={setScreen}
+                setSongs={setSongs}
+                songs={songs}
+                setSelectedSong={setSelectedSong}
+                user={user}
+              />
+            )}
 
-          {screen === 'shop' && (
-            <ShopMenu setScreen={setScreen} playerInfo={playerInfo} setPlayerInfo={setPlayerInfo} user={user} />
-          )}
+            {screen === 'shop' && (
+              <ShopMenu setScreen={setScreen} playerInfo={playerInfo} setPlayerInfo={setPlayerInfo} user={user} />
+            )}
 
-          {screen === 'admin_studio' && <AdminStudio setScreen={setScreen} songs={songs} user={user} />}
+            {screen === 'admin_studio' && <AdminStudio setScreen={setScreen} songs={songs} user={user} />}
 
-          {showChangelog && <ChangelogModal onClose={closeChangelog} />}
-        </>
-      )}
+            {showChangelog && <ChangelogModal onClose={closeChangelog} />}
+          </>
+        )}
+      </div>
 
+      {isPortrait && <RotateToLandscapeOverlay onTryLock={toggleFullscreen} />}
       {interruptionShowing && <InterruptionOverlay message={interruption?.message} />}
     </div>
   );

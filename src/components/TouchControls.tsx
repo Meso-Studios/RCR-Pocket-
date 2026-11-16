@@ -206,16 +206,16 @@ export const TouchLanePads: React.FC<TouchLanePadsProps> = ({
               data-pressed="false"
               role="button"
               aria-label={`Lane ${lane + 1} ${LANE_LABELS[lane]}`}
-              className="touch-pad absolute flex items-center justify-center border-4 border-black shadow-[0_5px_0_#000] rounded-xl cursor-pointer"
+              className="touch-pad absolute flex items-center justify-center border-2 rounded-xl cursor-pointer"
               style={{
                 left: `${pos.xPct}%`,
                 top: `${pos.yPct}%`,
                 width: `${PAD_BUTTON_WIDTH_PCT}%`,
                 height: `${PAD_BUTTON_HEIGHT_PCT}%`,
-                backgroundColor: '#0c1020',
+                background: 'linear-gradient(180deg, #1b2030 0%, #0d1018 100%)',
                 borderColor: color,
                 color,
-                boxShadow: `0 5px 0 #000, inset 0 0 18px ${color}33`,
+                boxShadow: `0 4px 0 #080a0f, inset 0 1px 0 rgba(255,255,255,0.22), inset 0 0 18px ${color}33`,
               }}
             >
               {shape === 'circle' ? (
@@ -269,12 +269,12 @@ export const TouchLanePads: React.FC<TouchLanePadsProps> = ({
             data-pressed="false"
             role="button"
             aria-label={`Lane ${lane + 1} ${LANE_LABELS[lane]}`}
-            className={`touch-pad relative flex items-center justify-center border-4 border-black shadow-[0_6px_0_#000] rounded-xl cursor-pointer ${heightClass}`}
+            className={`touch-pad relative flex items-center justify-center border-2 rounded-xl cursor-pointer ${heightClass}`}
             style={{
-              backgroundColor: '#0c1020',
+              background: 'linear-gradient(180deg, #1b2030 0%, #0d1018 100%)',
               borderColor: color,
               color,
-              boxShadow: `0 5px 0 #000, inset 0 0 18px ${color}33`,
+              boxShadow: `0 4px 0 #080a0f, inset 0 1px 0 rgba(255,255,255,0.22), inset 0 0 18px ${color}33`,
             }}
           >
             {shape === 'circle' ? (

@@ -62,28 +62,28 @@ export const HapticsSettingsModal: React.FC<HapticsSettingsModalProps> = ({ sett
   return (
     <div
       data-testid="haptics-settings-modal"
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/85 backdrop-blur-md p-3 sm:p-5"
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/85 p-3 sm:p-5"
       role="dialog"
       aria-modal="true"
       aria-label="Haptics Settings"
     >
       <div
-        className={`w-full max-h-[94dvh] flex flex-col bg-gray-950 border-4 border-cyan-400 shadow-[10px_10px_0_#000] rounded-2xl overflow-hidden text-white ${
-          isLandscapeCompact ? 'max-w-2xl' : 'max-w-xl'
+        className={`rc-console-tray w-full max-h-[94dvh] flex flex-col overflow-hidden text-white ${
+          isLandscapeCompact ? 'max-w-3xl p-3 gap-2' : 'max-w-2xl p-4 gap-3'
         }`}
       >
         {/* Header */}
         <div
-          className={`flex items-center justify-between gap-3 bg-gradient-to-r from-cyan-500/20 via-purple-600/20 to-pink-500/20 border-b-4 border-cyan-400 shrink-0 ${
-            isLandscapeCompact ? 'px-4 py-2' : 'px-4 sm:px-6 py-3'
+          className={`rc-dock-rail flex items-center justify-between gap-3 shrink-0 ${
+            isLandscapeCompact ? 'px-3 py-1.5' : 'px-4 py-2.5'
           }`}
         >
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className={`${isLandscapeCompact ? 'w-7 h-7' : 'w-9 h-9'} rounded-lg bg-cyan-400 text-black flex items-center justify-center shrink-0 border-2 border-black`}>
+            <div className={`${isLandscapeCompact ? 'w-7 h-7' : 'w-9 h-9'} rc-bevel-btn rc-tile-gold text-black flex items-center justify-center shrink-0`}>
               <Vibrate className={isLandscapeCompact ? 'w-4 h-4' : 'w-5 h-5'} />
             </div>
             <div className="min-w-0">
-              <h2 className={`${isLandscapeCompact ? 'text-base' : 'text-lg sm:text-2xl'} font-black italic tracking-wide uppercase truncate`}>
+              <h2 className={`${isLandscapeCompact ? 'text-base' : 'text-lg sm:text-xl'} font-black italic tracking-wide uppercase truncate`}>
                 HAPTICS SETTINGS
               </h2>
               <p className="text-[11px] font-bold text-cyan-300 truncate">
@@ -103,20 +103,20 @@ export const HapticsSettingsModal: React.FC<HapticsSettingsModalProps> = ({ sett
               triggerHaptic('menuTap', current);
               onClose();
             }}
-            className="bg-white text-black border-2 border-black p-1.5 rounded-lg font-black hover:bg-cyan-300 transition-colors min-w-[38px] min-h-[38px] flex items-center justify-center"
+            className="rc-bevel-btn rc-tile-slate text-white p-1.5 font-black min-w-[36px] min-h-[36px] flex items-center justify-center shrink-0"
             aria-label="Close haptics settings"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Scrollable Content */}
-        <div className={`flex-1 overflow-y-auto custom-scrollbar ${isLandscapeCompact ? 'p-3 space-y-2.5' : 'p-4 sm:p-5 space-y-4'}`}>
+        <div className={`flex-1 overflow-y-auto custom-scrollbar pr-1 ${isLandscapeCompact ? 'space-y-2' : 'space-y-3'}`}>
           {/* Master Toggle */}
-          <div className="flex items-center justify-between gap-3 bg-black/70 border-2 border-white/20 rounded-xl p-3">
+          <div className="rc-console-inset flex items-center justify-between gap-3 p-3">
             <div>
-              <div className="font-black text-base sm:text-lg tracking-wider">MASTER HAPTICS</div>
-              <div className="text-xs text-gray-300">Enable tactile feedback during gameplay and menus</div>
+              <div className="font-black text-sm sm:text-base tracking-wider">MASTER HAPTICS</div>
+              <div className="text-xs text-slate-300">Enable tactile feedback during gameplay and menus</div>
             </div>
             <button
               type="button"
@@ -126,8 +126,8 @@ export const HapticsSettingsModal: React.FC<HapticsSettingsModalProps> = ({ sett
                 onChange(next);
                 if (next.enabled) triggerHaptic('hit', next, 'sick');
               }}
-              className={`px-5 py-2.5 rounded-xl font-black text-sm border-2 border-black shadow-[4px_4px_0_#000] min-w-[88px] min-h-[44px] transition-colors ${
-                current.enabled ? 'bg-green-400 text-black' : 'bg-gray-700 text-gray-200'
+              className={`rc-bevel-btn px-5 py-2 font-black text-sm min-w-[88px] min-h-[42px] whitespace-nowrap ${
+                current.enabled ? 'rc-tile-green text-black' : 'rc-tile-slate text-slate-300'
               }`}
             >
               {current.enabled ? 'ON' : 'OFF'}
@@ -135,13 +135,13 @@ export const HapticsSettingsModal: React.FC<HapticsSettingsModalProps> = ({ sett
           </div>
 
           {/* Intensity Slider + Presets */}
-          <div className="bg-black/70 border-2 border-white/20 rounded-xl p-3.5 space-y-3">
+          <div className="rc-console-inset p-3.5 space-y-3">
             <div className="flex items-center justify-between">
               <label htmlFor="haptics-intensity" className="font-black text-sm sm:text-base tracking-wider flex items-center gap-2">
                 <Zap className="w-4 h-4 text-yellow-400" />
                 INTENSITY
               </label>
-              <span data-testid="haptics-intensity-value" className="font-black text-lg text-cyan-300">
+              <span data-testid="haptics-intensity-value" className="font-black text-lg text-cyan-300 tabular-nums">
                 {current.intensity}%
               </span>
             </div>
@@ -168,10 +168,10 @@ export const HapticsSettingsModal: React.FC<HapticsSettingsModalProps> = ({ sett
                     onChange(next);
                     triggerHaptic('hit', next, 'sick');
                   }}
-                  className={`py-2 px-1 rounded-lg font-black text-xs border-2 transition-colors min-h-[40px] disabled:opacity-40 ${
+                  className={`rc-bevel-btn py-2 px-1 font-black text-xs min-h-[38px] disabled:opacity-40 whitespace-nowrap ${
                     Math.abs(current.intensity - preset.value) <= 5
-                      ? 'bg-cyan-400 text-black border-white'
-                      : 'bg-gray-900 text-gray-200 border-white/25 hover:border-cyan-400'
+                      ? 'rc-tile-cyan text-black'
+                      : 'rc-sub-dark text-slate-200'
                   }`}
                 >
                   {preset.label}
@@ -181,13 +181,13 @@ export const HapticsSettingsModal: React.FC<HapticsSettingsModalProps> = ({ sett
           </div>
 
           {/* Pulse Duration Slider */}
-          <div className="bg-black/70 border-2 border-white/20 rounded-xl p-3.5 space-y-2">
+          <div className="rc-console-inset p-3.5 space-y-2">
             <div className="flex items-center justify-between">
               <label htmlFor="haptics-duration" className="font-black text-sm sm:text-base tracking-wider flex items-center gap-2">
                 <Smartphone className="w-4 h-4 text-pink-400" />
                 PULSE LENGTH
               </label>
-              <span data-testid="haptics-duration-value" className="font-black text-lg text-pink-300">
+              <span data-testid="haptics-duration-value" className="font-black text-lg text-pink-300 tabular-nums">
                 {current.pulseDurationMs}ms
               </span>
             </div>
@@ -203,7 +203,7 @@ export const HapticsSettingsModal: React.FC<HapticsSettingsModalProps> = ({ sett
               onChange={(e) => update({ pulseDurationMs: Number(e.target.value) })}
               className="w-full accent-pink-400 h-3 cursor-pointer disabled:opacity-40"
             />
-            <div className="flex justify-between text-[11px] font-bold text-gray-400">
+            <div className="flex justify-between text-[11px] font-bold text-slate-400">
               <span>8ms (Snappy)</span>
               <span>22ms (Arcade)</span>
               <span>60ms (Heavy)</span>
@@ -211,7 +211,7 @@ export const HapticsSettingsModal: React.FC<HapticsSettingsModalProps> = ({ sett
           </div>
 
           {/* Behavior Modifiers */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <div className="grid grid-cols-2 gap-2.5">
             <button
               type="button"
               data-testid="haptics-accuracy-toggle"
@@ -221,17 +221,17 @@ export const HapticsSettingsModal: React.FC<HapticsSettingsModalProps> = ({ sett
                 onChange(next);
                 triggerHaptic('hit', next, 'sick');
               }}
-              className={`flex items-center justify-between gap-2 p-3 rounded-xl border-2 text-left transition-colors min-h-[54px] disabled:opacity-40 ${
-                current.accuracyScaling ? 'bg-cyan-950/60 border-cyan-400' : 'bg-black/60 border-white/20'
+              className={`rc-panel flex items-center justify-between gap-2 p-3 text-left transition-colors min-h-[54px] disabled:opacity-40 ${
+                current.accuracyScaling ? 'border-cyan-400' : ''
               }`}
             >
               <div>
                 <div className="font-black text-xs sm:text-sm">ACCURACY SCALING</div>
-                <div className="text-[11px] text-gray-300">SICK!! hits pulse stronger than BAD</div>
+                <div className="text-[11px] text-slate-300">SICK!! hits pulse stronger than BAD</div>
               </div>
               <span
                 className={`px-2.5 py-1 rounded-md text-xs font-black shrink-0 ${
-                  current.accuracyScaling ? 'bg-cyan-400 text-black' : 'bg-gray-800 text-gray-400'
+                  current.accuracyScaling ? 'bg-cyan-400 text-black' : 'bg-[#0d1018] text-slate-400'
                 }`}
               >
                 {current.accuracyScaling ? 'ON' : 'OFF'}
@@ -248,20 +248,20 @@ export const HapticsSettingsModal: React.FC<HapticsSettingsModalProps> = ({ sett
                 onChange(next);
                 triggerHaptic('hit', next, 'sick');
               }}
-              className={`flex items-center justify-between gap-2 p-3 rounded-xl border-2 text-left transition-colors min-h-[54px] disabled:opacity-40 ${
-                current.audioFallback ? 'bg-purple-950/60 border-purple-400' : 'bg-black/60 border-white/20'
+              className={`rc-panel flex items-center justify-between gap-2 p-3 text-left transition-colors min-h-[54px] disabled:opacity-40 ${
+                current.audioFallback ? 'border-violet-400' : ''
               }`}
             >
               <div className="min-w-0">
                 <div className="font-black text-xs sm:text-sm flex items-center gap-1">
-                  <Volume2 className="w-3.5 h-3.5 text-purple-300 shrink-0" />
+                  <Volume2 className="w-3.5 h-3.5 text-violet-300 shrink-0" />
                   TACTILE THUMP
                 </div>
-                <div className="text-[11px] text-gray-300">Chassis pulse for iOS & preview frames</div>
+                <div className="text-[11px] text-slate-300">Chassis pulse for iOS & preview frames</div>
               </div>
               <span
                 className={`px-2.5 py-1 rounded-md text-xs font-black shrink-0 ${
-                  current.audioFallback ? 'bg-purple-400 text-black' : 'bg-gray-800 text-gray-400'
+                  current.audioFallback ? 'bg-violet-400 text-black' : 'bg-[#0d1018] text-slate-400'
                 }`}
               >
                 {current.audioFallback ? 'ON' : 'OFF'}
@@ -281,19 +281,19 @@ export const HapticsSettingsModal: React.FC<HapticsSettingsModalProps> = ({ sett
                 onChange(next);
                 triggerHaptic('hit', next, 'sick');
               }}
-              className={`sm:col-span-2 flex items-center justify-between gap-2 p-3 rounded-xl border-2 text-left transition-colors min-h-[52px] disabled:opacity-40 ${
-                current.alwaysAudioAssist ? 'bg-yellow-950/50 border-yellow-400' : 'bg-black/60 border-white/20'
+              className={`col-span-2 rc-panel flex items-center justify-between gap-2 p-3 text-left transition-colors min-h-[52px] disabled:opacity-40 ${
+                current.alwaysAudioAssist ? 'border-yellow-400' : ''
               }`}
             >
               <div className="min-w-0">
                 <div className="font-black text-xs sm:text-sm">ALWAYS LAYER TACTILE AUDIO</div>
-                <div className="text-[11px] text-gray-300">
+                <div className="text-[11px] text-slate-300">
                   Play crisp acoustic thump alongside motor vibration on every tap & hit
                 </div>
               </div>
               <span
                 className={`px-2.5 py-1 rounded-md text-xs font-black shrink-0 ${
-                  current.alwaysAudioAssist ? 'bg-yellow-400 text-black' : 'bg-gray-800 text-gray-400'
+                  current.alwaysAudioAssist ? 'bg-yellow-400 text-black' : 'bg-[#0d1018] text-slate-400'
                 }`}
               >
                 {current.alwaysAudioAssist ? 'ON' : 'AUTO'}
@@ -302,9 +302,9 @@ export const HapticsSettingsModal: React.FC<HapticsSettingsModalProps> = ({ sett
           </div>
 
           {/* Individual Activation Triggers */}
-          <div className="bg-black/70 border-2 border-white/20 rounded-xl p-3.5 space-y-2">
-            <div className="font-black text-sm tracking-wider text-yellow-300">WHEN HAPTICS ACTIVATE</div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div className="rc-console-inset p-3.5 space-y-2">
+            <div className="font-black text-xs sm:text-sm tracking-wider text-yellow-300">WHEN HAPTICS ACTIVATE</div>
+            <div className="grid grid-cols-2 gap-2">
               {TRIGGER_LABELS.map((item) => {
                 const active = current.triggers[item.key];
                 return (
@@ -314,17 +314,17 @@ export const HapticsSettingsModal: React.FC<HapticsSettingsModalProps> = ({ sett
                     data-testid={`haptics-trigger-${item.key}`}
                     disabled={!current.enabled}
                     onClick={() => toggleTrigger(item.key)}
-                    className={`flex items-center justify-between gap-2 p-2.5 rounded-lg border-2 text-left transition-colors min-h-[48px] disabled:opacity-40 ${
-                      active ? 'bg-green-950/40 border-green-400' : 'bg-gray-900/70 border-white/15'
+                    className={`rc-panel flex items-center justify-between gap-2 p-2.5 text-left transition-colors min-h-[48px] disabled:opacity-40 ${
+                      active ? 'border-emerald-400' : ''
                     }`}
                   >
                     <div className="min-w-0">
                       <div className="font-black text-xs text-white truncate">{item.label}</div>
-                      <div className="text-[10px] text-gray-400 leading-tight">{item.desc}</div>
+                      <div className="text-[10px] text-slate-400 leading-tight">{item.desc}</div>
                     </div>
                     <span
                       className={`px-2 py-0.5 rounded text-[11px] font-black shrink-0 ${
-                        active ? 'bg-green-400 text-black' : 'bg-gray-800 text-gray-400'
+                        active ? 'bg-emerald-400 text-black' : 'bg-[#0d1018] text-slate-400'
                       }`}
                     >
                       {active ? 'ON' : 'OFF'}
@@ -336,8 +336,8 @@ export const HapticsSettingsModal: React.FC<HapticsSettingsModalProps> = ({ sett
           </div>
 
           {/* Live Test Buttons */}
-          <div className="bg-black/70 border-2 border-white/20 rounded-xl p-3.5">
-            <div className="font-black text-xs tracking-wider text-gray-300 mb-2">TEST HAPTIC FEEL</div>
+          <div className="rc-console-inset p-3.5">
+            <div className="font-black text-xs tracking-wider text-slate-300 mb-2">TEST HAPTIC FEEL</div>
             <div className="grid grid-cols-3 gap-2">
               <button
                 type="button"
@@ -347,7 +347,7 @@ export const HapticsSettingsModal: React.FC<HapticsSettingsModalProps> = ({ sett
                   AudioEngine.init();
                   triggerHaptic('hit', current, 'sick');
                 }}
-                className="bg-cyan-400 text-black font-black text-xs sm:text-sm py-2.5 rounded-lg border-2 border-black shadow-[3px_3px_0_#000] min-h-[44px] disabled:opacity-40"
+                className="rc-bevel-btn rc-tile-cyan text-black font-black text-xs sm:text-sm py-2 min-h-[42px] disabled:opacity-40 whitespace-nowrap"
               >
                 TEST HIT
               </button>
@@ -359,7 +359,7 @@ export const HapticsSettingsModal: React.FC<HapticsSettingsModalProps> = ({ sett
                   AudioEngine.init();
                   triggerHaptic('miss', current);
                 }}
-                className="bg-red-500 text-white font-black text-xs sm:text-sm py-2.5 rounded-lg border-2 border-black shadow-[3px_3px_0_#000] min-h-[44px] disabled:opacity-40"
+                className="rc-bevel-btn rc-tile-red text-white font-black text-xs sm:text-sm py-2 min-h-[42px] disabled:opacity-40 whitespace-nowrap"
               >
                 TEST MISS
               </button>
@@ -371,7 +371,7 @@ export const HapticsSettingsModal: React.FC<HapticsSettingsModalProps> = ({ sett
                   AudioEngine.init();
                   triggerHaptic('comboMilestone', current);
                 }}
-                className="bg-yellow-400 text-black font-black text-xs sm:text-sm py-2.5 rounded-lg border-2 border-black shadow-[3px_3px_0_#000] min-h-[44px] disabled:opacity-40"
+                className="rc-bevel-btn rc-tile-gold text-black font-black text-xs sm:text-sm py-2 min-h-[42px] disabled:opacity-40 whitespace-nowrap"
               >
                 TEST 25x
               </button>
@@ -380,7 +380,7 @@ export const HapticsSettingsModal: React.FC<HapticsSettingsModalProps> = ({ sett
         </div>
 
         {/* Footer */}
-        <div className={`flex items-center justify-between gap-3 bg-black border-t-2 border-white/20 shrink-0 ${isLandscapeCompact ? 'px-4 py-2' : 'px-4 sm:px-6 py-3'}`}>
+        <div className="rc-dock-rail flex items-center justify-between gap-3 px-3 py-2 shrink-0">
           <button
             type="button"
             data-testid="haptics-reset-btn"
@@ -388,9 +388,9 @@ export const HapticsSettingsModal: React.FC<HapticsSettingsModalProps> = ({ sett
               onChange(DEFAULT_HAPTICS_SETTINGS);
               triggerHaptic('menuTap', DEFAULT_HAPTICS_SETTINGS);
             }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-xs font-black text-gray-200 min-h-[38px]"
+            className="rc-bevel-btn rc-tile-slate flex items-center gap-1.5 px-3 py-1.5 text-xs font-black text-slate-200 min-h-[36px] whitespace-nowrap"
           >
-            <RotateCcw className="w-4 h-4" />
+            <RotateCcw className="w-3.5 h-3.5" />
             RESET DEFAULTS
           </button>
 
@@ -401,9 +401,9 @@ export const HapticsSettingsModal: React.FC<HapticsSettingsModalProps> = ({ sett
               triggerHaptic('menuTap', current);
               onClose();
             }}
-            className="px-5 py-2 rounded-xl bg-yellow-400 text-black border-2 border-black font-black text-sm shadow-[4px_4px_0_#000] min-h-[38px]"
+            className="rc-bevel-btn rc-tile-gold px-5 py-2 text-black font-black text-sm min-h-[38px] whitespace-nowrap"
           >
-            SAVE & CLOSE
+            SAVE &amp; CLOSE
           </button>
         </div>
       </div>

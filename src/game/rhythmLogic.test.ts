@@ -26,7 +26,7 @@ import {
 } from './layoutConfig.ts';
 import { buildVibrationPattern, DEFAULT_HAPTICS_SETTINGS, isHapticEventEnabled, normalizeHapticsSettings } from './haptics.ts';
 import { readGamepadLaneState, readGamepadStartPressed } from './gamepad.ts';
-import { isCompactLandscapeViewport } from './useViewport.ts';
+import { isCompactLandscapeViewport, isLandscapeViewport, isPortraitViewport } from './useViewport.ts';
 
 test('normalizeChart sorts notes, clamps lanes, and sets hold duration defaults', () => {
   const normalized = normalizeChart([
@@ -99,13 +99,25 @@ test('getGrade, getDurationString, getCleanedUrl, generateBeatmap, and addReward
   assert.deepEqual(next, { level: 2, xp: 200, coins: 60 });
 });
 
-test('isCompactLandscapeViewport detects mobile/tablet landscape heights accurately', () => {
+test('viewport orientation helpers classify portrait, landscape, and compact landscape accurately', () => {
   assert.equal(isCompactLandscapeViewport(844, 390), true);
   assert.equal(isCompactLandscapeViewport(667, 375), true);
   assert.equal(isCompactLandscapeViewport(390, 844), false);
   assert.equal(isCompactLandscapeViewport(1440, 900), false);
   assert.equal(isCompactLandscapeViewport(1024, 768), false);
   assert.equal(isCompactLandscapeViewport(0, 0), false);
+
+  assert.equal(isPortraitViewport(390, 844), true);
+  assert.equal(isPortraitViewport(768, 1024), true);
+  assert.equal(isPortraitViewport(844, 390), false);
+  assert.equal(isPortraitViewport(1440, 900), false);
+  assert.equal(isPortraitViewport(0, 0), false);
+
+  assert.equal(isLandscapeViewport(844, 390), true);
+  assert.equal(isLandscapeViewport(1440, 900), true);
+  assert.equal(isLandscapeViewport(1024, 768), true);
+  assert.equal(isLandscapeViewport(800, 800), true);
+  assert.equal(isLandscapeViewport(390, 844), false);
 });
 
 test('getPlayfieldLayout positions spaced FNF bottom receptors in landscape and maps direct receptor taps', () => {

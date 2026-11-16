@@ -7,36 +7,36 @@ interface ChangelogModalProps {
   onClose: () => void;
 }
 
-const CHANGELOG_HIGHLIGHTS: Array<{ title: string; detail: string; color: string }> = [
+const CHANGELOG_HIGHLIGHTS: Array<{ title: string; detail: string; accent: string }> = [
+  {
+    title: 'CONSOLE OVERHAUL & LANDSCAPE LOCK',
+    detail:
+      'Unified beveled console UI across every menu, centered top status docks, and full widescreen FNF landscape playfields.',
+    accent: 'text-pink-400',
+  },
   {
     title: 'TRUE 60 FPS SMOOTH GAMEPLAY',
     detail:
-      'Replaced stepped audio timestamps with a monotonic frame-rate clock, opaque fast canvas compositing, and stabilized animation frames to eliminate 30fps stutter on mobile.',
-    color: 'border-cyan-400 text-cyan-300',
+      'Monotonic frame-rate audio clock and prewarmed note sprites keep note scrolling locked at smooth 60 FPS on mobile and desktop.',
+    accent: 'text-cyan-300',
   },
   {
-    title: 'DRAG-TO-REARRANGE NOTE LANES & BUTTONS',
+    title: 'DRAG-TO-REARRANGE LANES & PADS',
     detail:
-      'Open LAYOUT in Settings or mid-game to drag both the 4 gray receptor lanes and the 4 on-screen note buttons anywhere inside their boundaries for Portrait and Landscape.',
-    color: 'border-pink-400 text-pink-300',
-  },
-  {
-    title: 'WIDER PORTRAIT PLAY SCREEN & SPACING',
-    detail:
-      'Expanded the portrait playfield width with wider spacing between gray receptor notes so thumb taps feel natural without cramped overlaps.',
-    color: 'border-yellow-400 text-yellow-300',
+      'Open LAYOUT from the tray or mid-game to drag both the 4 gray receptor lanes and the 4 touch pads anywhere inside boundaries.',
+    accent: 'text-yellow-300',
   },
   {
     title: 'MOBILE HAPTICS + iOS TAPTIC FIX',
     detail:
-      'Added Safari iOS switch Taptic triggers, longer Android vibration envelopes, and an Always Layer Tactile Audio option inside the Haptics mini menu.',
-    color: 'border-green-400 text-green-300',
+      'Safari iOS switch Taptic triggers, tuned Android vibration envelopes, and Always Layer Tactile Audio inside the Haptics menu.',
+    accent: 'text-emerald-400',
   },
   {
-    title: 'FNF LANDSCAPE, DIRECT RECEPTOR TAPS & CONTROLLERS',
+    title: 'DIRECT RECEPTOR TAPS & CONTROLLERS',
     detail:
-      'Tap directly on the gray notes, play FNF-style spaced bottom receptors in landscape downscroll, or connect a Bluetooth keyboard or controller.',
-    color: 'border-purple-400 text-purple-300',
+      'Tap directly on the gray receptor notes, use spaced FNF downscroll/upscroll lanes, or connect a Bluetooth keyboard or gamepad.',
+    accent: 'text-violet-300',
   },
 ];
 
@@ -46,23 +46,23 @@ export const ChangelogModal: React.FC<ChangelogModalProps> = ({ onClose }) => {
   return (
     <div
       data-testid="changelog-modal"
-      className="fixed inset-0 z-[1100] bg-black/90 backdrop-blur-md flex items-center justify-center p-2 sm:p-5 overflow-y-auto"
+      className="fixed inset-0 z-[1100] bg-black/85 flex items-center justify-center p-2 sm:p-5 overflow-y-auto"
     >
       <div
-        className={`bg-gray-950 border-4 border-yellow-400 shadow-[10px_10px_0_#000] w-full flex flex-col text-white ${
-          isLandscapeCompact ? 'max-w-3xl p-3.5 gap-2.5 max-h-[93dvh]' : 'max-w-xl p-4 sm:p-6 gap-3 max-h-[90dvh]'
+        className={`rc-console-tray w-full flex flex-col text-white ${
+          isLandscapeCompact ? 'max-w-3xl p-3.5 gap-2.5 max-h-[93dvh]' : 'max-w-2xl p-5 gap-3.5 max-h-[90dvh]'
         }`}
       >
-        <div className={`flex items-start justify-between gap-3 border-b-2 border-white/20 shrink-0 ${isLandscapeCompact ? 'pb-2' : 'pb-3'}`}>
-          <div className="flex items-center gap-2.5">
-            <div className={`bg-yellow-400 text-black border-2 border-black shrink-0 ${isLandscapeCompact ? 'p-1.5' : 'p-2'}`}>
-              <Sparkles className={isLandscapeCompact ? 'w-4 h-4' : 'w-6 h-6'} />
+        <div className="rc-dock-rail flex items-center justify-between gap-3 px-3.5 py-2 shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="rc-bevel-btn rc-tile-gold text-black p-1.5 shrink-0">
+              <Sparkles className={isLandscapeCompact ? 'w-4 h-4' : 'w-5 h-5'} />
             </div>
-            <div>
-              <div className="text-[11px] font-black tracking-widest text-pink-400 uppercase">
-                MOBILE REBOOT UPDATE • v{CHANGELOG_VERSION}
+            <div className="min-w-0">
+              <div className="text-[10px] font-black tracking-widest text-cyan-300 uppercase">
+                REBOOT CONSOLE UPDATE • v{CHANGELOG_VERSION}
               </div>
-              <h2 className={`${isLandscapeCompact ? 'text-lg' : 'text-xl sm:text-3xl'} font-black italic text-white`}>
+              <h2 className={`${isLandscapeCompact ? 'text-base' : 'text-lg sm:text-2xl'} font-black italic text-white truncate`}>
                 WHAT&apos;S NEW ON THIS DEVICE
               </h2>
             </div>
@@ -70,26 +70,24 @@ export const ChangelogModal: React.FC<ChangelogModalProps> = ({ onClose }) => {
           <button
             onClick={onClose}
             aria-label="Close changelog"
-            className="bg-white text-black border-2 border-black p-1.5 min-h-[38px] min-w-[38px] flex items-center justify-center font-black shrink-0"
+            className="rc-bevel-btn rc-tile-slate text-white p-1.5 min-h-[36px] min-w-[36px] flex items-center justify-center font-black shrink-0"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
         <div
-          className={`flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-1 ${
-            isLandscapeCompact ? 'grid grid-cols-2 gap-2' : 'space-y-2.5'
+          className={`flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-1 grid ${
+            isLandscapeCompact ? 'grid-cols-2 gap-2' : 'grid-cols-1 sm:grid-cols-2 gap-2.5'
           }`}
         >
           {CHANGELOG_HIGHLIGHTS.map((item) => (
             <div
               key={item.title}
-              className={`bg-gray-900/90 border-l-4 rounded-r-lg ${item.color} ${
-                isLandscapeCompact ? 'p-2.5' : 'p-3'
-              }`}
+              className={`rc-console-inset ${isLandscapeCompact ? 'p-2.5' : 'p-3'}`}
             >
-              <div className="font-black text-xs sm:text-sm tracking-wide">{item.title}</div>
-              <p className="text-[11px] sm:text-xs text-gray-200 font-semibold mt-0.5 leading-snug">{item.detail}</p>
+              <div className={`font-black text-xs sm:text-sm tracking-wide ${item.accent}`}>{item.title}</div>
+              <p className="text-[11px] sm:text-xs text-slate-200 font-semibold mt-1 leading-snug">{item.detail}</p>
             </div>
           ))}
         </div>
@@ -97,8 +95,8 @@ export const ChangelogModal: React.FC<ChangelogModalProps> = ({ onClose }) => {
         <button
           data-testid="changelog-close-btn"
           onClick={onClose}
-          className={`w-full bg-yellow-400 text-black font-black border-4 border-black shadow-[4px_4px_0_#000] shrink-0 ${
-            isLandscapeCompact ? 'py-2 text-sm min-h-[40px]' : 'py-3 text-lg sm:text-xl min-h-[48px]'
+          className={`rc-bevel-btn rc-tile-gold w-full text-black font-black shrink-0 whitespace-nowrap ${
+            isLandscapeCompact ? 'py-2 text-sm min-h-[40px]' : 'py-2.5 text-base sm:text-lg min-h-[46px]'
           }`}
         >
           GOT IT — LET&apos;S PLAY

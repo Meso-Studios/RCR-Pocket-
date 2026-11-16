@@ -439,7 +439,8 @@ export const SongEditor: React.FC<SongEditorProps> = ({ setScreen, setSongs, son
   };
 
   return (
-    <div className="w-full h-[100dvh] bg-slate-900 flex flex-col crt relative overflow-hidden">
+    <div className="rc-stage w-full h-[100dvh] flex flex-col crt relative overflow-hidden text-white">
+      <div className="rc-stage-dots absolute inset-0 pointer-events-none" />
       <audio
         ref={editorAudioRef}
         src={getCleanedUrl(audioUrl) || undefined}
@@ -450,10 +451,10 @@ export const SongEditor: React.FC<SongEditorProps> = ({ setScreen, setSongs, son
         className="hidden"
       />
 
-      {/* Top Toolbar */}
+      {/* Top Console Toolbar */}
       <div
-        className={`bg-black border-b-4 sm:border-b-8 border-white flex flex-col shrink-0 shadow-[0_6px_0_#000] z-10 ${
-          isLandscapeCompact ? 'p-1.5 gap-1 pr-12' : 'p-3 md:p-5 gap-3 pr-14 md:pr-20'
+        className={`relative z-10 rc-console-tray mx-2 sm:mx-3 mt-2 flex flex-col shrink-0 ${
+          isLandscapeCompact ? 'p-1.5 gap-1.5 pr-12' : 'p-3 gap-2.5 pr-14 sm:pr-16'
         }`}
       >
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -464,51 +465,48 @@ export const SongEditor: React.FC<SongEditorProps> = ({ setScreen, setSongs, son
                 setIsRecording(false);
                 setScreen('menu');
               }}
-              className={`${
-                isLandscapeCompact ? 'p-1 border-2' : 'p-2 border-4'
-              } bg-white border-black text-black hover:bg-gray-200 transform skew-x-[-10deg] shadow-[4px_4px_0_#000]`}
-            >
-              <span className="transform skew-x-[10deg] flex">
-                <ChevronLeft className={isLandscapeCompact ? 'w-4 h-4' : 'w-5 h-5 md:w-7 md:h-7'} />
-              </span>
-            </button>
-            <h2
-              className={`font-black italic uppercase text-white transform skew-x-[-10deg] drop-shadow-[4px_4px_0_#ec4899] ${
-                isLandscapeCompact ? 'text-lg' : 'text-2xl md:text-4xl'
+              className={`rc-bevel-btn rc-tile-slate text-white flex items-center justify-center ${
+                isLandscapeCompact ? 'p-1.5' : 'p-2'
               }`}
             >
-              EDITOR
-            </h2>
-            {isLandscapeCompact && (
-              <span className="bg-cyan-950 border border-cyan-400 px-2 py-0.5 text-[10px] font-black text-cyan-200">
+              <ChevronLeft className={isLandscapeCompact ? 'w-4 h-4' : 'w-5 h-5'} />
+            </button>
+            <div className="rc-dock-rail px-3 py-1 flex items-center gap-2.5">
+              <h2
+                className={`font-black italic uppercase text-white ${
+                  isLandscapeCompact ? 'text-sm sm:text-base' : 'text-lg sm:text-xl'
+                }`}
+              >
+                SONG EDITOR
+              </h2>
+              <span className="rc-dock-well px-2 py-0.5 text-[10px] sm:text-xs font-black text-cyan-300 tabular-nums">
                 PULSES: {pulses.length}
               </span>
-            )}
+            </div>
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Note Type Switcher always handy */}
-            <div className="flex items-center bg-gray-900 border-2 sm:border-4 border-black p-0.5 text-xs sm:text-sm shadow-[2px_2px_0_#000]">
+            <div className="rc-dock-rail flex items-center p-1 gap-1 text-xs">
               <button
                 onClick={() => setNoteType('normal')}
-                className={`px-2 sm:px-3 py-1 font-black uppercase transition-colors ${
-                  noteType === 'normal' ? 'bg-green-500 text-black' : 'text-gray-400 hover:bg-gray-700'
+                className={`rc-bevel-btn px-2.5 py-1 font-black uppercase whitespace-nowrap ${
+                  noteType === 'normal' ? 'rc-tile-green text-black' : 'rc-sub-dark text-slate-300'
                 }`}
               >
                 Normal
               </button>
               <button
                 onClick={() => setNoteType('hold')}
-                className={`px-2 sm:px-3 py-1 font-black uppercase transition-colors ${
-                  noteType === 'hold' ? 'bg-purple-500 text-white' : 'text-gray-400 hover:bg-gray-700'
+                className={`rc-bevel-btn px-2.5 py-1 font-black uppercase whitespace-nowrap ${
+                  noteType === 'hold' ? 'rc-tile-violet text-white' : 'rc-sub-dark text-slate-300'
                 }`}
               >
                 Hold
               </button>
               <button
                 onClick={() => setNoteType('demon')}
-                className={`px-2 sm:px-3 py-1 font-black uppercase transition-colors ${
-                  noteType === 'demon' ? 'bg-red-600 text-white' : 'text-gray-400 hover:bg-gray-700'
+                className={`rc-bevel-btn px-2.5 py-1 font-black uppercase whitespace-nowrap ${
+                  noteType === 'demon' ? 'rc-tile-red text-white' : 'rc-sub-dark text-slate-300'
                 }`}
               >
                 Demon
@@ -517,7 +515,7 @@ export const SongEditor: React.FC<SongEditorProps> = ({ setScreen, setSongs, son
 
             <button
               onClick={() => setMobileSettingsOpen((v) => !v)}
-              className="lg:hidden bg-yellow-400 text-black border-2 border-black px-2.5 py-1.5 font-black text-xs flex items-center gap-1 shadow-[3px_3px_0_#000]"
+              className="lg:hidden rc-bevel-btn rc-tile-gold text-black px-2.5 py-1.5 font-black text-xs flex items-center gap-1 whitespace-nowrap"
             >
               SETTINGS {mobileSettingsOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
             </button>
@@ -526,57 +524,53 @@ export const SongEditor: React.FC<SongEditorProps> = ({ setScreen, setSongs, son
 
         {notice && (
           <div
-            className={`px-3 py-2 border-2 font-black text-xs sm:text-sm ${
-              notice.tone === 'error'
-                ? 'bg-red-950 border-red-400 text-red-200'
-                : 'bg-cyan-950 border-cyan-400 text-cyan-200'
+            className={`rc-console-inset px-3 py-2 font-black text-xs sm:text-sm ${
+              notice.tone === 'error' ? 'border-red-400 text-red-200' : 'border-cyan-400 text-cyan-200'
             }`}
           >
             {notice.text}
           </div>
         )}
 
-        {/* Collapsible Settings Drawer on mobile (<lg), always shown on desktop (>=lg) */}
+        {/* Collapsible Settings Drawer on small landscape (<lg), always shown on desktop (>=lg) */}
         <div
           className={`${
             mobileSettingsOpen ? 'flex' : 'hidden lg:flex'
-          } flex-col lg:flex-row lg:items-center justify-between gap-3 max-h-[45vh] lg:max-h-none overflow-y-auto`}
+          } flex-col lg:flex-row lg:items-center justify-between gap-2.5 max-h-[42vh] lg:max-h-none overflow-y-auto`}
         >
-          <div className="flex items-center gap-3 flex-wrap bg-gray-800 p-2.5 border-4 border-black shadow-[4px_4px_0_#000] transform skew-x-[-3deg]">
+          <div className="rc-console-inset flex items-center gap-2.5 flex-wrap p-2">
             <input
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               disabled={isRecording}
-              className="bg-white border-4 border-black text-black px-3 py-1 font-black text-base lg:text-lg w-32 lg:w-44 uppercase transform skew-x-[3deg] disabled:opacity-50"
+              className="bg-[#0a0d16] border border-white/25 rounded-lg text-white px-2.5 py-1 font-black text-xs sm:text-sm w-32 lg:w-40 uppercase disabled:opacity-50"
               placeholder="TITLE"
             />
-            <div className="flex items-center gap-2 transform skew-x-[3deg]">
-              <span className="font-black text-white text-base">BPM</span>
+            <div className="flex items-center gap-1.5">
+              <span className="font-black text-cyan-300 text-xs">BPM</span>
               <input
                 type="number"
                 value={bpm}
                 onChange={(e) => setBpm(Number(e.target.value))}
                 disabled={isRecording}
-                className="w-16 lg:w-20 bg-white border-4 border-black text-black px-2 py-1 text-base font-black disabled:opacity-50"
+                className="w-16 bg-[#0a0d16] border border-white/25 rounded-lg text-white px-2 py-1 text-xs sm:text-sm font-black tabular-nums disabled:opacity-50"
               />
             </div>
 
-            <div className="flex items-center gap-2 transform skew-x-[3deg] w-full sm:w-auto">
-              <div className="flex items-center bg-white border-4 border-black px-2 w-full sm:w-56">
-                <LinkIcon className="w-4 h-4 text-gray-500 mr-2 shrink-0" />
-                <input
-                  type="text"
-                  placeholder="PASTE MP3 URL"
-                  value={audioUrl}
-                  disabled={isRecording}
-                  onChange={(e) => setAudioUrl(e.target.value)}
-                  className="w-full bg-transparent text-black py-1 font-black text-sm focus:outline-none disabled:opacity-50"
-                />
-              </div>
+            <div className="flex items-center bg-[#0a0d16] border border-white/25 rounded-lg px-2 w-full sm:w-52">
+              <LinkIcon className="w-3.5 h-3.5 text-slate-400 mr-1.5 shrink-0" />
+              <input
+                type="text"
+                placeholder="PASTE MP3 URL"
+                value={audioUrl}
+                disabled={isRecording}
+                onChange={(e) => setAudioUrl(e.target.value)}
+                className="w-full bg-transparent text-white py-1 font-black text-xs focus:outline-none disabled:opacity-50"
+              />
             </div>
 
-            <label className="bg-purple-500 text-white border-4 border-black px-3 py-1.5 font-black text-xs sm:text-sm cursor-pointer transform skew-x-[3deg]">
+            <label className="rc-bevel-btn rc-tile-violet text-white px-3 py-1 font-black text-xs cursor-pointer whitespace-nowrap">
               ALBUM ART
               <input
                 type="file"
@@ -594,11 +588,11 @@ export const SongEditor: React.FC<SongEditorProps> = ({ setScreen, setSongs, son
             </label>
 
             {coverUrl && (
-              <div className="flex items-center gap-2 transform skew-x-[3deg] bg-black p-1.5 border-2 border-yellow-400">
+              <div className="rc-dock-well flex items-center gap-2 p-1">
                 <img
                   src={coverUrl}
                   data-editor-wave-cover="true"
-                  className="reactive-cover w-10 h-10 object-cover border-2 border-yellow-300"
+                  className="reactive-cover w-8 h-8 object-cover rounded border border-yellow-300"
                 />
                 <button
                   onClick={() => {
@@ -609,19 +603,19 @@ export const SongEditor: React.FC<SongEditorProps> = ({ setScreen, setSongs, son
                       editorAudioRef.current?.pause();
                     }
                   }}
-                  className="bg-yellow-400 text-black px-2 py-1 text-xs font-black"
+                  className="rc-bevel-btn rc-tile-gold text-black px-2 py-1 text-[10px] font-black"
                 >
                   PREVIEW
                 </button>
               </div>
             )}
 
-            <div className="flex items-center gap-1.5 transform skew-x-[3deg] bg-gray-900 p-1.5 border-2 border-cyan-500 text-xs">
-              <span className="font-black">PULSE 1/</span>
+            <div className="rc-dock-well flex items-center gap-1.5 px-2 py-1 text-xs">
+              <span className="font-black text-cyan-300">PULSE 1/</span>
               <select
                 value={pulseSubdivision}
                 onChange={(e) => setPulseSubdivision(+e.target.value)}
-                className="bg-white text-black font-black px-1"
+                className="bg-[#0a0d16] text-white border border-white/25 rounded font-black px-1"
               >
                 <option>1</option>
                 <option>2</option>
@@ -636,20 +630,20 @@ export const SongEditor: React.FC<SongEditorProps> = ({ setScreen, setSongs, son
                   setPulses(Array.from({ length: measures * 4 * pulseSubdivision }, (_, i) => i * step));
                   AudioEngine.playUI('confirm');
                 }}
-                className="bg-cyan-400 text-black px-2 py-1 font-black"
+                className="rc-bevel-btn rc-tile-cyan text-black px-2 py-0.5 text-[10px] font-black whitespace-nowrap"
               >
                 GENERATE
               </button>
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2 items-center">
-            <div className="bg-black border-2 border-yellow-400 px-2 py-1 flex flex-col justify-center text-xs">
+          <div className="flex flex-wrap gap-2 items-center shrink-0">
+            <div className="rc-dock-well px-2.5 py-1 flex flex-col justify-center text-xs">
               <label className="text-[9px] font-black tracking-[.15em] text-yellow-300">RECORD SPEED</label>
               <select
                 value={recordingSpeed}
                 onChange={(e) => setRecordingSpeed(Number(e.target.value))}
-                className="bg-white text-black font-black px-1 py-0.5"
+                className="bg-[#0a0d16] text-white border border-white/20 rounded font-black px-1 py-0.5 mt-0.5"
               >
                 <option value="0.25">25% • ¼ SPEED</option>
                 <option value="0.5">50% • ½ SPEED</option>
@@ -657,14 +651,14 @@ export const SongEditor: React.FC<SongEditorProps> = ({ setScreen, setSongs, son
                 <option value="1">100% • NORMAL</option>
               </select>
             </div>
-            <div className="bg-black border-2 border-cyan-400 px-2 py-1 flex flex-col justify-center text-xs">
+            <div className="rc-dock-well px-2.5 py-1 flex flex-col justify-center text-xs">
               <label className="text-[9px] font-black tracking-[.15em] text-cyan-300 flex items-center gap-1">
                 <input type="checkbox" checked={stepClick} onChange={(e) => setStepClick(e.target.checked)} /> STEP CLICK
               </label>
               <select
                 value={stepSubdivision}
                 onChange={(e) => changeStepSubdivision(e.target.value)}
-                className="bg-white text-black font-black px-1 py-0.5 mt-0.5"
+                className="bg-[#0a0d16] text-white border border-white/20 rounded font-black px-1 py-0.5 mt-0.5"
               >
                 <option value="1">BEATS</option>
                 <option value="2">1/2 STEPS</option>
@@ -677,73 +671,63 @@ export const SongEditor: React.FC<SongEditorProps> = ({ setScreen, setSongs, son
         </div>
 
         {/* Always-accessible Action Row */}
-        <div className={`flex flex-wrap w-full ${isLandscapeCompact ? 'gap-1.5' : 'gap-2'}`}>
+        <div className={`grid grid-cols-5 w-full ${isLandscapeCompact ? 'gap-1.5' : 'gap-2'}`}>
           <button
             onClick={() => toggleRecording('notes')}
-            className={`flex-1 min-w-[110px] flex justify-center items-center gap-1.5 border-4 border-black px-3 ${
-              isLandscapeCompact ? 'py-1 text-xs' : 'py-2 text-xs sm:text-base'
-            } font-black shadow-[3px_3px_0_#000] transform skew-x-[-8deg] active:translate-y-0.5 ${
+            className={`rc-bevel-btn flex justify-center items-center gap-1.5 px-2.5 font-black whitespace-nowrap ${
+              isLandscapeCompact ? 'py-1.5 text-xs' : 'py-2 text-xs sm:text-sm'
+            } ${
               isRecording && recordMode === 'notes'
-                ? 'bg-red-500 text-white animate-pulse'
-                : 'bg-yellow-400 text-black hover:bg-yellow-300'
+                ? 'rc-tile-red text-white animate-pulse'
+                : 'rc-tile-gold text-black'
             }`}
           >
-            <span className="transform skew-x-[8deg] flex items-center gap-1.5">
-              {isRecording && recordMode === 'notes' ? <StopIcon className="w-4 h-4" /> : <RecordIcon className="w-4 h-4" />}
-              REC NOTES
-            </span>
+            {isRecording && recordMode === 'notes' ? <StopIcon className="w-3.5 h-3.5" /> : <RecordIcon className="w-3.5 h-3.5" />}
+            REC NOTES
           </button>
 
           <button
             onClick={() => toggleRecording('pulses')}
-            className={`flex-1 min-w-[115px] flex justify-center items-center gap-1.5 border-4 border-black px-3 ${
-              isLandscapeCompact ? 'py-1 text-xs' : 'py-2 text-xs sm:text-base'
-            } font-black shadow-[3px_3px_0_#000] transform skew-x-[-8deg] active:translate-y-0.5 ${
+            className={`rc-bevel-btn flex justify-center items-center gap-1.5 px-2.5 font-black whitespace-nowrap ${
+              isLandscapeCompact ? 'py-1.5 text-xs' : 'py-2 text-xs sm:text-sm'
+            } ${
               isRecording && recordMode === 'pulses'
-                ? 'bg-blue-500 text-white animate-pulse'
-                : 'bg-cyan-400 text-black hover:bg-cyan-300'
+                ? 'rc-tile-violet text-white animate-pulse'
+                : 'rc-tile-cyan text-black'
             }`}
           >
-            <span className="transform skew-x-[8deg] flex items-center gap-1.5">
-              {isRecording && recordMode === 'pulses' ? <StopIcon className="w-4 h-4" /> : <Activity className="w-4 h-4" />}
-              REC PULSES
-            </span>
+            {isRecording && recordMode === 'pulses' ? <StopIcon className="w-3.5 h-3.5" /> : <Activity className="w-3.5 h-3.5" />}
+            REC PULSES
           </button>
 
           <button
             disabled={isRecording}
             onClick={() => setShowLoadModal(true)}
-            className={`flex-1 min-w-[78px] flex justify-center items-center gap-1.5 bg-blue-400 border-4 border-black text-black px-3 ${
-              isLandscapeCompact ? 'py-1 text-xs' : 'py-2 text-xs sm:text-base'
-            } font-black hover:bg-blue-300 shadow-[3px_3px_0_#000] transform skew-x-[-8deg] disabled:opacity-50`}
+            className={`rc-bevel-btn rc-tile-slate text-white flex justify-center items-center gap-1.5 px-2.5 font-black disabled:opacity-50 whitespace-nowrap ${
+              isLandscapeCompact ? 'py-1.5 text-xs' : 'py-2 text-xs sm:text-sm'
+            }`}
           >
-            <span className="transform skew-x-[8deg] flex items-center gap-1.5">
-              <BookOpen className="w-4 h-4" /> LOAD
-            </span>
+            <BookOpen className="w-3.5 h-3.5" /> LOAD
           </button>
+
           <button
             disabled={isRecording}
             onClick={handleSave}
-            className={`flex-1 min-w-[78px] flex justify-center items-center gap-1.5 bg-gray-300 border-4 border-black text-black px-3 ${
-              isLandscapeCompact ? 'py-1 text-xs' : 'py-2 text-xs sm:text-base'
-            } font-black hover:bg-gray-400 shadow-[3px_3px_0_#000] transform skew-x-[-8deg] disabled:opacity-50`}
+            className={`rc-bevel-btn rc-tile-pink text-white flex justify-center items-center gap-1.5 px-2.5 font-black disabled:opacity-50 whitespace-nowrap ${
+              isLandscapeCompact ? 'py-1.5 text-xs' : 'py-2 text-xs sm:text-sm'
+            }`}
           >
-            <span className="transform skew-x-[8deg] flex items-center gap-1.5">
-              <Save className="w-4 h-4" /> SAVE
-            </span>
+            <Save className="w-3.5 h-3.5" /> SAVE
           </button>
+
           <button
             disabled={isPublishing || isRecording}
             onClick={handlePublish}
-            className={`flex-1 min-w-[88px] flex justify-center items-center gap-1.5 ${
-              isPublishing ? 'bg-gray-500' : 'bg-green-400 hover:bg-green-300'
-            } border-4 border-black text-black px-3 ${
-              isLandscapeCompact ? 'py-1 text-xs' : 'py-2 text-xs sm:text-base'
-            } font-black shadow-[3px_3px_0_#000] transform skew-x-[-8deg] disabled:opacity-50`}
+            className={`rc-bevel-btn flex justify-center items-center gap-1.5 px-2.5 font-black disabled:opacity-50 whitespace-nowrap ${
+              isPublishing ? 'rc-tile-slate text-slate-300' : 'rc-tile-green text-black'
+            } ${isLandscapeCompact ? 'py-1.5 text-xs' : 'py-2 text-xs sm:text-sm'}`}
           >
-            <span className="transform skew-x-[8deg] flex items-center gap-1.5">
-              <Cloud className="w-4 h-4" /> {isPublishing ? 'UPLOADING...' : 'PUBLISH'}
-            </span>
+            <Cloud className="w-3.5 h-3.5" /> {isPublishing ? 'UPLOADING...' : 'PUBLISH'}
           </button>
         </div>
       </div>
@@ -751,32 +735,26 @@ export const SongEditor: React.FC<SongEditorProps> = ({ setScreen, setSongs, son
       {/* Note Grid */}
       <div
         ref={editorScrollRef}
-        className={`flex-1 min-h-0 overflow-auto bg-slate-900 p-3 md:p-8 flex justify-center custom-scrollbar relative ${
+        className={`relative z-10 flex-1 min-h-0 overflow-auto p-3 md:p-6 flex justify-center custom-scrollbar ${
           isRecording
             ? recordMode === 'notes'
-              ? 'smooth-scroll border-4 sm:border-8 border-red-500'
-              : 'smooth-scroll border-4 sm:border-8 border-blue-500'
+              ? 'smooth-scroll ring-4 ring-red-500/70'
+              : 'smooth-scroll ring-4 ring-cyan-400/70'
             : ''
         }`}
       >
-        {!isLandscapeCompact && (
-          <p className="fixed left-4 sm:left-10 top-1/2 text-white font-black text-2xl sm:text-4xl opacity-20 -rotate-90 pointer-events-none tracking-widest">
-            PULSES: {pulses.length}
-          </p>
-        )}
-
         {isRecording && (
           <div
             className={`sticky top-1/2 w-full max-w-[480px] h-[2px] z-50 pointer-events-none ${
               recordMode === 'notes'
                 ? 'bg-red-500 shadow-[0_0_10px_#ef4444]'
-                : 'bg-blue-500 shadow-[0_0_10px_#3b82f6]'
+                : 'bg-cyan-400 shadow-[0_0_10px_#22d3ee]'
             }`}
           />
         )}
 
         <div
-          className={`bg-black border-4 md:border-8 border-white shadow-[8px_8px_0_#000] relative ${
+          className={`bg-[#060811] border-4 border-white/80 rounded-xl shadow-[0_12px_28px_rgba(0,0,0,0.7)] relative ${
             isRecording ? 'mt-[40vh] mb-[40vh]' : 'mt-2 mb-12'
           }`}
           style={{ width: '100%', maxWidth: '480px', height: `${rows * rowHeight}px` }}
@@ -815,7 +793,7 @@ export const SongEditor: React.FC<SongEditorProps> = ({ setScreen, setSongs, son
                     >
                       {noteData && (
                         <div
-                          className="absolute inset-1 border-2 md:border-4 shadow-[inset_0_0_5px_rgba(0,0,0,0.8)]"
+                          className="absolute inset-1 border-2 md:border-4 rounded shadow-[inset_0_0_5px_rgba(0,0,0,0.8)]"
                           style={{
                             background: isHold ? `linear-gradient(${currentSkinColors[col]},#7c3aed)` : undefined,
                             backgroundColor: isDemon ? '#000' : isHold ? undefined : currentSkinColors[col],
@@ -835,9 +813,9 @@ export const SongEditor: React.FC<SongEditorProps> = ({ setScreen, setSongs, son
       {/* Mobile Touch Recording Controls when recording is active */}
       {isRecording && (
         <div
-          className={`bg-black border-t-4 border-white ${
+          className={`relative z-20 rc-dock-rail mx-3 mb-2 ${
             isLandscapeCompact ? 'p-1.5' : 'p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]'
-          } flex justify-center shrink-0 z-20`}
+          } flex justify-center shrink-0`}
         >
           {recordMode === 'notes' ? (
             <TouchLanePads
@@ -854,9 +832,9 @@ export const SongEditor: React.FC<SongEditorProps> = ({ setScreen, setSongs, son
                 e.preventDefault();
                 recordPulseTap();
               }}
-              className={`w-full max-w-md bg-blue-500 active:bg-blue-400 text-white border-4 border-white ${
-                isLandscapeCompact ? 'py-2 text-base' : 'py-4 text-2xl'
-              } font-black uppercase tracking-widest shadow-[0_4px_0_#000] touch-surface`}
+              className={`rc-bevel-btn rc-tile-cyan w-full max-w-md text-black ${
+                isLandscapeCompact ? 'py-2 text-base' : 'py-3 text-xl'
+              } font-black uppercase tracking-widest touch-surface`}
             >
               TAP TO ADD PULSE
             </button>
@@ -865,18 +843,24 @@ export const SongEditor: React.FC<SongEditorProps> = ({ setScreen, setSongs, son
       )}
 
       {showLoadModal && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-4">
-          <div className="bg-white p-5 md:p-8 border-8 border-black max-w-2xl w-full flex flex-col items-center gap-4 shadow-[12px_12px_0_#3b82f6] transform skew-x-[-3deg] max-h-[85dvh] overflow-y-auto custom-scrollbar">
-            <h2 className="text-2xl sm:text-4xl font-black italic text-black transform skew-x-[3deg] text-center uppercase mb-2">
-              LOAD TRACK TO EDITOR
-            </h2>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-3 sm:p-5">
+          <div className="rc-console-tray max-w-2xl w-full flex flex-col gap-3 p-4 sm:p-5 max-h-[88dvh] overflow-y-auto custom-scrollbar">
+            <div className="rc-dock-rail flex items-center justify-between px-3.5 py-2 shrink-0">
+              <h2 className="text-lg sm:text-xl font-black italic text-white uppercase">LOAD TRACK TO EDITOR</h2>
+              <button
+                onClick={() => setShowLoadModal(false)}
+                className="rc-bevel-btn rc-tile-red text-white px-3 py-1 font-black text-xs whitespace-nowrap"
+              >
+                CANCEL
+              </button>
+            </div>
 
-            <div className="w-full flex flex-col gap-3 transform skew-x-[3deg]">
-              <h3 className="text-xl font-black bg-black text-white p-2 text-center border-4 border-black">
+            <div className="w-full flex flex-col gap-2.5 overflow-y-auto custom-scrollbar pr-1">
+              <div className="rc-dock-well px-3 py-1.5 text-xs font-black text-yellow-300 tracking-widest">
                 LOCAL TRACKS
-              </h3>
+              </div>
               {songs.filter((s) => s.artist === 'USER').length === 0 && (
-                <div className="text-base font-bold text-gray-600 text-center bg-gray-200 p-4 border-4 border-black">
+                <div className="rc-console-inset text-xs sm:text-sm font-bold text-slate-300 text-center p-3">
                   No locally saved tracks found.
                 </div>
               )}
@@ -886,22 +870,20 @@ export const SongEditor: React.FC<SongEditorProps> = ({ setScreen, setSongs, son
                   <button
                     key={song.id}
                     onClick={() => handleLoad(song)}
-                    className="w-full text-left p-3 border-4 border-black bg-gray-200 hover:bg-blue-300 transition-colors shadow-[4px_4px_0_#000] flex justify-between items-center"
+                    className="rc-bevel-btn rc-tile-slate text-white w-full text-left px-3.5 py-2.5 flex justify-between items-center gap-3"
                   >
-                    <span className="font-black text-lg sm:text-2xl uppercase text-black truncate pr-2">
-                      {song.title}
-                    </span>
-                    <span className="font-bold text-gray-700 bg-white px-2 py-1 border-2 border-black whitespace-nowrap">
+                    <span className="font-black text-sm sm:text-base uppercase truncate">{song.title}</span>
+                    <span className="rc-dock-well px-2.5 py-1 text-xs font-black text-cyan-300 whitespace-nowrap tabular-nums">
                       {song.bpm} BPM
                     </span>
                   </button>
                 ))}
 
-              <h3 className="text-xl font-black bg-cyan-400 text-black p-2 mt-2 text-center border-4 border-black">
+              <div className="rc-dock-well px-3 py-1.5 text-xs font-black text-cyan-300 tracking-widest mt-1">
                 COMMUNITY TRACKS (REMIX)
-              </h3>
+              </div>
               {songs.filter((s) => s.artist !== 'USER' && s.artist !== 'Royalty Free').length === 0 && (
-                <div className="text-base font-bold text-gray-600 text-center bg-gray-200 p-4 border-4 border-black">
+                <div className="rc-console-inset text-xs sm:text-sm font-bold text-slate-300 text-center p-3">
                   No community tracks downloaded.
                 </div>
               )}
@@ -911,44 +893,33 @@ export const SongEditor: React.FC<SongEditorProps> = ({ setScreen, setSongs, son
                   <button
                     key={song.id}
                     onClick={() => handleLoad(song)}
-                    className="w-full text-left p-3 border-4 border-black bg-cyan-100 hover:bg-cyan-300 transition-colors shadow-[4px_4px_0_#000] flex justify-between items-center"
+                    className="rc-bevel-btn rc-tile-slate text-white w-full text-left px-3.5 py-2.5 flex justify-between items-center gap-3"
                   >
-                    <span className="font-black text-lg sm:text-2xl uppercase text-black truncate pr-2">
-                      {song.title}
-                    </span>
-                    <span className="font-bold text-gray-700 bg-white px-2 py-1 border-2 border-black whitespace-nowrap">
+                    <span className="font-black text-sm sm:text-base uppercase truncate">{song.title}</span>
+                    <span className="rc-dock-well px-2.5 py-1 text-xs font-black text-cyan-300 whitespace-nowrap tabular-nums">
                       {song.bpm} BPM
                     </span>
                   </button>
                 ))}
 
-              <h3 className="text-xl font-black bg-pink-500 text-black p-2 mt-2 text-center border-4 border-black">
+              <div className="rc-dock-well px-3 py-1.5 text-xs font-black text-pink-300 tracking-widest mt-1">
                 DEFAULT TRACKS (REMIX)
-              </h3>
+              </div>
               {songs
                 .filter((s) => s.artist === 'Royalty Free')
                 .map((song) => (
                   <button
                     key={song.id}
                     onClick={() => handleLoad(song)}
-                    className="w-full text-left p-3 border-4 border-black bg-pink-100 hover:bg-pink-300 transition-colors shadow-[4px_4px_0_#000] flex justify-between items-center"
+                    className="rc-bevel-btn rc-tile-slate text-white w-full text-left px-3.5 py-2.5 flex justify-between items-center gap-3"
                   >
-                    <span className="font-black text-lg sm:text-2xl uppercase text-black truncate pr-2">
-                      {song.title}
-                    </span>
-                    <span className="font-bold text-gray-700 bg-white px-2 py-1 border-2 border-black whitespace-nowrap">
+                    <span className="font-black text-sm sm:text-base uppercase truncate">{song.title}</span>
+                    <span className="rc-dock-well px-2.5 py-1 text-xs font-black text-pink-300 whitespace-nowrap tabular-nums">
                       {song.bpm} BPM
                     </span>
                   </button>
                 ))}
             </div>
-
-            <button
-              onClick={() => setShowLoadModal(false)}
-              className="mt-4 w-full py-3 font-black text-xl bg-red-500 border-4 border-black text-white hover:bg-red-400 transition-all shadow-[4px_4px_0_#000] transform skew-x-[3deg]"
-            >
-              CANCEL
-            </button>
           </div>
         </div>
       )}
