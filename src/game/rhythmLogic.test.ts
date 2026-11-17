@@ -25,12 +25,17 @@ import {
   pixelToLaneCoord,
 } from './layoutConfig.ts';
 import { buildVibrationPattern, DEFAULT_HAPTICS_SETTINGS, isHapticEventEnabled, normalizeHapticsSettings } from './haptics.ts';
-import { MENU_GENRE_CONFIGS, MENU_GENRE_ORDER, ROYALTY_FREE_SONGS } from './constants.ts';
+import { MENU_GENRE_CONFIGS, MENU_GENRE_ORDER, ROYALTY_FREE_SONGS, SPOTIFY_PLAYLIST_ID, SPOTIFY_PLAYLIST_TRACKS } from './constants.ts';
 import { readGamepadLaneState, readGamepadStartPressed } from './gamepad.ts';
 import { isCompactLandscapeViewport, isLandscapeViewport, isPortraitViewport } from './useViewport.ts';
 
-test('rave, dubstep, and hardtekk menu music genres and playable synth tracks are configured with valid BPMs', () => {
-  assert.deepEqual(MENU_GENRE_ORDER, ['rave', 'dubstep', 'hardtekk']);
+test('spotify playlist tracks and rave, dubstep, and hardtekk menu music genres are configured with valid BPMs and real-hardware haptics defaults', () => {
+  assert.equal(SPOTIFY_PLAYLIST_ID, '37i9dQZF1FwYctKSlWHO7d');
+  assert.equal(SPOTIFY_PLAYLIST_TRACKS.length, 16);
+  assert.ok(SPOTIFY_PLAYLIST_TRACKS.every((t) => t.previewUrl.startsWith('https://p.scdn.co/mp3-preview/') && t.bpm >= 100));
+
+  assert.deepEqual(MENU_GENRE_ORDER, ['spotify', 'rave', 'dubstep', 'hardtekk']);
+  assert.equal(MENU_GENRE_CONFIGS.spotify.bpm, 175);
   assert.equal(MENU_GENRE_CONFIGS.rave.bpm, 155);
   assert.equal(MENU_GENRE_CONFIGS.dubstep.bpm, 140);
   assert.equal(MENU_GENRE_CONFIGS.hardtekk.bpm, 180);
@@ -40,8 +45,12 @@ test('rave, dubstep, and hardtekk menu music genres and playable synth tracks ar
   assert.ok(synthSongs.some((s) => s.audioUrl === 'synth:rave' && s.bpm === 155));
   assert.ok(synthSongs.some((s) => s.audioUrl === 'synth:dubstep' && s.bpm === 140));
   assert.ok(synthSongs.some((s) => s.audioUrl === 'synth:hardtekk' && s.bpm === 180));
-  assert.equal(DEFAULT_HAPTICS_SETTINGS.alwaysAudioAssist, true);
-  assert.ok(DEFAULT_HAPTICS_SETTINGS.intensity >= 80);
+
+  // Verify simulated audio noise is OFF by default so haptics use physical phone vibration
+  assert.equal(DEFAULT_HAPTICS_SETTINGS.alwaysAudioAssist, false);
+  assert.equal(DEFAULT_HAPTICS_SETTINGS.audioFallback, false);
+  assert.ok(DEFAULT_HAPTICS_SETTINGS.intensity >= 85);
+  assert.ok(DEFAULT_HAPTICS_SETTINGS.pulseDurationMs >= 28);
 });
 
 test('normalizeChart sorts notes, clamps lanes, and sets hold duration defaults', () => {

@@ -282,9 +282,10 @@ function RhythmCanvasApp() {
       equippedHitSound: null,
       unlockedGameMods: [],
       activeGameMods: [],
-      menuGenre: 'rave',
       menuBgmMuted: false,
       ...parsed,
+      menuGenre: (parsed as any)?.v2SpotifyDefaultApplied ? (parsed.menuGenre || 'spotify') : 'spotify',
+      bgFloatingNotes: parsed.bgFloatingNotes !== undefined ? Boolean(parsed.bgFloatingNotes) : true,
       downscroll: parsed.downscroll !== undefined ? Boolean(parsed.downscroll) : true,
       haptics: normalizeHapticsSettings(parsed.haptics),
       controlLayout: normalizeControlLayout(parsed.controlLayout),
@@ -299,6 +300,8 @@ function RhythmCanvasApp() {
         setPlayerInfo((prev) => ({
           ...prev,
           ...parsed,
+          menuGenre: (parsed as any)?.v2SpotifyDefaultApplied ? (parsed.menuGenre || 'spotify') : 'spotify',
+          bgFloatingNotes: parsed.bgFloatingNotes !== undefined ? Boolean(parsed.bgFloatingNotes) : true,
           unlockedShapes: parsed.unlockedShapes || ['arrow'],
           equippedShape: parsed.equippedShape || 'arrow',
           customColors: parsed.customColors || ['#ff0055', '#00ffcc', '#00ff00', '#ffaa00'],
@@ -332,6 +335,11 @@ function RhythmCanvasApp() {
                   const newData: PlayerInfo = {
                     ...prev,
                     ...data,
+                    menuGenre: data.menuGenre || prev.menuGenre || 'spotify',
+                    bgFloatingNotes:
+                      data.bgFloatingNotes !== undefined
+                        ? Boolean(data.bgFloatingNotes)
+                        : prev.bgFloatingNotes !== false,
                     unlockedShapes: data.unlockedShapes || prev.unlockedShapes || ['arrow'],
                     equippedShape: data.equippedShape || prev.equippedShape || 'arrow',
                     customColors: data.customColors || prev.customColors || ['#ff0055', '#00ffcc', '#00ff00', '#ffaa00'],
@@ -523,10 +531,13 @@ function RhythmCanvasApp() {
       if (bgm && !bgm.paused) bgm.pause();
       MenuMusicEngine.setMuted(Boolean(playerInfo.menuBgmMuted));
       if (!playerInfo.menuBgmMuted) {
+        if (typeof playerInfo.spotifyTrackIndex === 'number') {
+          MenuMusicEngine.setSpotifyTrackIndex(playerInfo.spotifyTrackIndex);
+        }
         const targetGenre =
           screen === 'freeplay' && selectedSong?.audioUrl?.startsWith('synth:')
-            ? ((selectedSong.audioUrl.replace('synth:', '') as any) || playerInfo.menuGenre || 'rave')
-            : playerInfo.menuGenre || 'rave';
+            ? ((selectedSong.audioUrl.replace('synth:', '') as any) || playerInfo.menuGenre || 'spotify')
+            : playerInfo.menuGenre || 'spotify';
         MenuMusicEngine.start(targetGenre, screen === 'freeplay' ? modifiers?.speed || 1 : 1);
       } else {
         MenuMusicEngine.stop();
@@ -556,6 +567,7 @@ function RhythmCanvasApp() {
     isPortrait,
     playerInfo.menuGenre,
     playerInfo.menuBgmMuted,
+    playerInfo.spotifyTrackIndex,
     selectedSong,
     modifiers?.speed,
   ]);
@@ -565,11 +577,14 @@ function RhythmCanvasApp() {
     AudioEngine.init();
     triggerHaptic('hit', playerInfo.haptics, 'sick');
     if (!playerInfo.menuBgmMuted) {
-      MenuMusicEngine.start(playerInfo.menuGenre || 'rave');
+      if (typeof playerInfo.spotifyTrackIndex === 'number') {
+        MenuMusicEngine.setSpotifyTrackIndex(playerInfo.spotifyTrackIndex);
+      }
+      MenuMusicEngine.start(playerInfo.menuGenre || 'spotify');
     }
     tryLockLandscape();
     setHasStarted(true);
-  }, [hasStarted, playerInfo.haptics, playerInfo.menuBgmMuted, playerInfo.menuGenre, tryLockLandscape]);
+  }, [hasStarted, playerInfo.haptics, playerInfo.menuBgmMuted, playerInfo.menuGenre, playerInfo.spotifyTrackIndex, tryLockLandscape]);
 
   useEffect(() => {
     if (hasStarted) return;
@@ -637,13 +652,17 @@ function RhythmCanvasApp() {
             }}
             onClick={handleStartTap}
           >
-            <RaveStageCanvas genre={playerInfo.menuGenre || 'rave'} intensity={0.95} />
+            <RaveStageCanvas
+              genre={playerInfo.menuGenre || 'spotify'}
+              intensity={0.95}
+              showFloatingNotes={playerInfo.bgFloatingNotes !== false}
+            />
 
             <div className="relative z-10 flex flex-col items-center justify-center gap-4 max-w-2xl w-full">
-              <div className="rc-dock-well px-3.5 py-1 flex items-center gap-2 border border-cyan-400/40 shadow-[0_0_16px_rgba(34,211,238,0.28)]">
-                <Radio className="w-3.5 h-3.5 text-cyan-300 animate-pulse" />
-                <span className="text-[10px] sm:text-xs font-black uppercase tracking-[0.22em] text-cyan-200">
-                  LIVE SYNTH DECK · RAVE 155 · DUBSTEP 140 · HARDTEKK 180
+              <div className="rc-dock-well px-3.5 py-1 flex items-center gap-2 border border-emerald-400/55 shadow-[0_0_18px_rgba(30,215,96,0.34)]">
+                <Radio className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+                <span className="text-[10px] sm:text-xs font-black uppercase tracking-[0.2em] text-emerald-200">
+                  SPOTIFY RAVE PLAYLIST · DUBSTEP · HARDTEKK · METAL RAVE
                 </span>
               </div>
 

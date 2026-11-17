@@ -21,7 +21,7 @@ body,
   overscroll-behavior: none;
   -webkit-text-size-adjust: 100%;
   -webkit-tap-highlight-color: transparent;
-  font-family: 'Saira', sans-serif;
+  font-family: 'Aller', 'Exo 2', 'Varela Round', 'Saira', sans-serif;
 }
 
 body,
@@ -30,7 +30,8 @@ input,
 select,
 textarea,
 .font-sans {
-  font-family: 'Saira', sans-serif !important;
+  font-family: 'Aller', 'Exo 2', 'Varela Round', 'Saira', sans-serif !important;
+  letter-spacing: 0.015em;
 }
 
 button,
@@ -544,81 +545,88 @@ input, select {
    Rhythm Canvas Console Visual System (Matches Mockup + Original Resemblance)
    ========================================================================== */
 
-@@layer components {
+@layer components {
   .rc-stage {
     background:
-      radial-gradient(ellipse 80% 62% at 50% 22%, rgba(98, 38, 196, 0.82) 0%, rgba(42, 18, 102, 0.72) 48%, rgba(9, 6, 22, 0.99) 100%),
-      linear-gradient(180deg, #1e0f4c 0%, #10082c 55%, #070512 100%);
+      radial-gradient(ellipse 84% 64% at 50% 24%, rgba(112, 42, 224, 0.86) 0%, rgba(44, 18, 108, 0.78) 48%, rgba(8, 5, 20, 0.99) 100%),
+      linear-gradient(180deg, #211054 0%, #11082e 55%, #060410 100%);
     position: relative;
   }
 
   .rc-stage-dots {
-    background-image: radial-gradient(rgba(192, 132, 252, 0.22) 1.5px, transparent 1.5px);
+    background-image: radial-gradient(rgba(216, 180, 254, 0.24) 1.5px, transparent 1.5px);
     background-size: 24px 24px;
   }
 
   .rc-dock-rail {
-    background: linear-gradient(180deg, #434a63 0%, #262c3d 45%, #161a26 100%);
-    border: 2.5px solid #07090e;
-    border-radius: 14px;
+    background: linear-gradient(180deg, #4b5472 0%, #2a3146 46%, #171c29 100%);
+    border: 2.5px solid rgba(165, 180, 252, 0.65);
+    border-radius: 15px;
     box-shadow:
-      inset 0 1.5px 0 rgba(255, 255, 255, 0.34),
-      inset 0 -2px 0 rgba(0, 0, 0, 0.62),
-      0 6px 18px rgba(0, 0, 0, 0.68),
-      0 0 22px rgba(139, 92, 246, 0.22);
+      0 0 0 2px #05070d,
+      inset 0 2px 0 rgba(255, 255, 255, 0.45),
+      inset 0 -2.5px 0 rgba(0, 0, 0, 0.72),
+      0 8px 22px rgba(0, 0, 0, 0.78),
+      0 0 22px rgba(139, 92, 246, 0.32);
   }
 
   .rc-dock-well {
-    background: linear-gradient(180deg, #0b0e16 0%, #141926 100%);
-    border: 1.5px solid #06080c;
-    border-radius: 9px;
+    background: linear-gradient(180deg, #0b0e17 0%, #161c2c 100%);
+    border: 2px solid rgba(148, 163, 184, 0.42);
+    border-radius: 10px;
     box-shadow:
-      inset 0 2px 5px rgba(0, 0, 0, 0.82),
-      0 1px 0 rgba(255, 255, 255, 0.16);
+      0 0 0 1.5px #05070c,
+      inset 0 2px 5px rgba(0, 0, 0, 0.86),
+      0 1px 0 rgba(255, 255, 255, 0.2);
   }
 
   .rc-console-tray {
-    background: linear-gradient(180deg, #414860 0%, #262c3e 16%, #181c29 84%, #10131d 100%);
-    border: 3px solid #07090e;
-    border-radius: 20px;
+    background: linear-gradient(180deg, #4b5370 0%, #2c3348 18%, #1a1f2e 82%, #10141f 100%);
+    border: 3px solid rgba(196, 181, 253, 0.72);
+    border-radius: 22px;
     box-shadow:
-      inset 0 2px 0 rgba(255, 255, 255, 0.3),
-      inset 0 -3px 0 rgba(0, 0, 0, 0.72),
-      0 18px 38px rgba(0, 0, 0, 0.75),
-      0 0 32px rgba(255, 46, 136, 0.22);
+      0 0 0 2.5px #05070e,
+      inset 0 2.5px 0 rgba(255, 255, 255, 0.46),
+      inset 0 -3px 0 rgba(0, 0, 0, 0.78),
+      0 18px 40px rgba(0, 0, 0, 0.82),
+      0 0 34px rgba(255, 46, 136, 0.32);
   }
 
   .rc-console-inset {
-    background: linear-gradient(180deg, #0e111a 0%, #181d2b 100%);
-    border: 2px solid #080a0f;
-    border-radius: 14px;
+    background: linear-gradient(180deg, #0c101a 0%, #171d2e 100%);
+    border: 2px solid rgba(129, 140, 248, 0.45);
+    border-radius: 15px;
     box-shadow:
-      inset 0 3px 9px rgba(0, 0, 0, 0.84),
-      0 1px 0 rgba(255, 255, 255, 0.14);
+      0 0 0 1.5px #05070c,
+      inset 0 3px 9px rgba(0, 0, 0, 0.88),
+      0 1.5px 0 rgba(255, 255, 255, 0.2);
   }
 
   .rc-panel {
-    background: linear-gradient(180deg, #2b3145 0%, #191d29 42%, #10131c 100%);
-    border: 2.5px solid #080a0f;
-    border-radius: 16px;
+    background: linear-gradient(180deg, #323952 0%, #1c2130 45%, #111520 100%);
+    border: 2.5px solid rgba(103, 232, 249, 0.58);
+    border-radius: 18px;
     box-shadow:
-      inset 0 1.5px 0 rgba(255, 255, 255, 0.26),
-      inset 0 -2px 0 rgba(0, 0, 0, 0.56),
-      0 12px 28px rgba(0, 0, 0, 0.65),
-      0 0 24px rgba(54, 226, 255, 0.14);
+      0 0 0 2px #05070d,
+      inset 0 2px 0 rgba(255, 255, 255, 0.36),
+      inset 0 -2.5px 0 rgba(0, 0, 0, 0.65),
+      0 14px 32px rgba(0, 0, 0, 0.75),
+      0 0 28px rgba(54, 226, 255, 0.24);
   }
 
   .rc-bevel-btn {
     position: relative;
     overflow: hidden;
-    border: 2.5px solid #080a0f;
-    border-radius: 12px;
-    transition: transform 110ms cubic-bezier(0.16, 1, 0.3, 1), filter 120ms ease, box-shadow 120ms ease;
+    border: 2.5px solid rgba(255, 255, 255, 0.34);
+    border-radius: 13px;
+    text-shadow: 0 1.5px 0 rgba(0, 0, 0, 0.65);
+    transition: transform 110ms cubic-bezier(0.16, 1, 0.3, 1), filter 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
   }
 
   .rc-bevel-btn:hover:not(:disabled) {
-    filter: brightness(1.1) saturate(1.08);
-    transform: translateY(-1px);
+    filter: brightness(1.12) saturate(1.1);
+    border-color: rgba(255, 255, 255, 0.72);
+    transform: translateY(-1.5px);
   }
 
   .rc-bevel-btn:active:not(:disabled) {
@@ -627,102 +635,126 @@ input, select {
   }
 
   .rc-tile-pink {
-    background: linear-gradient(180deg, #ff52a2 0%, #ff1a7a 52%, #c40958 100%);
+    background: linear-gradient(180deg, #ff63ae 0%, #ff1e80 52%, #c9085b 100%);
+    border-color: #ffd1e8;
     box-shadow:
-      inset 0 2.5px 0 rgba(255, 210, 234, 0.85),
-      inset 0 0 0 2px rgba(255, 130, 185, 0.4),
-      0 5px 0 #080a0f,
-      0 10px 22px rgba(255, 26, 122, 0.42);
+      0 0 0 2px #06080e,
+      inset 0 3px 0 rgba(255, 230, 244, 0.92),
+      inset 0 -3px 0 rgba(120, 0, 52, 0.65),
+      0 5px 0 #06080e,
+      0 12px 26px rgba(255, 26, 122, 0.52);
   }
 
   .rc-tile-green {
-    background: linear-gradient(180deg, #3bf77e 0%, #19d458 54%, #0f993d 100%);
+    background: linear-gradient(180deg, #4aff8b 0%, #18db5a 54%, #0d9e3f 100%);
+    border-color: #d1fae5;
+    text-shadow: none;
     box-shadow:
-      inset 0 2.5px 0 rgba(205, 255, 222, 0.85),
-      inset 0 0 0 2px rgba(134, 239, 172, 0.42),
-      0 5px 0 #080a0f,
-      0 10px 20px rgba(25, 212, 88, 0.35);
+      0 0 0 2px #06080e,
+      inset 0 3px 0 rgba(225, 255, 236, 0.92),
+      inset 0 -3px 0 rgba(6, 78, 32, 0.6),
+      0 5px 0 #06080e,
+      0 12px 24px rgba(25, 212, 88, 0.45);
   }
 
   .rc-tile-gold {
-    background: linear-gradient(180deg, #ffea47 0%, #f5bd0b 54%, #c28500 100%);
+    background: linear-gradient(180deg, #fff05a 0%, #f8c20c 54%, #c78800 100%);
+    border-color: #fef9c3;
+    text-shadow: none;
     box-shadow:
-      inset 0 2.5px 0 rgba(255, 252, 204, 0.9),
-      inset 0 0 0 2px rgba(254, 240, 138, 0.44),
-      0 5px 0 #080a0f,
-      0 10px 20px rgba(245, 189, 11, 0.35);
+      0 0 0 2px #06080e,
+      inset 0 3px 0 rgba(255, 254, 220, 0.95),
+      inset 0 -3px 0 rgba(120, 74, 0, 0.58),
+      0 5px 0 #06080e,
+      0 12px 24px rgba(245, 189, 11, 0.45);
   }
 
   .rc-tile-violet {
-    background: linear-gradient(180deg, #a46bff 0%, #7832ec 54%, #5218b5 100%);
+    background: linear-gradient(180deg, #b17dff 0%, #8036f5 54%, #5719bf 100%);
+    border-color: #ede9fe;
     box-shadow:
-      inset 0 2.5px 0 rgba(232, 212, 255, 0.8),
-      inset 0 0 0 2px rgba(196, 181, 253, 0.38),
-      0 5px 0 #080a0f,
-      0 10px 20px rgba(120, 50, 236, 0.38);
+      0 0 0 2px #06080e,
+      inset 0 3px 0 rgba(240, 226, 255, 0.88),
+      inset 0 -3px 0 rgba(46, 10, 104, 0.65),
+      0 5px 0 #06080e,
+      0 12px 24px rgba(128, 54, 245, 0.48);
   }
 
   .rc-tile-cyan {
-    background: linear-gradient(180deg, #47e8ff 0%, #10bde0 54%, #08809b 100%);
+    background: linear-gradient(180deg, #5cf0ff 0%, #12c4e8 54%, #0885a1 100%);
+    border-color: #cffafe;
+    text-shadow: none;
     box-shadow:
-      inset 0 2px 0 rgba(200, 250, 255, 0.88),
-      inset 0 0 0 2px rgba(103, 232, 249, 0.42),
-      0 4px 0 #080a0f,
-      0 8px 18px rgba(16, 189, 224, 0.35);
+      0 0 0 2px #06080e,
+      inset 0 2.5px 0 rgba(220, 252, 255, 0.92),
+      inset 0 -2.5px 0 rgba(6, 78, 96, 0.58),
+      0 4.5px 0 #06080e,
+      0 10px 22px rgba(18, 196, 232, 0.45);
   }
 
   .rc-tile-red {
-    background: linear-gradient(180deg, #ff5252 0%, #dc2020 55%, #9c0f0f 100%);
+    background: linear-gradient(180deg, #ff6363 0%, #e32222 55%, #a30f0f 100%);
+    border-color: #fecaca;
     box-shadow:
-      inset 0 2px 0 rgba(255, 200, 200, 0.75),
-      0 3.5px 0 #080a0f,
-      0 6px 14px rgba(220, 32, 32, 0.35);
+      0 0 0 2px #06080e,
+      inset 0 2.5px 0 rgba(255, 215, 215, 0.85),
+      0 4px 0 #06080e,
+      0 8px 18px rgba(227, 34, 34, 0.45);
   }
 
   .rc-tile-slate {
-    background: linear-gradient(180deg, #3e455c 0%, #262c3b 55%, #171a25 100%);
+    background: linear-gradient(180deg, #4b536e 0%, #2e3547 55%, #1b202d 100%);
+    border-color: rgba(203, 213, 225, 0.55);
     box-shadow:
-      inset 0 1.5px 0 rgba(255, 255, 255, 0.28),
-      inset 0 0 0 1.5px rgba(255, 255, 255, 0.1),
-      0 4px 0 #080a0f;
+      0 0 0 2px #06080e,
+      inset 0 2px 0 rgba(255, 255, 255, 0.38),
+      0 4px 0 #06080e;
   }
 
   .rc-sub-rose {
-    background: linear-gradient(180deg, #e83d82 0%, #bf2261 55%, #8b1343 100%);
+    background: linear-gradient(180deg, #f44990 0%, #c92468 55%, #911347 100%);
+    border-color: #fbcfe8;
     box-shadow:
-      inset 0 1.5px 0 rgba(255, 195, 222, 0.68),
-      inset 0 0 0 1.5px rgba(255, 130, 185, 0.34),
-      0 3.5px 0 #080a0f;
+      0 0 0 2px #06080e,
+      inset 0 2px 0 rgba(255, 210, 232, 0.8),
+      0 4px 0 #06080e,
+      0 6px 14px rgba(244, 73, 144, 0.34);
   }
 
   .rc-sub-teal {
-    background: linear-gradient(180deg, #3896aa 0%, #256f80 55%, #164955 100%);
+    background: linear-gradient(180deg, #2dd4bf 0%, #0d9488 55%, #115e59 100%);
+    border-color: #99f6e4;
     box-shadow:
-      inset 0 1.5px 0 rgba(175, 246, 255, 0.6),
-      inset 0 0 0 1.5px rgba(103, 232, 249, 0.32),
-      0 3.5px 0 #080a0f;
+      0 0 0 2px #06080e,
+      inset 0 2px 0 rgba(204, 251, 241, 0.78),
+      0 4px 0 #06080e,
+      0 6px 14px rgba(45, 212, 191, 0.32);
   }
 
   .rc-sub-amber {
-    background: linear-gradient(180deg, #b58926 0%, #8b6715 55%, #61460a 100%);
+    background: linear-gradient(180deg, #f59e0b 0%, #ca8a04 55%, #854d0e 100%);
+    border-color: #fef08a;
     box-shadow:
-      inset 0 1.5px 0 rgba(254, 243, 152, 0.58),
-      inset 0 0 0 1.5px rgba(250, 204, 21, 0.34),
-      0 3.5px 0 #080a0f;
+      0 0 0 2px #06080e,
+      inset 0 2px 0 rgba(254, 249, 195, 0.82),
+      0 4px 0 #06080e,
+      0 6px 14px rgba(245, 158, 11, 0.34);
   }
 
   .rc-sub-dark {
-    background: linear-gradient(180deg, #2b3142 0%, #1b202c 55%, #11141d 100%);
+    background: linear-gradient(180deg, #373f54 0%, #232938 55%, #151924 100%);
+    border-color: rgba(148, 163, 184, 0.52);
     box-shadow:
-      inset 0 1.5px 0 rgba(255, 255, 255, 0.25),
-      inset 0 0 0 1.5px rgba(255, 255, 255, 0.1),
-      0 3.5px 0 #080a0f;
+      0 0 0 2px #06080e,
+      inset 0 2px 0 rgba(255, 255, 255, 0.34),
+      0 4px 0 #06080e;
   }
 
   .rc-hero-wordmark {
+    font-family: 'Aller', 'Exo 2', 'Varela Round', 'Saira', sans-serif !important;
     font-style: italic;
     font-weight: 900;
-    letter-spacing: -0.04em;
+    letter-spacing: -0.02em;
     line-height: 0.9;
     user-select: none;
   }
@@ -735,7 +767,7 @@ input, select {
     filter:
       drop-shadow(0 3px 0 #080a0f)
       drop-shadow(3px 5px 0 #080a0f)
-      drop-shadow(0 0 18px rgba(255, 46, 136, 0.45));
+      drop-shadow(0 0 22px rgba(255, 46, 136, 0.55));
   }
 
   .rc-word-canvas {
@@ -743,7 +775,7 @@ input, select {
     text-shadow:
       0 3px 0 #080a0f,
       4px 6px 0 #080a0f,
-      0 0 22px rgba(255, 255, 255, 0.32);
+      0 0 24px rgba(255, 255, 255, 0.4);
   }
 
   .rc-word-reboot {
@@ -751,7 +783,7 @@ input, select {
     text-shadow:
       0 2px 0 #080a0f,
       2px 4px 0 #080a0f,
-      0 0 16px rgba(54, 226, 255, 0.65);
+      0 0 18px rgba(54, 226, 255, 0.72);
     letter-spacing: 0.34em;
   }
 }

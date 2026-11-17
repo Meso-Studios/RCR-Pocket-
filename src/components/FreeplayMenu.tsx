@@ -268,7 +268,11 @@ export const FreeplayMenu: React.FC<FreeplayMenuProps> = ({
 
   return (
     <div className="rc-stage relative w-full h-full flex flex-row overflow-hidden safe-top safe-bottom">
-      <RaveStageCanvas genre={activeStageGenre} intensity={0.82} />
+      <RaveStageCanvas
+        genre={activeStageGenre}
+        intensity={0.82}
+        showFloatingNotes={playerInfo.bgFloatingNotes !== false}
+      />
       <div className="absolute inset-0 rc-stage-dots pointer-events-none opacity-65" />
 
       {/* Left Track Browser Console */}

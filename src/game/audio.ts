@@ -1,6 +1,7 @@
 // Web Audio API engine with mobile touch-unlock, pre-decoded hit-sound buffers, tactile haptics synth,
 // and real-time procedural Rave / Dubstep / Hardtekk synthesizer with 60fps spectrum + beat telemetry.
 
+import { SPOTIFY_PLAYLIST_TRACKS, type SpotifyPlaylistTrack } from './constants';
 import type { MenuGenre } from './types';
 
 const decodedSoundCache = new Map<string, AudioBuffer>();
@@ -57,7 +58,6 @@ export const AudioEngine = {
     }
     if (this.ctx && !this.unlocked) {
       try {
-        // Silent 1-sample buffer unlocks iOS/Android WebKit audio output synchronously inside user gesture
         const buf = this.ctx.createBuffer(1, 1, 22050);
         const src = this.ctx.createBufferSource();
         src.buffer = buf;
@@ -133,7 +133,6 @@ export const AudioEngine = {
     if (ctx.state === 'suspended') ctx.resume().catch(() => {});
     const now = ctx.currentTime;
 
-    // Punchy arcade synth pluck + crisp transient click
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.type = 'triangle';
@@ -168,7 +167,6 @@ export const AudioEngine = {
     const dur = Math.max(0.02, Math.min(0.12, durationMs / 1000));
     const norm = Math.max(0.12, Math.min(1.35, intensity01));
 
-    // 1. Sub-bass & low-mid resonant thump (tuned so phone/tablet speakers & headphones physically kick)
     const bodyOsc = ctx.createOscillator();
     const bodyGain = ctx.createGain();
     const startFreq = Math.max(120, Math.min(280, freq * 2.15));
@@ -183,7 +181,6 @@ export const AudioEngine = {
     bodyOsc.start(now);
     bodyOsc.stop(now + dur + 0.005);
 
-    // 2. Crisp 11ms Taptic-style skin transient click for instantaneous finger-tap feedback
     const clickOsc = ctx.createOscillator();
     const clickGain = ctx.createGain();
     clickOsc.type = 'sine';
@@ -208,31 +205,32 @@ export interface BeatTelemetry {
   stepIndex: number;
   barIndex: number;
   spectrum: number[];
+  trackTitle?: string;
+  trackArtist?: string;
+  trackIndex?: number;
 }
 
 const GENRE_BPM: Record<MenuGenre, number> = {
+  spotify: 175,
   rave: 155,
   dubstep: 140,
   hardtekk: 180,
 };
 
-// Euphoric Hyper-Rave 16-step lead patterns (F minor / C# major energy)
 const RAVE_ARP_MIDI = [65, 68, 72, 77, 75, 72, 68, 72, 63, 67, 70, 75, 73, 70, 67, 72];
 const RAVE_BASS_MIDI = [41, 41, 41, 41, 37, 37, 37, 37, 39, 39, 39, 39, 44, 44, 43, 43];
 
-// Dubstep 16-step wobble LFO rates & bass notes
 const DUBSTEP_BASS_MIDI = [38, 38, 38, 41, 38, 38, 46, 45, 38, 38, 38, 41, 34, 34, 36, 37];
 const DUBSTEP_WOBBLE_HZ = [3, 6, 6, 12, 4, 8, 12, 6, 3, 6, 8, 12, 16, 16, 8, 4];
 
-// Hardtekk 180 BPM Schranz industrial stabs & offbeat bass
 const HARDTEKK_BASS_MIDI = [36, 48, 36, 48, 36, 48, 36, 51, 36, 48, 36, 48, 39, 51, 38, 50];
 const HARDTEKK_STAB_MIDI = [60, 0, 0, 63, 0, 0, 60, 0, 58, 0, 0, 62, 0, 60, 0, 67];
 
 class ProceduralSynthEngine {
-  private genre: MenuGenre = 'rave';
+  private genre: MenuGenre = 'spotify';
   private playing = false;
   private muted = false;
-  private volume = 0.34;
+  private volume = 0.42;
   private PlaybackRate = 1;
   private timerId: ReturnType<typeof setInterval> | null = null;
   private masterGain: GainNode | null = null;
@@ -244,23 +242,135 @@ class ProceduralSynthEngine {
   private lastSnareAt = 0;
   private spectrumOut: number[] = new Array(16).fill(0);
 
+  // Spotify Playlist MP3 Stream + Web Audio Analyser state
+  private spotifyTrackIndex = 0;
+  private spotifyAudio: HTMLAudioElement | null = null;
+  private spotifySourceNode: MediaElementAudioSourceNode | null = null;
+  private spotifyStreamActive = false;
+  private prevBassEnergy = 0;
+  private prevMidEnergy = 0;
+  private adaptiveBassPeak = 0.35;
+  private gestureListenerAttached = false;
+
   private ensureGraph(): AudioContext | null {
     const ctx = AudioEngine.init();
     if (!ctx) return null;
     if (!this.masterGain || !this.analyser) {
       this.masterGain = ctx.createGain();
       this.analyser = ctx.createAnalyser();
-      this.analyser.fftSize = 128;
-      this.analyser.smoothingTimeConstant = 0.65;
+      this.analyser.fftSize = 256;
+      this.analyser.smoothingTimeConstant = 0.62;
       this.freqBins = new Uint8Array(new ArrayBuffer(this.analyser.frequencyBinCount));
       this.masterGain.gain.setValueAtTime(this.muted ? 0.0001 : this.volume, ctx.currentTime);
       this.masterGain.connect(this.analyser);
       this.analyser.connect(ctx.destination);
     }
+    if (!this.gestureListenerAttached && typeof window !== 'undefined') {
+      this.gestureListenerAttached = true;
+      const resumeOnGesture = () => {
+        if (!this.playing || this.muted) return;
+        if (this.ctxStateSuspended()) {
+          AudioEngine.ctx?.resume().catch(() => {});
+        }
+        if (this.genre === 'spotify' && this.spotifyAudio && this.spotifyAudio.paused) {
+          this.spotifyAudio.play().then(() => {
+            this.spotifyStreamActive = true;
+          }).catch(() => {});
+        }
+      };
+      window.addEventListener('pointerdown', resumeOnGesture, { passive: true });
+      window.addEventListener('keydown', resumeOnGesture, { passive: true });
+    }
     return ctx;
   }
 
+  private ctxStateSuspended(): boolean {
+    return Boolean(AudioEngine.ctx && AudioEngine.ctx.state === 'suspended');
+  }
+
+  private ensureSpotifyAudio(ctx: AudioContext): HTMLAudioElement | null {
+    if (typeof window === 'undefined' || typeof Audio === 'undefined') return null;
+    if (!this.spotifyAudio) {
+      const audio = new Audio();
+      audio.crossOrigin = 'anonymous';
+      audio.preload = 'auto';
+      audio.loop = false;
+      audio.volume = 0.92;
+      audio.addEventListener('playing', () => {
+        this.spotifyStreamActive = true;
+      });
+      audio.addEventListener('pause', () => {
+        this.spotifyStreamActive = false;
+      });
+      audio.addEventListener('error', () => {
+        this.spotifyStreamActive = false;
+      });
+      audio.addEventListener('ended', () => {
+        if (this.playing && this.genre === 'spotify') {
+          this.nextSpotifyTrack();
+        }
+      });
+      this.spotifyAudio = audio;
+    }
+    if (!this.spotifySourceNode && this.spotifyAudio && this.masterGain) {
+      try {
+        this.spotifySourceNode = ctx.createMediaElementSource(this.spotifyAudio);
+        this.spotifySourceNode.connect(this.masterGain);
+      } catch {
+        // Fallback if already connected
+      }
+    }
+    return this.spotifyAudio;
+  }
+
+  private playCurrentSpotifyTrack() {
+    const ctx = this.ensureGraph();
+    if (!ctx) return;
+    const audio = this.ensureSpotifyAudio(ctx);
+    if (!audio) return;
+    const track = this.getSpotifyTrack();
+    if (audio.src !== track.previewUrl) {
+      audio.src = track.previewUrl;
+    }
+    audio.playbackRate = this.PlaybackRate;
+    if (!this.muted && this.playing) {
+      audio.play().then(() => {
+        this.spotifyStreamActive = true;
+      }).catch(() => {
+        this.spotifyStreamActive = false;
+      });
+    }
+  }
+
+  getSpotifyTrack(): SpotifyPlaylistTrack {
+    const list = SPOTIFY_PLAYLIST_TRACKS;
+    const idx = ((this.spotifyTrackIndex % list.length) + list.length) % list.length;
+    return list[idx] || list[0];
+  }
+
+  getSpotifyTrackIndex(): number {
+    return this.spotifyTrackIndex;
+  }
+
+  setSpotifyTrackIndex(index: number): SpotifyPlaylistTrack {
+    const list = SPOTIFY_PLAYLIST_TRACKS;
+    this.spotifyTrackIndex = ((index % list.length) + list.length) % list.length;
+    if (this.playing && this.genre === 'spotify') {
+      this.playCurrentSpotifyTrack();
+    }
+    return this.getSpotifyTrack();
+  }
+
+  nextSpotifyTrack(): SpotifyPlaylistTrack {
+    return this.setSpotifyTrackIndex(this.spotifyTrackIndex + 1);
+  }
+
+  prevSpotifyTrack(): SpotifyPlaylistTrack {
+    return this.setSpotifyTrackIndex(this.spotifyTrackIndex - 1);
+  }
+
   start(genre?: MenuGenre, rate = 1) {
+    const genreChanged = Boolean(genre && genre !== this.genre);
     if (genre) this.genre = genre;
     this.PlaybackRate = Math.max(0.5, Math.min(2.5, rate));
     const ctx = this.ensureGraph();
@@ -271,7 +381,23 @@ class ProceduralSynthEngine {
     if (this.masterGain) {
       this.masterGain.gain.setTargetAtTime(this.muted ? 0.0001 : this.volume, ctx.currentTime, 0.03);
     }
-    if (this.playing) return;
+
+    if (this.genre === 'spotify') {
+      this.playing = true;
+      this.playCurrentSpotifyTrack();
+    } else if (this.spotifyAudio && !this.spotifyAudio.paused) {
+      this.spotifyAudio.pause();
+      this.spotifyStreamActive = false;
+    }
+
+    if (this.playing && this.timerId) {
+      if (genreChanged && this.genre !== 'spotify') {
+        this.currentStep = 0;
+        this.nextStepTime = ctx.currentTime + 0.02;
+      }
+      return;
+    }
+
     this.playing = true;
     this.currentStep = 0;
     this.nextStepTime = ctx.currentTime + 0.02;
@@ -285,6 +411,14 @@ class ProceduralSynthEngine {
       clearInterval(this.timerId);
       this.timerId = null;
     }
+    if (this.spotifyAudio && !this.spotifyAudio.paused) {
+      try {
+        this.spotifyAudio.pause();
+      } catch {
+        // ignore
+      }
+      this.spotifyStreamActive = false;
+    }
     if (this.masterGain && AudioEngine.ctx) {
       try {
         this.masterGain.gain.setTargetAtTime(0.0001, AudioEngine.ctx.currentTime, 0.025);
@@ -297,9 +431,19 @@ class ProceduralSynthEngine {
   setGenre(genre: MenuGenre) {
     if (this.genre === genre && this.playing) return;
     this.genre = genre;
-    if (this.playing && AudioEngine.ctx) {
-      this.currentStep = 0;
-      this.nextStepTime = AudioEngine.ctx.currentTime + 0.015;
+    if (this.playing) {
+      if (genre === 'spotify') {
+        this.playCurrentSpotifyTrack();
+      } else {
+        if (this.spotifyAudio && !this.spotifyAudio.paused) {
+          this.spotifyAudio.pause();
+          this.spotifyStreamActive = false;
+        }
+        if (AudioEngine.ctx) {
+          this.currentStep = 0;
+          this.nextStepTime = AudioEngine.ctx.currentTime + 0.015;
+        }
+      }
     }
   }
 
@@ -311,6 +455,14 @@ class ProceduralSynthEngine {
     this.muted = muted;
     if (this.masterGain && AudioEngine.ctx) {
       this.masterGain.gain.setTargetAtTime(this.muted ? 0.0001 : this.volume, AudioEngine.ctx.currentTime, 0.025);
+    }
+    if (this.spotifyAudio) {
+      if (muted && !this.spotifyAudio.paused) {
+        this.spotifyAudio.pause();
+        this.spotifyStreamActive = false;
+      } else if (!muted && this.playing && this.genre === 'spotify') {
+        this.playCurrentSpotifyTrack();
+      }
     }
   }
 
@@ -327,11 +479,21 @@ class ProceduralSynthEngine {
 
   setPlaybackRate(rate: number) {
     this.PlaybackRate = Math.max(0.5, Math.min(2.5, rate));
+    if (this.spotifyAudio) {
+      this.spotifyAudio.playbackRate = this.PlaybackRate;
+    }
+  }
+
+  private getActiveBpm(): number {
+    if (this.genre === 'spotify') {
+      return this.getSpotifyTrack().bpm * this.PlaybackRate;
+    }
+    return (GENRE_BPM[this.genre] || 155) * this.PlaybackRate;
   }
 
   private getStepDurationSec(): number {
-    const bpm = GENRE_BPM[this.genre] * this.PlaybackRate;
-    return 60 / bpm / 4; // 16th note
+    const bpm = this.getActiveBpm();
+    return 60 / bpm / 4;
   }
 
   private schedulerTick() {
@@ -339,8 +501,14 @@ class ProceduralSynthEngine {
     if (!this.playing || !ctx || !this.masterGain) return;
     if (ctx.state === 'suspended') return;
 
+    // When streaming real Spotify playlist audio, do not layer synth oscillators over the MP3 stream
+    if (this.genre === 'spotify' && this.spotifyStreamActive && this.spotifyAudio && !this.spotifyAudio.paused) {
+      this.currentStep = (this.currentStep + 1) % 64;
+      this.nextStepTime = ctx.currentTime + this.getStepDurationSec();
+      return;
+    }
+
     const lookahead = 0.11;
-    // Guard against huge catch-up bursts after backgrounding tab
     if (this.nextStepTime < ctx.currentTime - 0.25) {
       this.nextStepTime = ctx.currentTime + 0.01;
     }
@@ -355,93 +523,87 @@ class ProceduralSynthEngine {
   private scheduleStep(ctx: AudioContext, dest: AudioNode, step64: number, time: number) {
     const step16 = step64 % 16;
     const stepDur = this.getStepDurationSec();
-    const nowPerf = typeof performance !== 'undefined' ? performance.now() : Date.now();
     const delayMs = Math.max(0, (time - ctx.currentTime) * 1000);
 
-    if (this.genre === 'rave') {
-      // 4-on-the-floor punchy 909 rave kick + end-of-phrase double kick
+    // Fallback synth genre when offline or synth mode selected
+    const effectiveGenre =
+      this.genre === 'spotify'
+        ? this.getSpotifyTrack().tag === 'HARDTEKK'
+          ? 'hardtekk'
+          : this.getSpotifyTrack().tag === 'DUBSTEP'
+          ? 'dubstep'
+          : 'rave'
+        : this.genre;
+
+    if (effectiveGenre === 'rave') {
       if (step16 % 4 === 0 || (step64 >= 60 && step16 % 2 === 1)) {
         this.triggerRaveKick(ctx, dest, time, 0.72);
         setTimeout(() => {
           this.lastKickAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
         }, delayMs);
       }
-      // Clap/Snare on beats 2 & 4 (steps 4 & 12)
       if (step16 === 4 || step16 === 12) {
         this.triggerSnare(ctx, dest, time, 0.36, 0.14);
         setTimeout(() => {
           this.lastSnareAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
         }, delayMs);
       }
-      // Crisp 909 open hi-hat on offbeats (steps 2, 6, 10, 14) + closed 16th hats
       this.triggerHiHat(ctx, dest, time, step16 % 4 === 2 ? 0.24 : 0.09, step16 % 4 === 2 ? 0.11 : 0.035);
 
-      // Driving offbeat rave sub-bass
       if (step16 % 2 === 1 || step16 % 4 === 2) {
         const bassNote = RAVE_BASS_MIDI[step16] + (step64 >= 32 ? 2 : 0);
         this.triggerBassPluck(ctx, dest, time, midiToFreq(bassNote), stepDur * 0.9, 0.34);
       }
 
-      // Euphoric detuned supersaw rave lead arpeggio
       const leadNote = RAVE_ARP_MIDI[step16] + (step64 >= 48 ? 5 : step64 >= 32 ? 3 : 0);
       this.triggerSupersawLead(ctx, dest, time, midiToFreq(leadNote), stepDur * 0.88, 0.18);
-    } else if (this.genre === 'dubstep') {
-      // Heavy half-time Dubstep kick on step 0 (and syncopated step 10)
-      if (step16 === 0 || step16 === 10 || (step64 % 32 === 22)) {
+    } else if (effectiveGenre === 'dubstep') {
+      if (step16 === 0 || step16 === 10 || step64 % 32 === 22) {
         this.triggerRaveKick(ctx, dest, time, 0.85, 165, 38);
         setTimeout(() => {
           this.lastKickAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
         }, delayMs);
       }
-      // Massive Dubstep half-time snare on beat 3 (step 8)
-      if (step16 === 8 || (step64 % 32 === 30)) {
+      if (step16 === 8 || step64 % 32 === 30) {
         this.triggerSnare(ctx, dest, time, 0.62, 0.24);
         setTimeout(() => {
           this.lastSnareAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
           this.lastKickAt = this.lastSnareAt;
         }, delayMs);
       }
-      // Metallic dubstep hats
       if (step16 % 2 === 0 || step16 === 7 || step16 === 15) {
         this.triggerHiHat(ctx, dest, time, step16 % 4 === 2 ? 0.2 : 0.11, 0.05);
       }
-      // LFO-modulated Wobble Bass Growl on every 8th/16th slot
       if (step16 % 2 === 0 || step16 === 3 || step16 === 11 || step16 === 15) {
         const bassMidi = DUBSTEP_BASS_MIDI[step16];
         const lfoHz = DUBSTEP_WOBBLE_HZ[step16];
         this.triggerWobbleBass(ctx, dest, time, midiToFreq(bassMidi), stepDur * 1.85, lfoHz, 0.42);
       }
     } else {
-      // HARDTEKK 180 BPM: Relentless distorted Schranz four-on-the-floor kick + pounding offbeat Tekk bass
       if (step16 % 4 === 0 || (step64 % 32 >= 28 && step16 % 2 === 0)) {
         this.triggerHardtekkKick(ctx, dest, time, stepDur * 1.9, 0.78);
         setTimeout(() => {
           this.lastKickAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
         }, delayMs);
       }
-      // Offbeat Schranz Tekk bass bounce
       if (step16 % 4 === 2) {
         const bassMidi = HARDTEKK_BASS_MIDI[step16];
         this.triggerBassPluck(ctx, dest, time, midiToFreq(bassMidi), stepDur * 1.35, 0.44, 'sawtooth');
       }
-      // Industrial metallic Ride / Hat on offbeats
       if (step16 % 2 === 0) {
         this.triggerHiHat(ctx, dest, time, step16 % 4 === 2 ? 0.26 : 0.12, step16 % 4 === 2 ? 0.09 : 0.03);
       }
-      // Industrial clap on 4 and 12
       if (step16 === 4 || step16 === 12) {
         this.triggerSnare(ctx, dest, time, 0.35, 0.11);
         setTimeout(() => {
           this.lastSnareAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
         }, delayMs);
       }
-      // Dark rave stabs
       const stabMidi = HARDTEKK_STAB_MIDI[step16];
       if (stabMidi > 0) {
         this.triggerHardtekkStab(ctx, dest, time, midiToFreq(stabMidi), stepDur * 1.4, 0.22);
       }
     }
-    void nowPerf;
   }
 
   private triggerRaveKick(ctx: AudioContext, dest: AudioNode, time: number, level = 0.7, startF = 185, endF = 44) {
@@ -457,7 +619,6 @@ class ProceduralSynthEngine {
     osc.start(time);
     osc.stop(time + 0.22);
 
-    // Beater click
     const click = ctx.createOscillator();
     const cGain = ctx.createGain();
     click.type = 'triangle';
@@ -501,7 +662,6 @@ class ProceduralSynthEngine {
   }
 
   private triggerSnare(ctx: AudioContext, dest: AudioNode, time: number, level = 0.4, dur = 0.16) {
-    // Noise burst
     const noise = ctx.createBufferSource();
     noise.buffer = getNoiseBuffer(ctx);
     const filter = ctx.createBiquadFilter();
@@ -516,7 +676,6 @@ class ProceduralSynthEngine {
     noise.start(time);
     noise.stop(time + dur + 0.01);
 
-    // Snare body tone
     const osc = ctx.createOscillator();
     const oGain = ctx.createGain();
     osc.type = 'triangle';
@@ -664,7 +823,6 @@ class ProceduralSynthEngine {
     dur: number,
     level = 0.22
   ) {
-    // Minor rave chord stab (root + minor 3rd + 5th)
     const intervals = [1, Math.pow(2, 3 / 12), Math.pow(2, 7 / 12)];
     const filter = ctx.createBiquadFilter();
     const gain = ctx.createGain();
@@ -689,39 +847,67 @@ class ProceduralSynthEngine {
 
   getBeatState(): BeatTelemetry {
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-    const bpm = GENRE_BPM[this.genre] * this.PlaybackRate;
+    const bpm = this.getActiveBpm();
     const beatMs = 60000 / bpm;
     const phase = (now % beatMs) / beatMs;
     const mathBeatPulse = Math.pow(Math.max(0, 1 - phase * 1.65), 2);
 
-    const kickAge = now - this.lastKickAt;
-    const snareAge = now - this.lastSnareAt;
-    const kickPulse = kickAge >= 0 && kickAge < 220 ? Math.pow(1 - kickAge / 220, 1.6) : mathBeatPulse * 0.65;
-    const snarePulse = snareAge >= 0 && snareAge < 200 ? Math.pow(1 - snareAge / 200, 1.5) : 0;
-
     let energySum = 0;
+    let fftKick = 0;
+    let fftSnare = 0;
+
     if (this.playing && !this.muted && this.analyser && this.freqBins) {
       this.analyser.getByteFrequencyData(this.freqBins);
       for (let i = 0; i < 16; i++) {
-        const idx = Math.min(this.freqBins.length - 1, i * 2 + 1);
+        const idx = Math.min(this.freqBins.length - 1, i * 3 + 1);
         const val = this.freqBins[idx] / 255;
-        this.spectrumOut[i] = this.spectrumOut[i] * 0.35 + val * 0.65;
+        this.spectrumOut[i] = this.spectrumOut[i] * 0.32 + val * 0.68;
         energySum += this.spectrumOut[i];
       }
+
+      // Real-time sub-bass (bins 1..6) and snare/mid (bins 10..24) onset detection for Spotify MP3 stream
+      let bassSum = 0;
+      for (let b = 1; b <= 6; b++) bassSum += this.freqBins[b] / 255;
+      const bassRaw = bassSum / 6;
+      this.adaptiveBassPeak = Math.max(0.28, bassRaw, this.adaptiveBassPeak * 0.988);
+      const bassNorm = Math.min(1, bassRaw / this.adaptiveBassPeak);
+      const bassOnset = Math.max(0, bassRaw - this.prevBassEnergy);
+      this.prevBassEnergy = bassRaw * 0.72 + this.prevBassEnergy * 0.28;
+      if (bassOnset > 0.045 || bassNorm > 0.78) {
+        this.lastKickAt = now;
+      }
+      fftKick = Math.min(1, bassNorm * 0.78 + bassOnset * 4.2);
+
+      let midSum = 0;
+      for (let m = 10; m <= 24; m++) midSum += this.freqBins[m] / 255;
+      const midRaw = midSum / 15;
+      const midOnset = Math.max(0, midRaw - this.prevMidEnergy);
+      this.prevMidEnergy = midRaw * 0.7 + this.prevMidEnergy * 0.3;
+      if (midOnset > 0.055) {
+        this.lastSnareAt = now;
+      }
+      fftSnare = Math.min(1, midRaw * 0.65 + midOnset * 3.8);
     } else {
-      // Fallback procedural visualizer wave when muted or before audio unlock
       for (let i = 0; i < 16; i++) {
         const wave =
           0.18 +
-          0.42 * mathBeatPulse * Math.max(0.15, 1 - i / 18) +
+          0.44 * mathBeatPulse * Math.max(0.15, 1 - i / 18) +
           0.2 * Math.abs(Math.sin(now * 0.006 + i * 0.55));
         this.spectrumOut[i] = wave;
         energySum += wave;
       }
     }
 
+    const kickAge = now - this.lastKickAt;
+    const snareAge = now - this.lastSnareAt;
+    const synthKick = kickAge >= 0 && kickAge < 220 ? Math.pow(1 - kickAge / 220, 1.55) : mathBeatPulse * 0.68;
+    const synthSnare = snareAge >= 0 && snareAge < 200 ? Math.pow(1 - snareAge / 200, 1.5) : 0;
+
+    const kickPulse = Math.min(1, Math.max(synthKick, fftKick, mathBeatPulse * 0.72));
+    const snarePulse = Math.min(1, Math.max(synthSnare, fftSnare));
     const avgEnergy = energySum / 16;
-    const pulse = Math.min(1, Math.max(kickPulse * 0.85, snarePulse * 0.75, avgEnergy * 0.9, mathBeatPulse * 0.75));
+    const pulse = Math.min(1, Math.max(kickPulse * 0.9, snarePulse * 0.75, avgEnergy * 0.92, mathBeatPulse * 0.78));
+    const spTrack = this.getSpotifyTrack();
 
     return {
       playing: this.playing,
@@ -733,6 +919,9 @@ class ProceduralSynthEngine {
       stepIndex: this.currentStep % 16,
       barIndex: Math.floor(this.currentStep / 16),
       spectrum: this.spectrumOut,
+      trackTitle: this.genre === 'spotify' ? spTrack.title : undefined,
+      trackArtist: this.genre === 'spotify' ? spTrack.artist : undefined,
+      trackIndex: this.spotifyTrackIndex,
     };
   }
 }

@@ -1,5 +1,187 @@
 import type { Difficulty, MenuGenre, Song } from './types';
 
+export interface SpotifyPlaylistTrack {
+  id: string;
+  title: string;
+  artist: string;
+  bpm: number;
+  accent: string;
+  secondaryAccent: string;
+  previewUrl: string;
+  tag: 'HARDTEKK' | 'DUBSTEP' | 'RAVE';
+}
+
+export const SPOTIFY_PLAYLIST_ID = '37i9dQZF1FwYctKSlWHO7d';
+export const SPOTIFY_PLAYLIST_TITLE = 'Dubstep Hardtekk & Metal Rave';
+export const SPOTIFY_PLAYLIST_OWNER = 'Spotify';
+export const SPOTIFY_PLAYLIST_URL =
+  'https://open.spotify.com/playlist/37i9dQZF1FwYctKSlWHO7d?si=GKBTNfaSQKuoQDP01lJuXw&utm_source=copy-link';
+export const SPOTIFY_EMBED_URL =
+  'https://open.spotify.com/embed/playlist/37i9dQZF1FwYctKSlWHO7d?utm_source=generator&theme=0';
+
+export const SPOTIFY_PLAYLIST_TRACKS: SpotifyPlaylistTrack[] = [
+  {
+    id: 'sp-my-destiny',
+    title: 'MY DESTINY HARDTEKK',
+    artist: 'conqr, RADIXNT',
+    bpm: 180,
+    accent: '#ff2e88',
+    secondaryAccent: '#36e2ff',
+    previewUrl: 'https://p.scdn.co/mp3-preview/b4c73256d422668e6b4d850407b38c133573a10f',
+    tag: 'HARDTEKK',
+  },
+  {
+    id: 'sp-thermodynamix',
+    title: 'Thermodynamix',
+    artist: 'dj-Nate',
+    bpm: 136,
+    accent: '#36e2ff',
+    secondaryAccent: '#a855f7',
+    previewUrl: 'https://p.scdn.co/mp3-preview/8c006f969c9e18825e8e6452812af983116be288',
+    tag: 'DUBSTEP',
+  },
+  {
+    id: 'sp-jealous-hardtekk',
+    title: 'JEALOUS (HARDTEKK)',
+    artist: 'Der Aztekke',
+    bpm: 182,
+    accent: '#a3e635',
+    secondaryAccent: '#ff2e88',
+    previewUrl: 'https://p.scdn.co/mp3-preview/1bd08f12cd8f94b5f5e58afecaaca53311b78b11',
+    tag: 'HARDTEKK',
+  },
+  {
+    id: 'sp-intoxicated',
+    title: 'Intoxicated',
+    artist: 'Doruksen',
+    bpm: 175,
+    accent: '#f97316',
+    secondaryAccent: '#22d3ee',
+    previewUrl: 'https://p.scdn.co/mp3-preview/2770b8caf45f4de635b9a3b942f283221794355c',
+    tag: 'HARDTEKK',
+  },
+  {
+    id: 'sp-into-the-void',
+    title: 'Into The Void (feat. Jordo)',
+    artist: 'POLTERGST, RØØTZ, Jordo',
+    bpm: 150,
+    accent: '#a855f7',
+    secondaryAccent: '#36e2ff',
+    previewUrl: 'https://p.scdn.co/mp3-preview/c0369458c321db86b8d2343dbdff6691da1261c1',
+    tag: 'DUBSTEP',
+  },
+  {
+    id: 'sp-cute-jumpstyle',
+    title: 'CUTE JUMPSTYLE',
+    artist: 'HELLBLADE, dxnkwer',
+    bpm: 162,
+    accent: '#ff47a3',
+    secondaryAccent: '#ffe23b',
+    previewUrl: 'https://p.scdn.co/mp3-preview/ebb2fe6b398a37ffd1b325910501ed842caf594c',
+    tag: 'RAVE',
+  },
+  {
+    id: 'sp-bonfire',
+    title: 'Bonfire',
+    artist: 'Knife Party',
+    bpm: 174,
+    accent: '#fb923c',
+    secondaryAccent: '#ef4444',
+    previewUrl: 'https://p.scdn.co/mp3-preview/546fe77c555db3f00f644b62ad9cc6357dd4e5fd',
+    tag: 'DUBSTEP',
+  },
+  {
+    id: 'sp-type-sht',
+    title: 'TYPE SH*T',
+    artist: 'Crankdat, NGHTMRE, Duke Deuce',
+    bpm: 145,
+    accent: '#22d3ee',
+    secondaryAccent: '#ff2e88',
+    previewUrl: 'https://p.scdn.co/mp3-preview/4e9c1dafdc7f405dbe57cce4a7ee7bebbdc1759d',
+    tag: 'DUBSTEP',
+  },
+  {
+    id: 'sp-boom-boom',
+    title: 'Boom, Boom, Boom, Boom!!',
+    artist: 'Zak Conner',
+    bpm: 165,
+    accent: '#a3e635',
+    secondaryAccent: '#38bdf8',
+    previewUrl: 'https://p.scdn.co/mp3-preview/739655832e5ddbc6977bacb575d184cc8a5e6e8d',
+    tag: 'RAVE',
+  },
+  {
+    id: 'sp-woops',
+    title: 'Woops',
+    artist: 'Dj Bountyhunter',
+    bpm: 176,
+    accent: '#ef4444',
+    secondaryAccent: '#facc15',
+    previewUrl: 'https://p.scdn.co/mp3-preview/8585a764532e7b48ec1a5a867487a7b1a8d71946',
+    tag: 'HARDTEKK',
+  },
+  {
+    id: 'sp-zavod',
+    title: 'ЗАВОД',
+    artist: 'ZAPRAVKA',
+    bpm: 170,
+    accent: '#38bdf8',
+    secondaryAccent: '#818cf8',
+    previewUrl: 'https://p.scdn.co/mp3-preview/f07da72db1400ca6a6bce2d4302d7069120e36fa',
+    tag: 'HARDTEKK',
+  },
+  {
+    id: 'sp-general-release',
+    title: 'General Release',
+    artist: 'Mike Klubnika',
+    bpm: 138,
+    accent: '#c084fc',
+    secondaryAccent: '#ff2e88',
+    previewUrl: 'https://p.scdn.co/mp3-preview/861182dd026ae1f5b0a931c3115ba98ebf1a6d15',
+    tag: 'RAVE',
+  },
+  {
+    id: 'sp-invincible',
+    title: 'Invincible',
+    artist: 'Deaf Kev',
+    bpm: 140,
+    accent: '#f472b6',
+    secondaryAccent: '#22d3ee',
+    previewUrl: 'https://p.scdn.co/mp3-preview/d4290ea0e3b020a1ecbf5b63e76adf930b117668',
+    tag: 'DUBSTEP',
+  },
+  {
+    id: 'sp-blind',
+    title: 'Blind',
+    artist: 'Korn',
+    bpm: 158,
+    accent: '#34d399',
+    secondaryAccent: '#38bdf8',
+    previewUrl: 'https://p.scdn.co/mp3-preview/7c2868a7b00e17f310b3366160f900749490d468',
+    tag: 'RAVE',
+  },
+  {
+    id: 'sp-stranded',
+    title: 'Stranded',
+    artist: 'Gojira',
+    bpm: 160,
+    accent: '#facc15',
+    secondaryAccent: '#ff2e88',
+    previewUrl: 'https://p.scdn.co/mp3-preview/7c153b1c254c73fe348016ce9b56c5f18a1b8f19',
+    tag: 'RAVE',
+  },
+  {
+    id: 'sp-roots-bloody-roots',
+    title: 'Roots Bloody Roots',
+    artist: 'Sepultura',
+    bpm: 178,
+    accent: '#fb7185',
+    secondaryAccent: '#a3e635',
+    previewUrl: 'https://p.scdn.co/mp3-preview/6872c1cff7bdfa31df19ff6cad7c7f0e8e28b899',
+    tag: 'HARDTEKK',
+  },
+];
+
 export interface MenuGenreConfig {
   id: MenuGenre;
   label: string;
@@ -11,6 +193,15 @@ export interface MenuGenreConfig {
 }
 
 export const MENU_GENRE_CONFIGS: Record<MenuGenre, MenuGenreConfig> = {
+  spotify: {
+    id: 'spotify',
+    label: 'SPOTIFY RAVE PLAYLIST',
+    shortLabel: 'SPOTIFY',
+    trackTitle: 'MY DESTINY HARDTEKK',
+    bpm: 175,
+    accent: '#1ed760',
+    secondaryAccent: '#ff2e88',
+  },
   rave: {
     id: 'rave',
     label: 'HYPER RAVE',
@@ -40,7 +231,7 @@ export const MENU_GENRE_CONFIGS: Record<MenuGenre, MenuGenreConfig> = {
   },
 };
 
-export const MENU_GENRE_ORDER: MenuGenre[] = ['rave', 'dubstep', 'hardtekk'];
+export const MENU_GENRE_ORDER: MenuGenre[] = ['spotify', 'rave', 'dubstep', 'hardtekk'];
 
 export const KEY_MAP: Record<string, number> = {
   arrowleft: 0,
@@ -111,6 +302,86 @@ export const LANDSCAPE_CANVAS_WIDTH = 860;
 export const LANDSCAPE_CANVAS_HEIGHT = 440;
 
 export const ROYALTY_FREE_SONGS: Song[] = [
+  {
+    id: 201,
+    title: 'MY DESTINY HARDTEKK',
+    artist: 'conqr, RADIXNT',
+    bpm: 180,
+    color: '#ff2e88',
+    audioUrl: 'https://p.scdn.co/mp3-preview/b4c73256d422668e6b4d850407b38c133573a10f',
+    featured: true,
+    stepClick: false,
+  },
+  {
+    id: 202,
+    title: 'Thermodynamix',
+    artist: 'dj-Nate',
+    bpm: 136,
+    color: '#36e2ff',
+    audioUrl: 'https://p.scdn.co/mp3-preview/8c006f969c9e18825e8e6452812af983116be288',
+    featured: true,
+    stepClick: false,
+  },
+  {
+    id: 203,
+    title: 'JEALOUS (HARDTEKK)',
+    artist: 'Der Aztekke',
+    bpm: 182,
+    color: '#a3e635',
+    audioUrl: 'https://p.scdn.co/mp3-preview/1bd08f12cd8f94b5f5e58afecaaca53311b78b11',
+    featured: true,
+    stepClick: false,
+  },
+  {
+    id: 204,
+    title: 'Intoxicated',
+    artist: 'Doruksen',
+    bpm: 175,
+    color: '#f97316',
+    audioUrl: 'https://p.scdn.co/mp3-preview/2770b8caf45f4de635b9a3b942f283221794355c',
+    featured: true,
+    stepClick: false,
+  },
+  {
+    id: 205,
+    title: 'Into The Void',
+    artist: 'POLTERGST, RØØTZ',
+    bpm: 150,
+    color: '#a855f7',
+    audioUrl: 'https://p.scdn.co/mp3-preview/c0369458c321db86b8d2343dbdff6691da1261c1',
+    featured: true,
+    stepClick: false,
+  },
+  {
+    id: 206,
+    title: 'CUTE JUMPSTYLE',
+    artist: 'HELLBLADE, dxnkwer',
+    bpm: 162,
+    color: '#ff47a3',
+    audioUrl: 'https://p.scdn.co/mp3-preview/ebb2fe6b398a37ffd1b325910501ed842caf594c',
+    featured: true,
+    stepClick: false,
+  },
+  {
+    id: 207,
+    title: 'Bonfire (DnB / Dubstep)',
+    artist: 'Knife Party',
+    bpm: 174,
+    color: '#fb923c',
+    audioUrl: 'https://p.scdn.co/mp3-preview/546fe77c555db3f00f644b62ad9cc6357dd4e5fd',
+    featured: true,
+    stepClick: false,
+  },
+  {
+    id: 208,
+    title: 'TYPE SH*T',
+    artist: 'Crankdat, NGHTMRE',
+    bpm: 145,
+    color: '#22d3ee',
+    audioUrl: 'https://p.scdn.co/mp3-preview/4e9c1dafdc7f405dbe57cce4a7ee7bebbdc1759d',
+    featured: true,
+    stepClick: false,
+  },
   { id: 101, title: 'HYPER RAVE 2000', artist: 'Rave Core', bpm: 155, color: '#ff2e88', audioUrl: 'synth:rave', featured: true, stepClick: false },
   { id: 102, title: 'WOBBLE PROTOCOL', artist: 'Sub Bass Labs', bpm: 140, color: '#22d3ee', audioUrl: 'synth:dubstep', featured: true, stepClick: false },
   { id: 103, title: 'SCHRANZ TEKK 180', artist: 'Tekk Foundry', bpm: 180, color: '#a3e635', audioUrl: 'synth:hardtekk', featured: true, stepClick: false },
@@ -128,8 +399,8 @@ export const ROYALTY_FREE_SONGS: Song[] = [
   { id: 12, title: 'Mainframe', artist: 'Royalty Free', bpm: 180, color: '#fbbf24', audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-12.mp3', featured: false },
 ];
 
-export const MENU_BGM = 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-14.mp3';
-export const ONLINE_BGM = 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-13.mp3';
+export const MENU_BGM = 'https://p.scdn.co/mp3-preview/9341d80aa95b5caae8421b60bb636895f3c8d044';
+export const ONLINE_BGM = 'https://p.scdn.co/mp3-preview/6ac303fa96d6459a2d5a4bc097028f7eb182ce34';
 
 export const NOTE_EFFECTS = [
   ['score_boost', 'Score Surge', 'Bonus score'],

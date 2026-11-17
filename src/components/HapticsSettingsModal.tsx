@@ -119,10 +119,10 @@ export const HapticsSettingsModal: React.FC<HapticsSettingsModalProps> = ({ sett
               </h2>
               <p className="text-[11px] font-bold text-cyan-300 truncate">
                 {hwSupported
-                  ? 'Motor Vibration + Sub-Bass Tactile Audio Active'
+                  ? 'Physical Phone Vibration Motor Active (navigator.vibrate)'
                   : iosTapticSupported
-                  ? 'iOS Taptic Switch + Sub-Bass Tactile Audio Active'
-                  : 'Sub-Bass Tactile Audio + Transient Click Active'}
+                  ? 'iOS Taptic Engine Switch Pulse Active'
+                  : 'Hardware Vibration Ready (Mobile LRA / Taptic Engine)'}
               </p>
             </div>
           </div>
@@ -148,7 +148,7 @@ export const HapticsSettingsModal: React.FC<HapticsSettingsModalProps> = ({ sett
             <div className="rc-console-inset flex items-center justify-between gap-3 p-3">
               <div>
                 <div className="font-black text-sm sm:text-base tracking-wider">MASTER HAPTICS</div>
-                <div className="text-xs text-slate-300">Physical feedback on note hits, holds &amp; menus</div>
+                <div className="text-xs text-slate-300">Physical phone vibration on note hits, holds &amp; menus</div>
               </div>
               <button
                 type="button"
@@ -204,9 +204,9 @@ export const HapticsSettingsModal: React.FC<HapticsSettingsModalProps> = ({ sett
           <div className="rc-console-inset p-3">
             <div className="flex items-center justify-between mb-2">
               <span className="font-black text-xs tracking-wider text-yellow-300 uppercase">
-                INTERACTIVE HAPTIC TEST PADS (TAP TO FEEL)
+                INTERACTIVE HAPTIC TEST PADS (TAP TO VIBRATE)
               </span>
-              <span className="text-[11px] font-bold text-cyan-300">Instant Zero-Latency Trigger</span>
+              <span className="text-[11px] font-bold text-cyan-300">Direct Motor Actuation</span>
             </div>
             <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
               <button
@@ -366,7 +366,7 @@ export const HapticsSettingsModal: React.FC<HapticsSettingsModalProps> = ({ sett
             />
             <div className="flex justify-between text-[11px] font-bold text-slate-400">
               <span>8ms (Snappy)</span>
-              <span>24ms (Arcade Punch)</span>
+              <span>32ms (Strong Motor Kick)</span>
               <span>60ms (Heavy Rumble)</span>
             </div>
           </div>
@@ -389,7 +389,7 @@ export const HapticsSettingsModal: React.FC<HapticsSettingsModalProps> = ({ sett
             >
               <div>
                 <div className="font-black text-xs sm:text-sm">ACCURACY SCALING</div>
-                <div className="text-[11px] text-slate-300">SICK!! hits kick stronger than BAD</div>
+                <div className="text-[11px] text-slate-300">SICK!! hits vibrate stronger than BAD</div>
               </div>
               <span
                 className={`px-2.5 py-1 rounded-md text-xs font-black shrink-0 ${
@@ -406,7 +406,14 @@ export const HapticsSettingsModal: React.FC<HapticsSettingsModalProps> = ({ sett
               disabled={!current.enabled}
               onClick={() => {
                 AudioEngine.init();
-                const next = normalizeHapticsSettings({ ...current, audioFallback: !current.audioFallback });
+                const next = {
+                  ...normalizeHapticsSettings({
+                    ...current,
+                    audioFallback: !current.audioFallback,
+                    v2ExplicitAudioAssist: true,
+                  } as any),
+                  v2ExplicitAudioAssist: true,
+                } as HapticsSettings;
                 onChange(next);
                 triggerHaptic('hit', next, 'sick');
               }}
@@ -417,9 +424,9 @@ export const HapticsSettingsModal: React.FC<HapticsSettingsModalProps> = ({ sett
               <div className="min-w-0">
                 <div className="font-black text-xs sm:text-sm flex items-center gap-1">
                   <Volume2 className="w-3.5 h-3.5 text-violet-300 shrink-0" />
-                  TACTILE THUMP
+                  SPEAKER ASSIST (OPTIONAL)
                 </div>
-                <div className="text-[11px] text-slate-300">Sub-bass speaker pulse for iOS &amp; web</div>
+                <div className="text-[11px] text-slate-300">Off by default — physical motor only</div>
               </div>
               <span
                 className={`px-2.5 py-1 rounded-md text-xs font-black shrink-0 ${
@@ -436,10 +443,14 @@ export const HapticsSettingsModal: React.FC<HapticsSettingsModalProps> = ({ sett
               disabled={!current.enabled}
               onClick={() => {
                 AudioEngine.init();
-                const next = normalizeHapticsSettings({
-                  ...current,
-                  alwaysAudioAssist: !current.alwaysAudioAssist,
-                });
+                const next = {
+                  ...normalizeHapticsSettings({
+                    ...current,
+                    alwaysAudioAssist: !current.alwaysAudioAssist,
+                    v2ExplicitAudioAssist: true,
+                  } as any),
+                  v2ExplicitAudioAssist: true,
+                } as HapticsSettings;
                 onChange(next);
                 triggerHaptic('hit', next, 'sick');
               }}
@@ -448,9 +459,9 @@ export const HapticsSettingsModal: React.FC<HapticsSettingsModalProps> = ({ sett
               }`}
             >
               <div className="min-w-0">
-                <div className="font-black text-xs sm:text-sm">ALWAYS LAYER SUB-BASS TACTILE AUDIO</div>
+                <div className="font-black text-xs sm:text-sm">SIMULATED BASS AUDIO LAYER (OPTIONAL)</div>
                 <div className="text-[11px] text-slate-300">
-                  Fires physical low-end thump + transient click alongside vibration motor on every tap &amp; hit
+                  Disabled by default so haptics strictly vibrates your phone without simulated speaker noise
                 </div>
               </div>
               <span
@@ -458,7 +469,7 @@ export const HapticsSettingsModal: React.FC<HapticsSettingsModalProps> = ({ sett
                   current.alwaysAudioAssist ? 'bg-yellow-400 text-black' : 'bg-[#0d1018] text-slate-400'
                 }`}
               >
-                {current.alwaysAudioAssist ? 'ON' : 'AUTO'}
+                {current.alwaysAudioAssist ? 'ON' : 'OFF'}
               </span>
             </button>
           </div>
