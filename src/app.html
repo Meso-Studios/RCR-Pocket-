@@ -52,6 +52,11 @@
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-storage-compat.js"></script>
+    <script>
+      if (window.firebase && window.firebase.firestore && typeof window.firebase.firestore.setLogLevel === 'function') {
+        window.firebase.firestore.setLogLevel('silent');
+      }
+    </script>
     <script type="module" src="/src/main.tsx" onerror="var fb=document.getElementById('rc-boot-fallback');if(fb){fb.style.display='flex';}"></script>
   </body>
 </html>

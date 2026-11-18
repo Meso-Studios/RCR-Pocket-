@@ -138,16 +138,16 @@ export const GameEngine: React.FC<GameEngineProps> = ({
 
   // Live Gameplay Mechanics: Speed Trigger (6 presets), Extra Notes (4/6/8), 7 Transitions, Transition Speed (0.1s-2.0s), DJ Stop
   const [liveSpeedTrigger, setLiveSpeedTrigger] = useState<SpeedTriggerPreset>(
-    () => (modifiers?.speedTrigger as SpeedTriggerPreset) || 1.0
+    () => (modifiers?.speedPreset || modifiers?.speedTrigger || 1.0) as SpeedTriggerPreset
   );
   const [liveExtraNotes, setLiveExtraNotes] = useState<ExtraNotesCount>(
-    () => (modifiers?.extraNotes as ExtraNotesCount) || 4
+    () => (modifiers?.laneCount || modifiers?.extraNotes || 4) as ExtraNotesCount
   );
   const [liveTransitionType, setLiveTransitionType] = useState<ExpansionTransitionType>(
     () => modifiers?.expansionTransition || 'split_out'
   );
   const [liveTransitionSpeed, setLiveTransitionSpeed] = useState<number>(
-    () => Number(modifiers?.transitionSpeed ?? 0.6)
+    () => Number(modifiers?.transitionDurationSec ?? modifiers?.transitionSpeed ?? 0.6)
   );
   const [djStopActive, setDjStopActive] = useState(false);
   const [showTriggersBar, setShowTriggersBar] = useState(false);
@@ -1502,7 +1502,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
             !firedDjTriggerIdsRef.current.has(trig.id)
           ) {
             firedDjTriggerIdsRef.current.add(trig.id);
-            triggerDjRecordStopRef.current(trig.djStopDuration || 1.4);
+            triggerDjRecordStopRef.current(trig.stopDurationSec || 1.4);
             spawnJudgmentRef.current('DJ RECORD STOP!', '#f43f5e', true);
           }
         }
@@ -1550,19 +1550,22 @@ export const GameEngine: React.FC<GameEngineProps> = ({
         const man = manualExpansionRef.current;
         const elapsed = now - man.startedAtMs;
         if (elapsed < man.durationMs) {
+          const prog = Math.max(0, Math.min(1, elapsed / man.durationMs));
           expansionState = {
-            laneCount: man.toLanes,
-            fromLaneCount: man.fromLanes,
-            transitionProgress: Math.max(0, Math.min(1, elapsed / man.durationMs)),
+            fromLanes: man.fromLanes,
+            toLanes: man.toLanes,
+            currentLanes: man.toLanes,
+            progress: prog,
             transitionType: man.transitionType,
-            transitionSpeedSec: man.durationMs / 1000,
+            transitionDurationSec: man.durationMs / 1000,
+            isTransitioning: prog < 1,
           };
         } else {
           manualExpansionRef.current = null;
         }
       }
 
-      const activePlayerLaneCount: ExtraNotesCount = isVS ? 4 : expansionState.laneCount;
+      const activePlayerLaneCount: ExtraNotesCount = isVS ? 4 : expansionState.currentLanes;
 
       // Dynamically widen playscreen while keeping noteSize = 74 identical to 4-note default and preserving player's lane spacing ratio
       const dynamicLayout = getPlayfieldLayout({
@@ -1572,8 +1575,8 @@ export const GameEngine: React.FC<GameEngineProps> = ({
         heroMode,
         customLanes: activeCustomLanesRef.current,
         laneCount: activePlayerLaneCount,
-        fromLaneCount: isVS ? 4 : expansionState.fromLaneCount,
-        transitionProgress: expansionState.transitionProgress,
+        fromLaneCount: isVS ? 4 : expansionState.fromLanes,
+        transitionProgress: expansionState.progress,
         transitionType: expansionState.transitionType,
       });
       playfieldLayoutRef.current = dynamicLayout;
@@ -1621,14 +1624,14 @@ export const GameEngine: React.FC<GameEngineProps> = ({
       }
 
       // Draw PowerPoint-style lane expansion transition overlay on playscreen widening
-      if (!heroMode && expansionState.transitionProgress < 1) {
+      if (!heroMode && expansionState.progress < 1) {
         drawExpansionTransitionOverlay(
           ctx,
           layout.width,
           layout.height,
           expansionState.transitionType,
-          expansionState.transitionProgress,
-          curSong.color || '#36e2ff'
+          expansionState.progress,
+          activePlayerLaneCount
         );
       }
 
@@ -2661,8 +2664,8 @@ export const GameEngine: React.FC<GameEngineProps> = ({
           {showTouchPads && (
             <div className="w-full flex justify-center">
               <TouchLanePads
-                laneCount={isVS ? 4 : liveExtraNotes}
-                colors={gameplaySkinColors}
+                lanes={Array.from({ length: isVS ? 4 : liveExtraNotes }, (_, i) => i)}
+                colors={gameplaySkinColors.slice(0, isVS ? 4 : liveExtraNotes)}
                 shape={gameplaySkinShape}
                 onLaneDown={handleLaneDown}
                 onLaneUp={handleLaneUp}

@@ -20,15 +20,26 @@ let storage: any = null;
 
 try {
   if (typeof window !== 'undefined' && window.firebase) {
+    if (typeof window.firebase.firestore?.setLogLevel === 'function') {
+      window.firebase.firestore.setLogLevel('silent');
+    }
     if (!window.firebase.apps.length) {
       window.firebase.initializeApp(firebaseConfig);
     }
     auth = window.firebase.auth();
     db = window.firebase.firestore();
+    try {
+      db.settings({
+        experimentalAutoDetectLongPolling: true,
+        merge: true,
+      });
+    } catch {
+      // Settings already locked on existing instance
+    }
     storage = window.firebase.storage();
   }
 } catch (e) {
-  console.error('Firebase Init Error:', e);
+  console.warn('Firebase Init Notice:', e);
 }
 
 export { auth, db, storage };

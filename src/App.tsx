@@ -9,6 +9,7 @@ import {
   MENU_BGM,
   MENU_GENRE_CONFIGS,
   ONLINE_BGM,
+  RHYTHM_LIST_STORAGE_KEY,
   ROYALTY_FREE_SONGS,
   SECRET_DEV_CODE,
 } from './game/constants';
@@ -98,15 +99,35 @@ const RotateToLandscapeOverlay: React.FC<{ onTryLock: () => void }> = ({ onTryLo
 function RhythmCanvasApp() {
   const appRef = useRef<HTMLDivElement | null>(null);
   const { isPortrait, isLandscapeCompact } = useViewportOrientation();
-  const [rhythmList, setRhythmList] = useState<Array<string | number>>([]);
+  const [rhythmList, setRhythmList] = useState<Array<string | number>>(() => {
+    try {
+      const saved = safeGetStorage(RHYTHM_LIST_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return [];
+  });
 
   useEffect(() => {
     if (!db) return;
-    const unsubscribe = db.collection('system').doc('rhythmList').onSnapshot((doc: any) => {
-      if (doc.exists) {
-        setRhythmList(doc.data().top10 || []);
-      }
-    });
+    const unsubscribe = db
+      .collection('system')
+      .doc('rhythmList')
+      .onSnapshot(
+        (doc: any) => {
+          if (doc.exists) {
+            const data = doc.data();
+            const list = data?.tracks || data?.top10;
+            if (Array.isArray(list) && list.length > 0) {
+              setRhythmList(list);
+              safeSetStorage(RHYTHM_LIST_STORAGE_KEY, JSON.stringify(list));
+            }
+          }
+        },
+        () => {}
+      );
     return () => unsubscribe();
   }, []);
 
@@ -210,7 +231,7 @@ function RhythmCanvasApp() {
       .doc('interruption')
       .onSnapshot(
         (doc: any) => setInterruption(doc.exists ? doc.data() : null),
-        (error: any) => console.warn('Could not load interruption notice', error)
+        () => {}
       );
   }, []);
 
@@ -227,15 +248,21 @@ function RhythmCanvasApp() {
 
   useEffect(() => {
     if (!db) return;
-    const unsubscribe = db.collection('system').doc('config').onSnapshot((doc: any) => {
-      if (doc.exists) {
-        const data = doc.data();
-        if (data.latestVersion > APP_VERSION) {
-          setUpdateAvailable(true);
-          setUpdateMessage(data.updateMessage || 'A mandatory update was just released!');
-        }
-      }
-    });
+    const unsubscribe = db
+      .collection('system')
+      .doc('config')
+      .onSnapshot(
+        (doc: any) => {
+          if (doc.exists) {
+            const data = doc.data();
+            if (data.latestVersion > APP_VERSION) {
+              setUpdateAvailable(true);
+              setUpdateMessage(data.updateMessage || 'A mandatory update was just released!');
+            }
+          }
+        },
+        () => {}
+      );
     return () => unsubscribe();
   }, []);
 
@@ -353,7 +380,7 @@ function RhythmCanvasApp() {
                 });
               }
             })
-            .catch((err: any) => console.error('Cloud load error:', err));
+            .catch(() => {});
         }
       });
       return () => unsubscribe();
@@ -365,7 +392,7 @@ function RhythmCanvasApp() {
       db.collection('saves')
         .doc(user.uid)
         .set(playerInfo, { merge: true })
-        .catch((err: any) => console.error('Cloud save error:', err));
+        .catch(() => {});
     }
   }, [playerInfo, user]);
 
@@ -822,7 +849,16 @@ function RhythmCanvasApp() {
               <ShopMenu setScreen={setScreen} playerInfo={playerInfo} setPlayerInfo={setPlayerInfo} user={user} />
             )}
 
-            {screen === 'admin_studio' && <AdminStudio setScreen={setScreen} songs={songs} user={user} />}
+            {screen === 'admin_studio' && (
+              <AdminStudio
+                setScreen={setScreen}
+                songs={songs}
+                user={user}
+                rhythmList={rhythmList}
+                setRhythmList={setRhythmList}
+                interruption={interruption}
+              />
+            )}
 
             {showChangelog && <ChangelogModal onClose={closeChangelog} />}
           </>

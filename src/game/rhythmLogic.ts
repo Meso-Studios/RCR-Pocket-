@@ -19,6 +19,7 @@ import type {
   ExtraNotesCount,
   HapticsSettings,
   LaneCoord,
+  NoteType,
   PadCoord,
   Song,
   SpeedTriggerPreset,
@@ -76,7 +77,7 @@ export const normalizeChart = (notes?: ChartNote[] | null, maxLanes = 8): ChartN
     .map((n) => {
       const rawLane = Math.max(0, Math.floor(Number(n.lane)));
       const lane = rawLane % laneCap;
-      const type = n.type === 'hold' || n.type === 'demon' ? n.type : 'normal';
+      const type: NoteType = n.type === 'hold' || n.type === 'demon' ? n.type : 'normal';
       const duration = type === 'hold' ? Math.max(80, Math.round(Number(n.duration) || 250)) : undefined;
       return {
         time: Math.max(0, Math.round(Number(n.time))),

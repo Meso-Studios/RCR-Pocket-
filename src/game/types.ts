@@ -209,9 +209,12 @@ export interface Modifiers {
   extreme: boolean;
   nerf: number;
   speedPreset?: SpeedTriggerPreset;
+  speedTrigger?: SpeedTriggerPreset;
   laneCount?: ExtraNotesCount;
+  extraNotes?: ExtraNotesCount;
   expansionTransition?: ExpansionTransitionType;
   transitionDurationSec?: number;
+  transitionSpeed?: number;
   djStopEffect?: boolean;
 }
 
