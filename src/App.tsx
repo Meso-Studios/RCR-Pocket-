@@ -6,6 +6,8 @@ import {
   APP_VERSION,
   CHANGELOG_STORAGE_KEY,
   CHANGELOG_VERSION,
+  DEFAULT_CUSTOM_KEYBINDS,
+  DEFAULT_OWNER_EMAIL,
   MENU_BGM,
   MENU_GENRE_CONFIGS,
   ONLINE_BGM,
@@ -24,6 +26,7 @@ import type {
   GameMode,
   HapticsSettings,
   InterruptionData,
+  MatchInviteConfig,
   Modifiers,
   PeerConnectionLike,
   PlayerInfo,
@@ -187,7 +190,10 @@ function RhythmCanvasApp() {
     noFail: false,
     extreme: false,
     nerf: 0,
+    allowedDeaths: 2,
   });
+  const [editorPlaytestStartMs, setEditorPlaytestStartMs] = useState(0);
+  const [isEditorPlaytest, setIsEditorPlaytest] = useState(false);
   const [bestGrades, setBestGrades] = useState<Record<string, number>>(() => {
     try {
       return JSON.parse(safeGetStorage('rhythmCanvasGrades') || '{}');
@@ -310,6 +316,20 @@ function RhythmCanvasApp() {
       unlockedGameMods: [],
       activeGameMods: [],
       menuBgmMuted: false,
+      customKeybinds: DEFAULT_CUSTOM_KEYBINDS,
+      profile: {
+        uid: 'owner-01',
+        displayName: 'Marin',
+        email: DEFAULT_OWNER_EMAIL,
+        avatarEmoji: '👑',
+        bannerColor: '#ff2e88',
+        bio: 'Rhythm Canvas Reboot Lead Creator & Rhythm List Curator.',
+        titleBadge: 'RHYTHM ARCHITECT',
+        wins1v1: 12,
+        matchesPlayed: 15,
+        favoriteGenre: 'HARDTEKK',
+        isAdmin: true,
+      },
       ...parsed,
       menuGenre: (parsed as any)?.v2SpotifyDefaultApplied ? (parsed.menuGenre || 'spotify') : 'spotify',
       bgFloatingNotes: parsed.bgFloatingNotes !== undefined ? Boolean(parsed.bgFloatingNotes) : true,
@@ -457,6 +477,71 @@ function RhythmCanvasApp() {
     });
   }, []);
 
+  const handleLaunch1v1Invite = useCallback(
+    (invite: MatchInviteConfig) => {
+      const listeners = new Set<(payload: any) => void>();
+      let simTimer: ReturnType<typeof setInterval> | null = null;
+      let simScore = 0;
+
+      const simulatedConn: PeerConnectionLike = {
+        open: true,
+        _rhythmRole: 'host',
+        _isSimulatedBot: true,
+        _opponentName: invite.targetProfile?.displayName || invite.toName || 'CYBER RIVAL',
+        _allowedDeaths: invite.allowedDeaths,
+        on: (event: string, cb: (payload?: any) => void) => {
+          if (event === 'data') listeners.add(cb);
+          if (event === 'open') setTimeout(() => cb(), 25);
+        },
+        off: (event: string, cb: (payload?: any) => void) => {
+          if (event === 'data') listeners.delete(cb);
+        },
+        send: (payload: any) => {
+          if (payload?.type === 'horse_challenge' && Array.isArray(payload.notes)) {
+            const phraseNotes = payload.notes;
+            setTimeout(() => {
+              const rivalCleared = Math.random() < 0.58;
+              listeners.forEach((fn) => fn({ type: 'horse_result', success: rivalCleared }));
+              if (rivalCleared) {
+                setTimeout(() => {
+                  const replyNotes = phraseNotes.map((n: any, idx: number) => ({
+                    lane: (Number(n.lane) + (idx % 2 === 0 ? 1 : 3)) % 4,
+                    time: Number(n.time),
+                  }));
+                  listeners.forEach((fn) => fn({ type: 'horse_challenge', notes: replyNotes }));
+                }, 700);
+              }
+            }, 1300);
+          } else if (payload?.type === 'horse_result') {
+            if (payload.success === false) {
+              setTimeout(() => {
+                const freshPhrase = [0, 360, 720, 1080, 1440].map((t, idx) => ({
+                  lane: (idx * 3 + Math.floor(Math.random() * 2)) % 4,
+                  time: t,
+                }));
+                listeners.forEach((fn) => fn({ type: 'horse_challenge', notes: freshPhrase }));
+              }, 850);
+            }
+          }
+        },
+      };
+
+      if (invite.mode === 'online_vs') {
+        simTimer = setInterval(() => {
+          simScore += Math.floor(240 + Math.random() * 430);
+          listeners.forEach((fn) => fn({ type: 'score_update', score: simScore }));
+        }, 480);
+      }
+
+      setNetworkConnection(simulatedConn);
+      setGameMode(invite.mode);
+      setModifiers((prev) => ({ ...prev, allowedDeaths: invite.allowedDeaths }));
+      setIsEditorPlaytest(false);
+      setScreen(invite.mode === 'horse' ? 'horse' : 'game');
+    },
+    []
+  );
+
   useEffect(() => {
     if (hasStarted && !peerInstance && typeof window !== 'undefined' && window.Peer) {
       const peer = new window.Peer(undefined, {
@@ -546,7 +631,7 @@ function RhythmCanvasApp() {
 
   useEffect(() => {
     const bgm = menuBgmRef.current;
-    const synthScreens: ScreenId[] = ['menu', 'freeplay', 'shop', 'lobby', 'events'];
+    const synthScreens: ScreenId[] = ['menu', 'freeplay', 'online_tracks', 'shop', 'lobby', 'events'];
     const shouldPlaySynthBgm =
       !isPortrait &&
       synthScreens.includes(screen) &&
@@ -562,22 +647,15 @@ function RhythmCanvasApp() {
           MenuMusicEngine.setSpotifyTrackIndex(playerInfo.spotifyTrackIndex);
         }
         const targetGenre =
-          screen === 'freeplay' && selectedSong?.audioUrl?.startsWith('synth:')
+          (screen === 'freeplay' || screen === 'online_tracks') && selectedSong?.audioUrl?.startsWith('synth:')
             ? ((selectedSong.audioUrl.replace('synth:', '') as any) || playerInfo.menuGenre || 'spotify')
             : playerInfo.menuGenre || 'spotify';
-        MenuMusicEngine.start(targetGenre, screen === 'freeplay' ? modifiers?.speed || 1 : 1);
+        MenuMusicEngine.start(
+          targetGenre,
+          screen === 'freeplay' || screen === 'online_tracks' ? modifiers?.speed || 1 : 1
+        );
       } else {
         MenuMusicEngine.stop();
-      }
-      return;
-    }
-
-    if (!isPortrait && screen === 'online_tracks' && !isPreviewing && hasStarted && !interruptionShowing) {
-      MenuMusicEngine.stop();
-      if (bgm) {
-        bgm.volume = 0.3;
-        if (!bgm.src.includes(ONLINE_BGM)) bgm.src = ONLINE_BGM;
-        if (bgm.paused) bgm.play().catch(() => {});
       }
       return;
     }
@@ -754,6 +832,7 @@ function RhythmCanvasApp() {
                 onOpenChangelog={() => setShowChangelog(true)}
                 isFullscreen={isFullscreen}
                 onToggleFullscreen={toggleFullscreen}
+                onLaunch1v1Invite={handleLaunch1v1Invite}
               />
             )}
 
@@ -768,7 +847,10 @@ function RhythmCanvasApp() {
                 setDifficulty={setDifficulty}
                 gameMode={gameMode}
                 setGameMode={setGameMode}
-                setScreen={setScreen}
+                setScreen={(next) => {
+                  setIsEditorPlaytest(false);
+                  setScreen(next);
+                }}
                 setCustomBeatmap={setCustomBeatmap}
                 setIsPreviewing={setIsPreviewing}
                 rhythmList={rhythmList}
@@ -777,6 +859,7 @@ function RhythmCanvasApp() {
                 modifiers={modifiers}
                 setModifiers={setModifiers}
                 bestGrades={bestGrades}
+                user={user}
               />
             )}
 
@@ -790,7 +873,10 @@ function RhythmCanvasApp() {
                 setDifficulty={setDifficulty}
                 gameMode={gameMode}
                 setGameMode={setGameMode}
-                setScreen={setScreen}
+                setScreen={(next) => {
+                  setIsEditorPlaytest(false);
+                  setScreen(next);
+                }}
                 setCustomBeatmap={setCustomBeatmap}
                 user={user}
                 setIsPreviewing={setIsPreviewing}
@@ -799,6 +885,7 @@ function RhythmCanvasApp() {
                 modifiers={modifiers}
                 setModifiers={setModifiers}
                 bestGrades={bestGrades}
+                rhythmList={rhythmList}
               />
             )}
 
@@ -809,12 +896,15 @@ function RhythmCanvasApp() {
                 setNetworkConnection={setNetworkConnection}
                 setScreen={setScreen}
                 gameMode={gameMode}
+                setGameMode={setGameMode}
+                modifiers={modifiers}
+                setModifiers={setModifiers}
               />
             )}
 
             {screen === 'game' && selectedSong && (
               <GameEngine
-                key={`${selectedSong.id}_${selectedSong.customMap?.length || 0}`}
+                key={`${selectedSong.id}_${selectedSong.customMap?.length || 0}_${isEditorPlaytest ? editorPlaytestStartMs : 0}`}
                 song={selectedSong}
                 difficulty={difficulty}
                 gameMode={gameMode}
@@ -828,6 +918,15 @@ function RhythmCanvasApp() {
                 modifiers={modifiers}
                 recordGrade={recordGrade}
                 interruptionActive={interruptionShowing}
+                initialStartTimeMs={isEditorPlaytest ? editorPlaytestStartMs : 0}
+                onExitPlaytest={
+                  isEditorPlaytest
+                    ? () => {
+                        setIsEditorPlaytest(false);
+                        setScreen('editor');
+                      }
+                    : undefined
+                }
               />
             )}
 
@@ -842,6 +941,16 @@ function RhythmCanvasApp() {
                 songs={songs}
                 setSelectedSong={setSelectedSong}
                 user={user}
+                haptics={playerInfo.haptics}
+                customKeybinds={playerInfo.customKeybinds}
+                onPlaytest={(songToTest, startTimeMs = 0) => {
+                  setSelectedSong(songToTest);
+                  setCustomBeatmap(Array.isArray(songToTest.customMap) ? normalizeChart(songToTest.customMap) : null);
+                  setEditorPlaytestStartMs(Math.max(0, Number(startTimeMs) || 0));
+                  setIsEditorPlaytest(true);
+                  setGameMode('standard');
+                  setScreen('game');
+                }}
               />
             )}
 

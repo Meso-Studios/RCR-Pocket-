@@ -1,1520 +1,1753 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
-  Activity,
-  BookOpen,
-  ChevronDown,
-  ChevronLeft,
-  ChevronUp,
-  Circle as RecordIcon,
-  Cloud,
-  Disc3,
-  Flag,
-  Layers,
-  Link as LinkIcon,
-  Play,
-  Save,
-  Sparkles,
-  Square as StopIcon,
-  Trash2,
-  Wand2,
-  Zap,
-} from 'lucide-react';
-import { db, storage } from '../firebaseClient';
-import { AudioEngine, WaveformPulse } from '../game/audio';
-import {
-  EXPANSION_TRANSITIONS,
-  EXTRA_NOTES_PRESETS,
-  KEY_MAP,
-  SKINS,
-  SPEED_TRIGGER_PRESETS,
-} from '../game/constants';
-import {
-  autoSyncChartNotes,
-  getCleanedUrl,
-  getExpandedLaneColors,
-  normalizeChart,
-  resolveExternalAudioInput,
-} from '../game/rhythmLogic';
-import { DEFAULT_HAPTICS_SETTINGS } from '../game/rhythmLogic';
-import { useIsCompactLandscape } from '../game/useViewport';
-import type {
-  ChartNote,
   ChartTrigger,
+  Difficulty,
   EditorCheckpoint,
-  ExpansionTransitionType,
-  ExtraNotesCount,
-  FirebaseUser,
-  NoteType,
-  PlayerInfo,
-  ScreenId,
+  HapticsSettings,
+  LaneCountOption,
+  LaneExpansionTransition,
+  Note,
+  NoteVelocityEffect,
   Song,
   SpeedTriggerPreset,
 } from '../game/types';
-import { GameEngine } from './GameEngine';
-import { TouchLanePads } from './TouchControls';
+import {
+  DEFAULT_CUSTOM_KEYBINDS,
+  EXTRA_LANE_OPTIONS,
+  LANE_COLORS_8,
+  LANE_EXPANSION_TRANSITIONS,
+  NOTE_VELOCITY_EFFECTS,
+  SPEED_TRIGGER_PRESETS,
+} from '../game/constants';
+import {
+  autoSyncNotesToBpm,
+  mapCustomKeyToLane,
+  resolveExternalAudioInput,
+  snapTimeToBeatGrid,
+} from '../game/rhythmLogic';
+import { triggerHapticFeedback } from '../game/haptics';
+import { AudioEngine } from '../game/audio';
+import {
+  ArrowLeft,
+  BookmarkCheck,
+  Columns,
+  Cpu,
+  Download,
+  EyeOff,
+  Flame,
+  Flag,
+  Gauge,
+  HelpCircle,
+  Link2,
+  Mic,
+  Music,
+  Play,
+  Plus,
+  Radio,
+  Skull,
+  Sparkles,
+  Square,
+  Trash2,
+  Upload,
+  UploadCloud,
+  Volume2,
+  Wand2,
+  X,
+  Zap,
+} from 'lucide-react';
 
 interface SongEditorProps {
-  setScreen: (s: ScreenId) => void;
-  setSongs: React.Dispatch<React.SetStateAction<Song[]>>;
-  songs: Song[];
-  setSelectedSong: (s: Song) => void;
-  user: FirebaseUser | null;
+  onSave?: (song: Song) => void;
+  onBack?: () => void;
+  setScreen?: (s: any) => void;
+  setSongs?: React.Dispatch<React.SetStateAction<Song[]>>;
+  songs?: Song[];
+  setSelectedSong?: (s: Song) => void;
+  user?: any;
+  onPlaytest?: (song: Song, startTimeMs?: number) => void;
+  initialSong?: Song | null;
+  haptics?: HapticsSettings;
+  customKeybinds?: string[];
 }
 
-const DEFAULT_PLAYTEST_PLAYER: PlayerInfo = {
-  level: 10,
-  xp: 0,
-  coins: 0,
-  equippedSkin: 'default',
-  unlockedSkins: ['default'],
-  equippedShape: 'arrow',
-  unlockedShapes: ['arrow', 'circle'],
-  customColors: SKINS.default.colors,
-  botplay: false,
-  downscroll: true,
-  bgFloatingNotes: false,
-  menuGenre: 'spotify',
-  haptics: DEFAULT_HAPTICS_SETTINGS,
-  unlockedNoteProducts: [],
-  equippedNoteProduct: null,
-  unlockedHitSounds: [],
-  equippedHitSound: null,
-  unlockedGameMods: [],
-  activeGameMods: [],
-};
-
 export const SongEditor: React.FC<SongEditorProps> = ({
+  onSave,
+  onBack,
   setScreen,
   setSongs,
-  songs,
   setSelectedSong,
   user,
+  onPlaytest,
+  initialSong,
+  haptics,
+  customKeybinds = DEFAULT_CUSTOM_KEYBINDS,
 }) => {
-  const [bpm, setBpm] = useState(120);
-  const [measures, setMeasures] = useState(8);
-  const [grid, setGrid] = useState<Record<string, string>>({});
-  const [pulses, setPulses] = useState<number[]>([]);
-  const [title, setTitle] = useState('CUSTOM TRACK');
-  const [audioUrl, setAudioUrl] = useState('');
-  const [coverUrl, setCoverUrl] = useState('');
-  const [coverPulse, setCoverPulse] = useState(true);
-  const [coverPulseBpm, setCoverPulseBpm] = useState(1);
-  const [coverPulseSubdivision, setCoverPulseSubdivision] = useState(1);
-  const [pulseSubdivision, setPulseSubdivision] = useState(4);
+  const initialNotes = initialSong?.customMap || initialSong?.notes || [];
+  const [title, setTitle] = useState(initialSong?.title || 'My Custom Track');
+  const [artist, setArtist] = useState(initialSong?.artist || 'Unknown Artist');
+  const [bpm, setBpm] = useState(initialSong?.bpm || 120);
+  const [difficulty, setDifficulty] = useState<Difficulty | string>(
+    initialSong?.difficulty || 'normal'
+  );
+  const [color, setColor] = useState(initialSong?.color || '#00f0ff');
+  const [notes, setNotes] = useState<Note[]>(initialNotes);
+  const [duration, setDuration] = useState(initialSong?.duration || 120);
+  const [audioUrl, setAudioUrl] = useState<string | undefined>(initialSong?.audioUrl);
+  const [newgroundsId, setNewgroundsId] = useState<string>(initialSong?.newgroundsId || '');
+  const [spotifyUrl, setSpotifyUrl] = useState<string>(initialSong?.spotifyUrl || '');
+  const [externalAudioInput, setExternalAudioInput] = useState<string>(
+    initialSong?.newgroundsId || initialSong?.spotifyUrl || ''
+  );
+  const [externalStatus, setExternalStatus] = useState<string>('');
+  const [isPreviewingExternal, setIsPreviewingExternal] = useState(false);
 
-  const [noteType, setNoteType] = useState<NoteType>('normal');
-  const [recordMode, setRecordMode] = useState<'notes' | 'pulses'>('notes');
-  const [recordingSpeed, setRecordingSpeed] = useState(0.5);
-  const [stepClick, setStepClick] = useState(true);
-  const [stepSubdivision, setStepSubdivision] = useState(4);
+  const [triggers, setTriggers] = useState<ChartTrigger[]>(
+    (initialSong?.triggers || []).filter((t) => t.type !== 'dj_stop')
+  );
+  const [checkpoints, setCheckpoints] = useState<EditorCheckpoint[]>(
+    initialSong?.checkpoints || []
+  );
+  const [activeCheckpointId, setActiveCheckpointId] = useState<string | null>(null);
+  const [editorLaneCount, setEditorLaneCount] = useState<LaneCountOption>(() => {
+    const maxLaneInNotes = initialNotes.reduce((m, n) => Math.max(m, n.lane), 3);
+    const maxLaneInTriggers = (initialSong?.triggers || []).reduce(
+      (m, t) => Math.max(m, t.lanes || 4),
+      4
+    );
+    if (maxLaneInNotes >= 6 || maxLaneInTriggers === 8) return 8;
+    if (maxLaneInNotes >= 4 || maxLaneInTriggers === 6) return 6;
+    return 4;
+  });
 
-  // Newgrounds / Spotify Audio Importer
-  const [externalAudioInput, setExternalAudioInput] = useState('');
+  const [autoSyncEnabled, setAutoSyncEnabled] = useState<boolean>(true);
+  const [autoSyncSubdivision, setAutoSyncSubdivision] = useState<number>(4);
 
-  // Editor Checkpoints
-  const [checkpoints, setCheckpoints] = useState<EditorCheckpoint[]>([
-    { id: 'cp_start', row: 0, time: 0, label: 'Start (0:00)' },
-  ]);
-  const [selectedCheckpointId, setSelectedCheckpointId] = useState<string>('cp_start');
-  const [newCheckpointRow, setNewCheckpointRow] = useState<number>(16);
-  const [newCheckpointLabel, setNewCheckpointLabel] = useState<string>('Drop Section');
-
-  // Gameplay Triggers (Speed, Extra Notes 4/6/8 + 7 PowerPoint Transitions, DJ Stop)
-  const [editorLanes, setEditorLanes] = useState<ExtraNotesCount>(4);
-  const [triggers, setTriggers] = useState<ChartTrigger[]>([]);
-  const [triggerRow, setTriggerRow] = useState<number>(8);
-  const [speedPreset, setSpeedPreset] = useState<SpeedTriggerPreset>(1.5);
-  const [extraNotesCount, setExtraNotesCount] = useState<ExtraNotesCount>(6);
-  const [expansionTransition, setExpansionTransition] =
-    useState<ExpansionTransitionType>('split_out');
-  const [transitionDurationSec, setTransitionDurationSec] = useState<number>(0.5);
-
-  // Local Playtest Overlay State
-  const [playtestState, setPlaytestState] = useState<{
-    active: boolean;
-    startTimeMs: number;
-    song: Song;
-    beatmap: ChartNote[];
-  } | null>(null);
-  const [playtestPlayerInfo, setPlaytestPlayerInfo] =
-    useState<PlayerInfo>(DEFAULT_PLAYTEST_PLAYER);
-
-  const [isPublishing, setIsPublishing] = useState(false);
-  const [showLoadModal, setShowLoadModal] = useState(false);
-  const [showTriggersPanel, setShowTriggersPanel] = useState(false);
-  const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false);
-  const [notice, setNotice] = useState<{ text: string; tone: 'info' | 'error' } | null>(null);
-  const isLandscapeCompact = useIsCompactLandscape();
-
+  const [isPlaying, setIsPlaying] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
-  const editorAudioRef = useRef<HTMLAudioElement | null>(null);
-  const editorScrollRef = useRef<HTMLDivElement | null>(null);
-  const recordStartTime = useRef(0);
-  const recordStartOffsetMs = useRef(0);
-  const reqRef = useRef(0);
-  const heldRecordKeys = useRef<
-    Record<string, { row: number; lane: number; start: number; wallStart: number; originalType: NoteType }>
-  >({});
-  const heldRecordLanes = useRef<boolean[]>(new Array(8).fill(false));
-  const lastEditorStepClick = useRef(-1);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [selectedNoteType, setSelectedNoteType] = useState<
+    'normal' | 'mine' | 'gold' | 'fire' | 'demon'
+  >('normal');
+  const [isHoldMode, setIsHoldMode] = useState(false);
+  const [holdStart, setHoldStart] = useState<{ row: number; col: number } | null>(null);
+  const [showTutorial, setShowTutorial] = useState(false);
+  const [statusBanner, setStatusBanner] = useState<string | null>(null);
 
-  const showNotice = useCallback((text: string, tone: 'info' | 'error' = 'info') => {
-    setNotice({ text, tone });
-    setTimeout(() => setNotice((curr) => (curr?.text === text ? null : curr)), 4500);
-  }, []);
+  // Press-and-Hold / Right-Click Slot Context Modal State
+  const [slotModalRow, setSlotModalRow] = useState<number | null>(null);
+  const [slotModalCol, setSlotModalCol] = useState<number>(0);
+  const [slotTab, setSlotTab] = useState<'trigger' | 'checkpoint'>('trigger');
+  const [slotTriggerType, setSlotTriggerType] = useState<
+    'speed' | 'extra_notes' | 'invisible_notes' | 'note_velocity'
+  >('speed');
+  const [slotSpeedPreset, setSlotSpeedPreset] = useState<SpeedTriggerPreset>(1.5);
+  const [slotExtraLanes, setSlotExtraLanes] = useState<LaneCountOption>(6);
+  const [slotTransition, setSlotTransition] = useState<LaneExpansionTransition>('push');
+  const [slotTransitionSpeed, setSlotTransitionSpeed] = useState<number>(0.5);
+  const [slotInvisibleEnabled, setSlotInvisibleEnabled] = useState<boolean>(true);
+  const [slotInvisibleDurationSec, setSlotInvisibleDurationSec] = useState<number>(8);
+  const [slotVelocityEffect, setSlotVelocityEffect] = useState<NoteVelocityEffect>('ease_in_rush');
+  const [slotVelocityIntensity, setSlotVelocityIntensity] = useState<number>(1.0);
+  const [slotCheckpointName, setSlotCheckpointName] = useState<string>('');
+
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressFiredRef = useRef<boolean>(false);
+
+  const gridRef = useRef<HTMLDivElement>(null);
+  const requestRef = useRef<number>(0);
+  const startTimeRef = useRef<number>(0);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const activeRecordingNotes = useRef<{ [lane: number]: number }>({});
+
+  const stepTime = (60 / Math.max(30, bpm) / 4) * 1000;
+  const totalSteps = Math.max(16, Math.floor((duration * 1000) / stepTime));
 
   useEffect(() => {
-    if (!coverUrl || !editorAudioRef.current) return;
-    const audioEl = editorAudioRef.current as any;
-    const timer = setTimeout(() => {
-      const detach = WaveformPulse.attach(audioEl, '[data-editor-wave-cover="true"]');
-      audioEl._detachCoverPulse = detach;
-    }, 80);
+    if (audioUrl && !audioUrl.startsWith('synth:')) {
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      const a = new Audio();
+      a.crossOrigin = 'anonymous';
+      a.src = audioUrl;
+      audioRef.current = a;
+    } else {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+    }
     return () => {
-      clearTimeout(timer);
-      audioEl?._detachCoverPulse?.();
-    };
-  }, [coverUrl, audioUrl]);
-
-  useEffect(() => {
-    return () => {
-      if (editorAudioRef.current) {
-        editorAudioRef.current.pause();
-        editorAudioRef.current.src = '';
+      if (audioRef.current) {
+        audioRef.current.pause();
       }
     };
-  }, []);
+  }, [audioUrl]);
 
-  const rows = measures * 4 * stepSubdivision;
-  const rowHeight = Math.max(28, 160 / stepSubdivision);
-  const expandedColors = useMemo(
-    () => getExpandedLaneColors(SKINS.default.colors, 8),
-    []
-  );
-
-  const subBeatDurationMs = useMemo(() => {
-    const safeBpm = Math.max(1, Number(bpm) || 120);
-    return 60000 / safeBpm / stepSubdivision;
-  }, [bpm, stepSubdivision]);
-
-  const selectedCheckpoint = useMemo(
-    () =>
-      checkpoints.find((cp) => cp.id === selectedCheckpointId) ||
-      checkpoints[0] || { id: 'cp_start', row: 0, time: 0, label: 'Start (0:00)' },
-    [checkpoints, selectedCheckpointId]
-  );
-
-  const toggleNote = (row: number, col: number) => {
-    const key = `${row}_${col}`;
-    setGrid((prev) => {
-      const next = { ...prev };
-      if (next[key] === noteType) delete next[key];
-      else next[key] = noteType;
-      return next;
-    });
-    if (noteType === 'demon') AudioEngine.playDemonSound();
-    else AudioEngine.playTone(300 + col * 85, 'square', 0.1);
+  const showToast = (msg: string) => {
+    setStatusBanner(msg);
+    window.setTimeout(() => {
+      setStatusBanner((prev) => (prev === msg ? null : prev));
+    }, 3400);
   };
 
-  const getRecordTime = useCallback(() => {
-    if (editorAudioRef.current && editorAudioRef.current.readyState >= 2 && !editorAudioRef.current.paused) {
-      return editorAudioRef.current.currentTime * 1000;
+  const openSlotStudioModal = (row: number, col = 0, preferredTab?: 'trigger' | 'checkpoint') => {
+    triggerHapticFeedback('heavy', haptics);
+    setSlotModalRow(row);
+    setSlotModalCol(col);
+
+    const existingCheckpoint = checkpoints.find((cp) => cp.row === row);
+    const existingTrigger = triggers.find((t) => t.row === row);
+
+    if (preferredTab) {
+      setSlotTab(preferredTab);
+    } else if (existingTrigger) {
+      setSlotTab('trigger');
+    } else if (existingCheckpoint) {
+      setSlotTab('checkpoint');
+    } else {
+      setSlotTab('trigger');
     }
-    return recordStartOffsetMs.current + (performance.now() - recordStartTime.current) * recordingSpeed;
-  }, [recordingSpeed]);
 
-  const recordPulseTap = useCallback(() => {
-    if (!isRecording || recordMode !== 'pulses') return;
-    const currentTimeMs = getRecordTime();
-    setPulses((prev) => [...prev, currentTimeMs]);
-    AudioEngine.playTone(150, 'sine', 0.05);
-  }, [getRecordTime, isRecording, recordMode]);
-
-  const startRecordedLane = useCallback(
-    (inputId: string, lane: number) => {
-      if (!isRecording || recordMode !== 'notes') return;
-      if (lane >= editorLanes) return;
-      if (heldRecordKeys.current[inputId]) return;
-      const currentTimeMs = getRecordTime();
-      const beatDuration = 60000 / (Number(bpm) || 120);
-      const subBeatDuration = beatDuration / stepSubdivision;
-      const row = Math.round(currentTimeMs / subBeatDuration);
-      heldRecordKeys.current[inputId] = {
-        row,
-        lane,
-        start: currentTimeMs,
-        wallStart: performance.now(),
-        originalType: noteType,
-      };
-      heldRecordLanes.current[lane] = true;
-      setGrid((prev) => ({ ...prev, [`${row}_${lane}`]: noteType === 'hold' ? 'hold' : noteType }));
-      if (noteType === 'demon') AudioEngine.playDemonSound();
-      else AudioEngine.playHitSound();
-      setMeasures((prev) => Math.max(prev, Math.ceil((row + stepSubdivision) / (4 * stepSubdivision))));
-    },
-    [bpm, editorLanes, getRecordTime, isRecording, noteType, recordMode, stepSubdivision]
-  );
-
-  const releaseRecordedLane = useCallback(
-    (inputId: string) => {
-      if (!isRecording || recordMode !== 'notes') return;
-      const held = heldRecordKeys.current[inputId];
-      if (!held) return;
-      heldRecordLanes.current[held.lane] = false;
-      const nowMs = getRecordTime();
-      const duration = Math.max(0, nowMs - held.start);
-      const wallDuration = performance.now() - held.wallStart;
-      const sub = 60000 / (Number(bpm) || 120) / stepSubdivision;
+    if (existingTrigger) {
       if (
-        held.originalType !== 'demon' &&
-        (held.originalType === 'hold' || (wallDuration >= 320 && duration >= sub * 0.85))
+        existingTrigger.type === 'speed' ||
+        existingTrigger.type === 'extra_notes' ||
+        existingTrigger.type === 'invisible_notes' ||
+        existingTrigger.type === 'note_velocity'
       ) {
-        setGrid((prev) => ({
-          ...prev,
-          [`${held.row}_${held.lane}`]: `hold:${Math.max(100, Math.round(duration || sub))}`,
-        }));
+        setSlotTriggerType(existingTrigger.type);
       }
-      delete heldRecordKeys.current[inputId];
-    },
-    [bpm, getRecordTime, isRecording, recordMode, stepSubdivision]
-  );
+      if (existingTrigger.speed) setSlotSpeedPreset(existingTrigger.speed);
+      if (existingTrigger.lanes) setSlotExtraLanes(existingTrigger.lanes);
+      if (existingTrigger.transition) setSlotTransition(existingTrigger.transition);
+      if (existingTrigger.transitionDuration)
+        setSlotTransitionSpeed(existingTrigger.transitionDuration);
+      if (typeof existingTrigger.invisibleEnabled === 'boolean')
+        setSlotInvisibleEnabled(existingTrigger.invisibleEnabled);
+      if (existingTrigger.invisibleDurationMs)
+        setSlotInvisibleDurationSec(Math.round(existingTrigger.invisibleDurationMs / 1000));
+      if (existingTrigger.velocityEffect) setSlotVelocityEffect(existingTrigger.velocityEffect);
+      if (existingTrigger.velocityIntensity)
+        setSlotVelocityIntensity(existingTrigger.velocityIntensity);
+    }
 
-  const handleTouchLaneDown = useCallback(
-    (lane: number) => startRecordedLane(`touch_${lane}`, lane),
-    [startRecordedLane]
-  );
-  const handleTouchLaneUp = useCallback(
-    (lane: number) => releaseRecordedLane(`touch_${lane}`),
-    [releaseRecordedLane]
-  );
+    setSlotCheckpointName(
+      existingCheckpoint?.name || `Checkpoint @ ${((row * stepTime) / 1000).toFixed(1)}s`
+    );
+  };
+
+  const handleCellPointerDown = (row: number, col: number, e: React.PointerEvent) => {
+    if (e.button === 2) return; // Right click handled by onContextMenu
+    longPressFiredRef.current = false;
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+    }
+    longPressTimerRef.current = window.setTimeout(() => {
+      longPressFiredRef.current = true;
+      openSlotStudioModal(row, col);
+    }, 360);
+  };
+
+  const clearLongPressTimer = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
+  const handleSaveSlotTrigger = () => {
+    if (slotModalRow === null) return;
+    const row = Math.max(0, Math.min(totalSteps - 1, slotModalRow));
+    const time = Math.round(row * stepTime);
+
+    const newTrig: ChartTrigger = {
+      id: `trig_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      row,
+      time,
+      type: slotTriggerType,
+      speed: slotTriggerType === 'speed' ? slotSpeedPreset : undefined,
+      lanes: slotTriggerType === 'extra_notes' ? slotExtraLanes : undefined,
+      transition: slotTriggerType === 'extra_notes' ? slotTransition : undefined,
+      transitionDuration:
+        slotTriggerType === 'extra_notes'
+          ? Number(slotTransitionSpeed.toFixed(1))
+          : undefined,
+      invisibleEnabled:
+        slotTriggerType === 'invisible_notes' ? slotInvisibleEnabled : undefined,
+      invisibleDurationMs:
+        slotTriggerType === 'invisible_notes'
+          ? Math.max(0, Math.round(slotInvisibleDurationSec * 1000))
+          : undefined,
+      velocityEffect:
+        slotTriggerType === 'note_velocity' ? slotVelocityEffect : undefined,
+      velocityIntensity:
+        slotTriggerType === 'note_velocity'
+          ? Number(slotVelocityIntensity.toFixed(2))
+          : undefined,
+    };
+
+    if (slotTriggerType === 'extra_notes' && slotExtraLanes > editorLaneCount) {
+      setEditorLaneCount(slotExtraLanes);
+    }
+
+    setTriggers((prev) =>
+      [...prev.filter((t) => !(t.row === row && t.type === slotTriggerType)), newTrig].sort(
+        (a, b) => a.time - b.time
+      )
+    );
+    triggerHapticFeedback('perfect', haptics);
+    showToast(
+      `Placed ${slotTriggerType.replace('_', ' ').toUpperCase()} Trigger at Row #${row} (${(
+        time / 1000
+      ).toFixed(2)}s)`
+    );
+    setSlotModalRow(null);
+  };
+
+  const handleSaveSlotCheckpoint = () => {
+    if (slotModalRow === null) return;
+    const row = Math.max(0, Math.min(totalSteps - 1, slotModalRow));
+    const time = Math.round(row * stepTime);
+    const cp: EditorCheckpoint = {
+      id: `cp_${Date.now()}`,
+      name: slotCheckpointName.trim() || `CP #${checkpoints.length + 1} (Row ${row})`,
+      time,
+      row,
+      color: '#10b981',
+    };
+    setCheckpoints((prev) =>
+      [...prev.filter((item) => item.row !== row), cp].sort((a, b) => a.time - b.time)
+    );
+    setActiveCheckpointId(cp.id);
+    triggerHapticFeedback('perfect', haptics);
+    showToast(`Saved Checkpoint "${cp.name}" at Row #${row}`);
+    setSlotModalRow(null);
+  };
+
+  const handleAudioUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const url = URL.createObjectURL(file);
+      setAudioUrl(url);
+      const tempAudio = new Audio(url);
+      tempAudio.addEventListener('loadedmetadata', () => {
+        if (tempAudio.duration && tempAudio.duration !== Infinity) {
+          setDuration(Math.ceil(tempAudio.duration));
+        }
+      });
+      showToast(`Loaded local audio file: ${file.name}`);
+    }
+  };
+
+  const handleApplyExternalAudio = () => {
+    const res = resolveExternalAudioInput(externalAudioInput);
+    if (res.sourceType === 'invalid' || !res.audioUrl) {
+      setExternalStatus('Enter a valid Newgrounds Audio ID (e.g. 1094821) or Spotify Track/Playlist URL.');
+      return;
+    }
+    setAudioUrl(res.audioUrl);
+    if (res.sourceType === 'newgrounds' && res.cleanId) {
+      setNewgroundsId(res.cleanId);
+      setSpotifyUrl('');
+      setExternalStatus(`Linked Newgrounds Audio #${res.cleanId} — Ready to preview & chart!`);
+    } else if (res.sourceType === 'spotify' && res.cleanId) {
+      setSpotifyUrl(externalAudioInput.trim());
+      setNewgroundsId('');
+      setExternalStatus(`Linked Spotify Track/Playlist (${res.cleanId}) — Ready to preview & chart!`);
+    } else {
+      setExternalStatus('Loaded direct audio stream URL!');
+    }
+    if (res.suggestedTitle && (title === 'My Custom Track' || !title.trim())) {
+      setTitle(res.suggestedTitle);
+    }
+    if (res.suggestedArtist && (artist === 'Unknown Artist' || !artist.trim())) {
+      setArtist(res.suggestedArtist);
+    }
+    if (res.suggestedBpm) {
+      setBpm(res.suggestedBpm);
+    }
+    triggerHapticFeedback('perfect', haptics);
+    showToast(
+      res.sourceType === 'newgrounds'
+        ? `Newgrounds ID #${res.cleanId} loaded!`
+        : res.sourceType === 'spotify'
+        ? `Spotify link synced & loaded!`
+        : `Direct audio stream loaded!`
+    );
+  };
+
+  const handlePreviewExternalAudio = () => {
+    if (!audioUrl) {
+      handleApplyExternalAudio();
+    }
+    if (isPreviewingExternal) {
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      AudioEngine.stopMenuMusic();
+      setIsPreviewingExternal(false);
+      return;
+    }
+    setIsPreviewingExternal(true);
+    if (audioUrl && !audioUrl.startsWith('synth:') && audioRef.current) {
+      audioRef.current.currentTime = 0;
+      audioRef.current.play().catch(() => {
+        AudioEngine.startMenuMusic();
+      });
+    } else {
+      AudioEngine.startMenuMusic();
+    }
+  };
+
+  const getActiveStartTimeMs = (): number => {
+    if (activeCheckpointId) {
+      const cp = checkpoints.find((c) => c.id === activeCheckpointId);
+      if (cp) return cp.time;
+    }
+    return currentTime >= duration * 1000 ? 0 : currentTime;
+  };
+
+  const jumpToCheckpoint = (cp: EditorCheckpoint) => {
+    if (isPlaying) {
+      stopPlayback();
+    }
+    setActiveCheckpointId(cp.id);
+    setCurrentTime(cp.time);
+    if (gridRef.current) {
+      gridRef.current.scrollTop = Math.max(0, (cp.time / stepTime) * 38 - 160);
+    }
+    triggerHapticFeedback('menu', haptics);
+    showToast(`Jumped to checkpoint "${cp.name}" (${(cp.time / 1000).toFixed(2)}s)`);
+  };
+
+  const handleDeleteCheckpoint = (id: string) => {
+    setCheckpoints((prev) => prev.filter((cp) => cp.id !== id));
+    if (activeCheckpointId === id) setActiveCheckpointId(null);
+  };
+
+  const handleAutoSyncAllNotes = () => {
+    if (notes.length === 0) {
+      showToast('No notes to snap yet — place or record notes first.');
+      return;
+    }
+    const synced = autoSyncNotesToBpm(notes, bpm, autoSyncSubdivision);
+    setNotes(synced);
+    triggerHapticFeedback('perfect', haptics);
+    showToast(`Auto-Sync (Beta): Snapped ${synced.length} notes to 1/${autoSyncSubdivision} beat grid @ ${bpm} BPM.`);
+  };
+
+  const stopPlayback = () => {
+    setIsPlaying(false);
+    setIsRecording(false);
+    setIsPreviewingExternal(false);
+    cancelAnimationFrame(requestRef.current);
+    AudioEngine.stopMenuMusic();
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+  };
+
+  const togglePlay = (recordMode = false, overrideStartTimeMs?: number) => {
+    if (isPlaying) {
+      stopPlayback();
+    } else {
+      const launchTime =
+        typeof overrideStartTimeMs === 'number' ? overrideStartTimeMs : getActiveStartTimeMs();
+      setCurrentTime(launchTime);
+      setIsPlaying(true);
+      setIsRecording(recordMode);
+      startTimeRef.current = performance.now() - launchTime;
+      if (audioUrl && !audioUrl.startsWith('synth:') && audioRef.current) {
+        audioRef.current.currentTime = launchTime / 1000;
+        audioRef.current.play().catch(() => {
+          AudioEngine.startMenuMusic();
+        });
+      } else {
+        AudioEngine.startMenuMusic();
+      }
+      requestRef.current = requestAnimationFrame(updatePlayhead);
+    }
+  };
+
+  const updatePlayhead = (time: number) => {
+    const elapsed = time - startTimeRef.current;
+    if (elapsed >= duration * 1000) {
+      setIsPlaying(false);
+      setIsRecording(false);
+      setCurrentTime(0);
+      AudioEngine.stopMenuMusic();
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      }
+      return;
+    }
+    setCurrentTime(elapsed);
+
+    if (gridRef.current) {
+      const currentStep = elapsed / stepTime;
+      const rowHeight = 38;
+      gridRef.current.scrollTop = currentStep * rowHeight - 180;
+    }
+
+    requestRef.current = requestAnimationFrame(updatePlayhead);
+  };
 
   useEffect(() => {
+    return () => {
+      cancelAnimationFrame(requestRef.current);
+      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+      AudioEngine.stopMenuMusic();
+    };
+  }, []);
+
+  // Live Recording Key Listeners supporting all 8 Custom Keybinds
+  useEffect(() => {
+    if (!isRecording) return;
+
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (!isRecording) return;
-      if (
-        ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' ', 'Tab', 'Enter', 'Backspace'].includes(e.key) ||
-        e.altKey ||
-        e.ctrlKey
-      ) {
-        e.preventDefault();
+      if (e.repeat) return;
+      const lane = mapCustomKeyToLane(e.key, e.code, customKeybinds);
+      if (lane !== null && lane >= 0 && lane < editorLaneCount) {
+        const rawTime = performance.now() - startTimeRef.current;
+        const noteTime = autoSyncEnabled
+          ? snapTimeToBeatGrid(rawTime, bpm, autoSyncSubdivision)
+          : Math.round(rawTime / stepTime) * stepTime;
+        activeRecordingNotes.current[lane] = noteTime;
       }
-      const key = e.key.toLowerCase();
-      if (recordMode === 'pulses' && key === 'z') {
-        e.preventDefault();
-        recordPulseTap();
-        return;
-      }
-      if (recordMode !== 'notes') return;
-      const lane = KEY_MAP[key];
-      if (lane === undefined || e.repeat) return;
-      startRecordedLane(key, lane);
     };
+
     const handleKeyUp = (e: KeyboardEvent) => {
-      if (!isRecording || recordMode !== 'notes') return;
-      releaseRecordedLane(e.key.toLowerCase());
+      const lane = mapCustomKeyToLane(e.key, e.code, customKeybinds);
+      if (lane !== null && lane >= 0 && activeRecordingNotes.current[lane] !== undefined) {
+        const startTime = activeRecordingNotes.current[lane];
+        const rawEnd = performance.now() - startTimeRef.current;
+        const endTime = autoSyncEnabled
+          ? snapTimeToBeatGrid(rawEnd, bpm, autoSyncSubdivision)
+          : Math.round(rawEnd / stepTime) * stepTime;
+        const holdDuration = endTime - startTime;
+
+        const newNote: Note = {
+          time: startTime,
+          lane,
+          hit: false,
+          missed: false,
+          type: selectedNoteType,
+          duration: holdDuration >= stepTime * 2 ? holdDuration : undefined,
+        };
+
+        setNotes((prev) =>
+          [
+            ...prev.filter(
+              (n) => !(Math.abs(n.time - startTime) < stepTime / 2 && n.lane === lane)
+            ),
+            newNote,
+          ].sort((a, b) => a.time - b.time)
+        );
+        delete activeRecordingNotes.current[lane];
+      }
     };
-    window.addEventListener('keydown', handleKeyDown, { passive: false });
+
+    window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [isRecording, recordMode, recordPulseTap, releaseRecordedLane, startRecordedLane]);
+  }, [
+    isRecording,
+    stepTime,
+    selectedNoteType,
+    editorLaneCount,
+    autoSyncEnabled,
+    autoSyncSubdivision,
+    bpm,
+    customKeybinds,
+  ]);
 
-  useEffect(() => {
-    if (!isRecording) {
-      if (reqRef.current) cancelAnimationFrame(reqRef.current);
+  const handleCellClick = (row: number, col: number) => {
+    if (longPressFiredRef.current) {
+      longPressFiredRef.current = false;
       return;
     }
-    const loop = () => {
-      if (editorScrollRef.current) {
-        const currentTimeMs = getRecordTime();
-        const beatDuration = 1000 / (bpm / 60);
-        const subBeatDuration = beatDuration / stepSubdivision;
-        const currentRow = currentTimeMs / subBeatDuration;
-        if (stepClick) {
-          const clickMs = beatDuration / stepSubdivision;
-          const step = Math.floor(currentTimeMs / clickMs);
-          if (step !== lastEditorStepClick.current) {
-            lastEditorStepClick.current = step;
-            const accent = step % stepSubdivision === 0;
-            AudioEngine.playTone(accent ? 1050 : 720, 'square', accent ? 0.035 : 0.018, accent ? 0.032 : 0.016);
-          }
-        }
-        const scrollTarget = currentRow * rowHeight - editorScrollRef.current.clientHeight / 2;
-        if (scrollTarget >= 0) {
-          editorScrollRef.current.scrollTop = scrollTarget;
-        }
-      }
-      reqRef.current = requestAnimationFrame(loop);
-    };
-    reqRef.current = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(reqRef.current);
-  }, [isRecording, bpm, stepClick, stepSubdivision, rowHeight, getRecordTime]);
+    const rawTime = row * stepTime;
+    const time = autoSyncEnabled
+      ? snapTimeToBeatGrid(rawTime, bpm, autoSyncSubdivision)
+      : rawTime;
 
-  const changeStepSubdivision = (nextVal: string | number) => {
-    const next = Number(nextVal);
-    if (!Number.isFinite(next) || next === stepSubdivision) return;
-    setGrid((prev) => {
-      const converted: Record<string, string> = {};
-      Object.entries(prev).forEach(([key, value]) => {
-        const [row, lane] = key.split('_').map(Number);
-        const newRow = Math.round((row / stepSubdivision) * next);
-        converted[`${newRow}_${lane}`] = value;
-      });
-      return converted;
-    });
-    setStepSubdivision(next);
-    lastEditorStepClick.current = -1;
-  };
-
-  const toggleRecording = (mode: 'notes' | 'pulses', fromCheckpoint = true) => {
-    AudioEngine.init();
-    if (isRecording && recordMode === mode) {
-      setIsRecording(false);
-      heldRecordKeys.current = {};
-      heldRecordLanes.current = new Array(8).fill(false);
-      if (editorAudioRef.current) {
-        editorAudioRef.current.pause();
-        editorAudioRef.current.playbackRate = 1;
+    if (isHoldMode) {
+      if (!holdStart) {
+        setHoldStart({ row, col });
+      } else {
+        if (holdStart.col === col && row > holdStart.row) {
+          const startTime = holdStart.row * stepTime;
+          const holdDuration = (row - holdStart.row) * stepTime;
+          const existingIndex = notes.findIndex(
+            (n) => Math.abs(n.time - startTime) < 10 && n.lane === col
+          );
+          const updated = [...notes];
+          if (existingIndex >= 0) updated.splice(existingIndex, 1);
+          updated.push({
+            time: startTime,
+            lane: col,
+            hit: false,
+            missed: false,
+            type: selectedNoteType,
+            duration: holdDuration,
+          });
+          updated.sort((a, b) => a.time - b.time);
+          setNotes(updated);
+        }
+        setHoldStart(null);
       }
     } else {
-      const startMs = fromCheckpoint ? selectedCheckpoint.time : 0;
-      recordStartOffsetMs.current = startMs;
-      setRecordMode(mode);
-      setIsRecording(true);
-      setMobileSettingsOpen(false);
-      heldRecordKeys.current = {};
-      heldRecordLanes.current = new Array(8).fill(false);
-      recordStartTime.current = performance.now();
-      lastEditorStepClick.current = -1;
-      if (editorAudioRef.current && audioUrl && !audioUrl.startsWith('synth:')) {
-        editorAudioRef.current.currentTime = startMs / 1000;
-        (editorAudioRef.current as any).preservesPitch = true;
-        editorAudioRef.current.playbackRate = recordingSpeed;
-        editorAudioRef.current.play().catch((e) => console.warn('Audio play failed:', e));
-      }
-      showNotice(
-        `Recording ${mode.toUpperCase()} from checkpoint "${selectedCheckpoint.label}" (${(
-          startMs / 1000
-        ).toFixed(1)}s)`
+      const existingIndex = notes.findIndex(
+        (n) => Math.abs(n.time - time) < 10 && n.lane === col
       );
-    }
-  };
-
-  useEffect(() => {
-    if (editorAudioRef.current) editorAudioRef.current.playbackRate = isRecording ? recordingSpeed : 1;
-  }, [recordingSpeed, isRecording]);
-
-  const generateMap = useCallback((): ChartNote[] => {
-    const safeBpm = Math.max(1, Number(bpm) || 120);
-    const beatDuration = 60000 / safeBpm;
-    const subBeatDuration = beatDuration / stepSubdivision;
-    const newMap: ChartNote[] = [];
-    Object.entries(grid).forEach(([key, raw]) => {
-      const parts = key.split('_');
-      const row = Number(parts[0]);
-      const lane = Number(parts[1]);
-      if (!Number.isFinite(row) || !Number.isFinite(lane)) return;
-      const encodedHold = typeof raw === 'string' && raw.indexOf('hold:') === 0;
-      const explicitHold = raw === 'hold' || encodedHold;
-      const type: NoteType = explicitHold ? 'hold' : raw === 'demon' ? 'demon' : 'normal';
-      const note: ChartNote = { time: Math.max(0, Math.round(row * subBeatDuration)), lane, type };
-      if (type === 'hold') {
-        const parsed = encodedHold ? Number(raw.slice(5)) : beatDuration;
-        note.duration = Number.isFinite(parsed) && parsed > 0 ? parsed : beatDuration;
+      if (existingIndex >= 0) {
+        const updated = [...notes];
+        updated.splice(existingIndex, 1);
+        setNotes(updated);
+      } else {
+        const updated = [
+          ...notes,
+          { time, lane: col, hit: false, missed: false, type: selectedNoteType },
+        ];
+        updated.sort((a, b) => a.time - b.time);
+        setNotes(updated);
       }
-      newMap.push(note);
-    });
-    return normalizeChart(newMap, 8);
-  }, [bpm, grid, stepSubdivision]);
-
-  // 1. Newgrounds ID / Spotify Link Importer
-  const handleImportExternalAudio = () => {
-    const res = resolveExternalAudioInput(externalAudioInput);
-    if (!res.ok) {
-      showNotice(res.message, 'error');
-      return;
     }
-    setAudioUrl(res.audioUrl);
-    if (res.title && (title === 'CUSTOM TRACK' || !title.trim())) {
-      setTitle(res.title);
-    }
-    if (res.bpm) {
-      setBpm(res.bpm);
-    }
-    AudioEngine.playUI('confirm');
-    showNotice(res.message, 'info');
   };
 
-  // 2. Auto-Sync (BETA)
-  const handleAutoSyncBeta = () => {
-    const currentNotes = generateMap();
-    if (currentNotes.length === 0) {
-      // Place a sample starter pattern on beat if grid is empty so user can test Auto-Sync immediately
-      const beatMs = 60000 / (Number(bpm) || 120);
-      const sampleNotes: ChartNote[] = Array.from({ length: 16 }, (_, i) => ({
-        time: Math.round(i * beatMs),
-        lane: i % editorLanes,
-        type: 'normal',
-      }));
-      const nextGrid: Record<string, string> = {};
-      sampleNotes.forEach((n) => {
-        const r = Math.round(n.time / subBeatDurationMs);
-        nextGrid[`${r}_${n.lane}`] = 'normal';
-      });
-      setGrid(nextGrid);
-      AudioEngine.playUI('confirm');
-      showNotice(`AUTO-SYNC [BETA]: Generated & snapped 16 on-beat notes at ${bpm} BPM!`, 'info');
-      return;
-    }
-
-    const snapped = autoSyncChartNotes(currentNotes, bpm, stepSubdivision, pulses);
-    const nextGrid: Record<string, string> = {};
-    let maxRow = 0;
-    snapped.forEach((n) => {
-      const row = Math.round(n.time / subBeatDurationMs);
-      if (row > maxRow) maxRow = row;
-      nextGrid[`${row}_${n.lane}`] =
-        n.type === 'hold' ? `hold:${n.duration || Math.round(subBeatDurationMs * 2)}` : n.type;
-    });
-    setGrid(nextGrid);
-    setMeasures((prev) => Math.max(prev, Math.ceil((maxRow + stepSubdivision) / (4 * stepSubdivision))));
-    AudioEngine.playUI('confirm');
-    showNotice(
-      `AUTO-SYNC [BETA]: Snapped ${snapped.length} notes onto the ${bpm} BPM (1/${stepSubdivision}) beat grid!`,
-      'info'
-    );
-  };
-
-  // 3. Editor Checkpoints
-  const handleAddCheckpoint = (rowOverride?: number) => {
-    const targetRow = Math.max(0, Math.round(rowOverride ?? newCheckpointRow));
-    const timeMs = Math.round(targetRow * subBeatDurationMs);
-    const label =
-      (newCheckpointLabel || '').trim() || `Checkpoint @ Row ${targetRow} (${(timeMs / 1000).toFixed(1)}s)`;
-    const cp: EditorCheckpoint = {
-      id: `cp_${Date.now()}_${targetRow}`,
-      row: targetRow,
-      time: timeMs,
-      label,
-    };
-    setCheckpoints((prev) => {
-      const filtered = prev.filter((p) => p.row !== targetRow || p.id === 'cp_start');
-      return [...filtered, cp].sort((a, b) => a.row - b.row);
-    });
-    setSelectedCheckpointId(cp.id);
-    setMeasures((prev) => Math.max(prev, Math.ceil((targetRow + stepSubdivision) / (4 * stepSubdivision))));
-    AudioEngine.playUI('confirm');
-    showNotice(`Added Editor Checkpoint "${cp.label}" at Row ${targetRow} (${(timeMs / 1000).toFixed(1)}s)`);
-  };
-
-  const handleSelectCheckpoint = (cp: EditorCheckpoint) => {
-    setSelectedCheckpointId(cp.id);
-    if (editorScrollRef.current) {
-      editorScrollRef.current.scrollTop = Math.max(0, cp.row * rowHeight - 120);
-    }
-    if (editorAudioRef.current && audioUrl && !audioUrl.startsWith('synth:')) {
-      try {
-        editorAudioRef.current.currentTime = cp.time / 1000;
-      } catch {}
-    }
-    AudioEngine.playUI('move');
-  };
-
-  const handleClearNotesFromCheckpoint = () => {
-    const minRow = selectedCheckpoint.row;
-    setGrid((prev) => {
-      const next: Record<string, string> = {};
-      Object.entries(prev).forEach(([k, v]) => {
-        const r = Number(k.split('_')[0]);
-        if (r < minRow) next[k] = v;
-      });
-      return next;
-    });
-    AudioEngine.playUI('confirm');
-    showNotice(`Cleared notes from Checkpoint "${selectedCheckpoint.label}" (Row ${minRow}+) so you can re-record!`);
-  };
-
-  // 4. Add Gameplay Trigger (Speed, Extra Notes 4/6/8 + 7 Transitions, DJ Stop)
-  const handleAddTrigger = (type: 'speed' | 'extra_notes' | 'dj_stop') => {
-    const r = Math.max(0, Math.round(triggerRow));
-    const timeMs = Math.round(r * subBeatDurationMs);
-    const newTrig: ChartTrigger = {
-      id: `trig_${Date.now()}_${r}`,
-      row: r,
-      time: timeMs,
-      type,
-      ...(type === 'speed' ? { speed: speedPreset } : {}),
-      ...(type === 'extra_notes'
-        ? {
-            laneCount: extraNotesCount,
-            transition: expansionTransition,
-            transitionDurationSec: Number(transitionDurationSec.toFixed(1)),
-          }
-        : {}),
-      ...(type === 'dj_stop' ? { stopDurationSec: 1.2 } : {}),
-    };
-    setTriggers((prev) => [...prev, newTrig].sort((a, b) => a.time - b.time));
-    if (type === 'extra_notes' && extraNotesCount > editorLanes) {
-      setEditorLanes(extraNotesCount);
-    }
-    AudioEngine.playUI('confirm');
-    showNotice(
-      type === 'speed'
-        ? `Added Speed Trigger (${speedPreset.toFixed(2)}x) at Row ${r} (${(timeMs / 1000).toFixed(1)}s)`
-        : type === 'extra_notes'
-          ? `Added Extra Notes Trigger (${extraNotesCount} Notes · ${expansionTransition.toUpperCase()} · ${transitionDurationSec.toFixed(1)}s) at Row ${r}`
-          : `Added DJ Record Stop Effect Trigger at Row ${r} (${(timeMs / 1000).toFixed(1)}s)`
-    );
-  };
-
-  // 5. Local Playtest in Editor (From Start or From Selected Checkpoint)
-  const startLocalPlaytest = (fromCheckpoint: boolean) => {
-    setIsRecording(false);
-    if (editorAudioRef.current) {
-      editorAudioRef.current.pause();
-    }
-    let mapToTest = generateMap();
-    const startMs = fromCheckpoint ? selectedCheckpoint.time : 0;
-    if (mapToTest.length === 0) {
-      const beatMs = 60000 / (Number(bpm) || 120);
-      mapToTest = Array.from({ length: 24 }, (_, i) => ({
-        time: Math.round(startMs + 800 + i * (beatMs / 2)),
-        lane: i % editorLanes,
-        type: 'normal' as const,
-      }));
-    }
-    const testSong: Song = {
-      id: 'editor_playtest',
-      title: `${title || 'CUSTOM TRACK'} [EDITOR TEST]`,
-      artist: user?.email || 'CREATOR PLAYTEST',
-      bpm: Number(bpm) || 120,
-      color: '#36e2ff',
-      audioUrl: getCleanedUrl(audioUrl) || 'synth:rave',
-      coverUrl,
-      customMap: mapToTest,
-      pulses,
-      triggers,
-      checkpoints,
-      stepClick,
-      stepSubdivision,
-    };
-    AudioEngine.playUI('confirm');
-    setPlaytestState({
-      active: true,
-      startTimeMs: startMs,
-      song: testSong,
-      beatmap: mapToTest,
-    });
-  };
+  const buildCurrentSongObject = (): Song => ({
+    id: initialSong?.id || 'custom_' + Date.now(),
+    title,
+    artist,
+    bpm,
+    difficulty,
+    color,
+    notes,
+    customMap: notes,
+    ownerUid: user?.uid || initialSong?.ownerUid,
+    isCustom: true,
+    hasDemonNotes: notes.some((n) => n.type === 'demon'),
+    duration,
+    audioUrl:
+      audioUrl ||
+      (newgroundsId
+        ? resolveExternalAudioInput(newgroundsId).audioUrl
+        : spotifyUrl
+        ? resolveExternalAudioInput(spotifyUrl).audioUrl
+        : 'synth:rave'),
+    newgroundsId: newgroundsId || undefined,
+    spotifyUrl: spotifyUrl || undefined,
+    triggers,
+    checkpoints,
+  });
 
   const handleSave = () => {
-    const newMap = generateMap();
-    if (!newMap.length) {
-      showNotice('This chart has no notes. Place or record at least one note before saving.', 'error');
+    stopPlayback();
+    const saved = buildCurrentSongObject();
+    if (onSave) {
+      onSave(saved);
       return;
     }
-    const chartSnapshot = newMap.map((n) => ({ ...n }));
-    const newSong: Song = {
-      id: Date.now(),
-      title,
-      artist: 'USER',
-      bpm,
-      color: '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0'),
-      customMap: chartSnapshot,
-      chartVersion: 2,
-      noteCount: chartSnapshot.length,
-      pulses: [...pulses].sort((a, b) => a - b),
-      audioUrl: getCleanedUrl(audioUrl),
-      coverUrl,
-      coverPulse,
-      coverPulseBpm,
-      coverPulseSubdivision,
-      stepClick,
-      stepSubdivision,
-      triggers,
-      checkpoints,
-    };
-
-    setSelectedSong(newSong);
-    setSongs((prev) => [newSong, ...prev.filter((x) => String(x.id) !== String(newSong.id))]);
-    try {
-      const saved = JSON.parse(localStorage.getItem('rhythmCanvasLocalSongs') || '[]');
-      localStorage.setItem(
-        'rhythmCanvasLocalSongs',
-        JSON.stringify([newSong, ...saved.filter((x: any) => String(x.id) !== String(newSong.id))])
-      );
-    } catch (e) {
-      console.warn('Local track persistence failed', e);
-    }
-    setScreen('freeplay');
-  };
-
-  const handlePublish = async () => {
-    if (!user) {
-      showNotice('You must Log in on the Main Menu to publish tracks!', 'error');
-      return;
-    }
-    if (Object.keys(grid).length === 0) {
-      showNotice('You must place at least one note to publish!', 'error');
-      return;
-    }
-    if (!db) {
-      showNotice('Database unavailable.', 'error');
-      return;
-    }
-    setIsPublishing(true);
-    try {
-      const newMap = normalizeChart(generateMap(), 8);
-      if (!newMap.length) throw new Error('The chart has no valid notes.');
-      const chartSnapshot = newMap.map((n) => ({ ...n }));
-      const newId = Date.now().toString();
-      let publishedCoverUrl = coverUrl;
-      if (coverUrl && coverUrl.startsWith('data:') && storage) {
-        const blob = await (await fetch(coverUrl)).blob();
-        const snap = await storage.ref().child(`covers/${user.uid}/${newId}_cover`).put(blob);
-        publishedCoverUrl = await snap.ref.getDownloadURL();
-      }
-      const newSong: Song = {
-        id: newId,
-        title: title || 'UNTITLED',
-        artist: user.email || 'Community User',
-        ownerUid: user.uid,
-        bpm: Number(bpm) || 120,
-        color: '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0'),
-        customMap: chartSnapshot,
-        chartVersion: 2,
-        noteCount: chartSnapshot.length,
-        pulses: [...pulses].sort((a, b) => a - b),
-        audioUrl: getCleanedUrl(audioUrl),
-        coverUrl: publishedCoverUrl,
-        coverPulse,
-        coverPulseBpm,
-        coverPulseSubdivision,
-        coverUpdatedAt: Date.now(),
-        stepClick,
-        stepSubdivision,
-        featured: false,
-        triggers,
-        checkpoints,
-      };
-      await db.collection('community_tracks').doc(String(newSong.id)).set(newSong);
-      setSelectedSong(newSong);
-      setSongs((prev) => [newSong, ...prev]);
-      setScreen('online_tracks');
-    } catch (err: any) {
-      showNotice('Failed to publish track: ' + err.message, 'error');
-    } finally {
-      setIsPublishing(false);
-    }
-  };
-
-  const handleLoad = (songToLoad: Song) => {
-    const isExternal = songToLoad.artist !== 'USER';
-    setTitle(isExternal ? `${songToLoad.title} (COPY)` : songToLoad.title);
-    setBpm(songToLoad.bpm);
-    const beatDur = 1000 / (songToLoad.bpm / 60);
-    const loadedSubdivision = Number(songToLoad.stepSubdivision) || 4;
-    const subBeatDur = beatDur / loadedSubdivision;
-    const newGrid: Record<string, string> = {};
-    let maxRow = 0;
-    let maxLane = 3;
-    if (songToLoad.customMap) {
-      normalizeChart(songToLoad.customMap, 8).forEach((note) => {
-        const row = Math.round(note.time / subBeatDur);
-        newGrid[`${row}_${note.lane}`] =
-          note.type === 'hold' ? `hold:${note.duration || beatDur}` : note.type || 'normal';
-        if (row > maxRow) maxRow = row;
-        if (note.lane > maxLane) maxLane = note.lane;
+    if (setSongs) {
+      setSongs((prev) => {
+        const exists = prev.some((s) => String(s.id) === String(saved.id));
+        return exists
+          ? prev.map((s) => (String(s.id) === String(saved.id) ? saved : s))
+          : [saved, ...prev];
       });
     }
-    setEditorLanes(maxLane >= 6 ? 8 : maxLane >= 4 ? 6 : 4);
-    setGrid(newGrid);
-    setPulses(songToLoad.pulses || []);
-    setTriggers(songToLoad.triggers || []);
-    setCheckpoints(
-      songToLoad.checkpoints?.length
-        ? songToLoad.checkpoints
-        : [{ id: 'cp_start', row: 0, time: 0, label: 'Start (0:00)' }]
-    );
-    setMeasures(Math.max(8, Math.ceil((maxRow + loadedSubdivision) / (4 * loadedSubdivision))));
-    setAudioUrl(songToLoad.audioUrl || '');
-    setCoverUrl(songToLoad.coverUrl || '');
-    setCoverPulse(songToLoad.coverPulse !== false);
-    setCoverPulseBpm(songToLoad.coverPulseBpm || 1);
-    setCoverPulseSubdivision(songToLoad.coverPulseSubdivision || 1);
-    setStepClick(songToLoad.stepClick !== false);
-    setStepSubdivision(songToLoad.stepSubdivision || 4);
-    setShowLoadModal(false);
+    if (setSelectedSong) {
+      setSelectedSong(saved);
+    }
+    if (setScreen) {
+      setScreen('freeplay');
+    }
   };
 
-  // Render Local Playtest Overlay when testing in the Editor
-  if (playtestState?.active) {
-    return (
-      <div className="fixed inset-0 z-[250] bg-black flex flex-col">
-        <div className="bg-black/90 border-b-2 border-cyan-400 px-4 py-1.5 flex items-center justify-between z-[260] shrink-0">
-          <div className="flex items-center gap-2.5">
-            <span className="px-2.5 py-0.5 rounded-md bg-cyan-500 text-black font-black text-xs uppercase">
-              EDITOR PLAYTEST MODE
-            </span>
-            <span className="text-xs font-black text-white">
-              Starting at {(playtestState.startTimeMs / 1000).toFixed(1)}s ({selectedCheckpoint.label})
-            </span>
-          </div>
-          <button
-            data-testid="editor-exit-playtest-btn"
-            onClick={() => setPlaytestState(null)}
-            className="rc-bevel-btn rc-tile-pink text-white px-4 py-1 rounded-lg text-xs font-black uppercase"
-          >
-            RETURN TO EDITOR
-          </button>
-        </div>
-        <div className="flex-1 min-h-0 relative">
-          <GameEngine
-            song={playtestState.song}
-            difficulty="normal"
-            gameMode="standard"
-            setScreen={() => setPlaytestState(null)}
-            customBeatmap={playtestState.beatmap}
-            playerInfo={playtestPlayerInfo}
-            setPlayerInfo={setPlaytestPlayerInfo}
-            addRewards={() => {}}
-            modifiers={{
-              speed: 1,
-              altChart: false,
-              noFail: true,
-              extreme: false,
-              nerf: 0,
-              laneCount: editorLanes,
-              expansionTransition,
-              transitionDurationSec,
-            }}
-            onGradeUpdate={() => {}}
-            initialStartTimeMs={playtestState.startTimeMs}
-            onExitPlaytest={() => setPlaytestState(null)}
-          />
-        </div>
-      </div>
+  const handleLocalPlaytest = (fromCheckpoint: boolean) => {
+    stopPlayback();
+    const songObj = buildCurrentSongObject();
+    const startMs = fromCheckpoint ? getActiveStartTimeMs() : 0;
+    if (onPlaytest) {
+      onPlaytest(songObj, startMs);
+    } else if (setSelectedSong && setScreen) {
+      setSelectedSong(songObj);
+      setScreen('game');
+    }
+  };
+
+  const handleExport = () => {
+    const song = buildCurrentSongObject();
+    const dataStr =
+      'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(song, null, 2));
+    const downloadAnchorNode = document.createElement('a');
+    downloadAnchorNode.setAttribute('href', dataStr);
+    downloadAnchorNode.setAttribute(
+      'download',
+      `${title.toLowerCase().replace(/\s+/g, '_')}.json`
     );
-  }
+    document.body.appendChild(downloadAnchorNode);
+    downloadAnchorNode.click();
+    downloadAnchorNode.remove();
+  };
+
+  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const importedSong = JSON.parse(event.target?.result as string) as Song;
+        const importedNotes = importedSong.customMap || importedSong.notes;
+        if (importedSong.title && importedSong.bpm && Array.isArray(importedNotes)) {
+          setTitle(importedSong.title);
+          setArtist(importedSong.artist || 'Unknown Artist');
+          setBpm(importedSong.bpm);
+          setDifficulty(importedSong.difficulty || 'normal');
+          setColor(importedSong.color || '#00f0ff');
+          setNotes(importedNotes);
+          setDuration(importedSong.duration || 120);
+          setTriggers((importedSong.triggers || []).filter((t) => t.type !== 'dj_stop'));
+          setCheckpoints(importedSong.checkpoints || []);
+          showToast(`Imported chart "${importedSong.title}"`);
+        }
+      } catch {
+        showToast('Failed to parse JSON track file.');
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const getLaneHeaderLabel = (col: number) => {
+    const dirNames = ['LEFT', 'DOWN', 'UP', 'RIGHT', 'EX-1', 'EX-2', 'EX-3', 'EX-4'];
+    const keyBind = customKeybinds[col] || DEFAULT_CUSTOM_KEYBINDS[col];
+    return `${dirNames[col]} [${keyBind}]`;
+  };
 
   return (
-    <div className="rc-stage w-full h-[100dvh] flex flex-col crt relative overflow-hidden text-white">
-      <div className="rc-stage-dots absolute inset-0 pointer-events-none" />
-      <audio
-        ref={editorAudioRef}
-        src={getCleanedUrl(audioUrl) || undefined}
-        onEnded={() => {
-          setIsRecording(false);
-          if (editorAudioRef.current) editorAudioRef.current.playbackRate = 1;
-        }}
-        className="hidden"
-      />
+    <div className="relative z-10 flex flex-col h-full w-full bg-[#070912]/90 backdrop-blur-xl text-white overflow-hidden select-none">
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between px-4 py-2.5 bg-slate-950/90 border-b border-white/15 gap-2 shrink-0">
+        <button
+          onClick={() => {
+            stopPlayback();
+            if (onBack) onBack();
+            else if (setScreen) setScreen('menu');
+          }}
+          className="flex items-center gap-2 text-slate-300 hover:text-white transition-colors font-black text-xs tracking-widest uppercase cursor-pointer"
+        >
+          <ArrowLeft className="w-4 h-4" /> EXIT STUDIO
+        </button>
 
-      {/* Top Console Toolbar */}
-      <div
-        className={`relative z-10 rc-console-tray mx-2 sm:mx-3 mt-1.5 flex flex-col shrink-0 ${
-          isLandscapeCompact ? 'p-1.5 gap-1.5 pr-12' : 'p-2.5 gap-2 pr-14 sm:pr-16'
-        }`}
-      >
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2 sm:gap-2.5">
-            <button
-              aria-label="Back to menu"
-              onClick={() => {
-                setIsRecording(false);
-                setScreen('menu');
-              }}
-              className={`rc-bevel-btn rc-tile-slate text-white flex items-center justify-center ${
-                isLandscapeCompact ? 'p-1.5' : 'p-2'
-              }`}
-            >
-              <ChevronLeft className={isLandscapeCompact ? 'w-4 h-4' : 'w-5 h-5'} />
-            </button>
-            <div className="rc-dock-rail px-3 py-1 flex items-center gap-2">
-              <h2
-                className={`font-black italic uppercase text-white ${
-                  isLandscapeCompact ? 'text-sm sm:text-base' : 'text-base sm:text-lg'
-                }`}
-              >
-                SONG EDITOR
-              </h2>
-              <span className="rc-dock-well px-2 py-0.5 text-[10px] font-black text-cyan-300 tabular-nums">
-                NOTES: {Object.keys(grid).length}
-              </span>
-              <span className="rc-dock-well px-2 py-0.5 text-[10px] font-black text-pink-300 tabular-nums">
-                TRIGGERS: {triggers.length}
-              </span>
-            </div>
-
-            {/* Auto-Sync (BETA) Button */}
-            <button
-              type="button"
-              data-testid="editor-autosync-beta-btn"
-              onClick={handleAutoSyncBeta}
-              className="rc-bevel-btn rc-tile-cyan text-black px-3 py-1.5 font-black text-xs flex items-center gap-1.5 whitespace-nowrap"
-              title="Snap recorded or placed notes onto the song's beat grid"
-            >
-              <Wand2 className="w-3.5 h-3.5" />
-              <span>AUTO-SYNC</span>
-              <span className="px-1.5 py-0.5 rounded bg-black text-cyan-300 text-[9px] font-black tracking-wider">
-                BETA
-              </span>
-            </button>
-
-            {/* Local Playtest Buttons (From Start or From Selected Checkpoint) */}
-            <button
-              type="button"
-              data-testid="editor-test-start-btn"
-              onClick={() => startLocalPlaytest(false)}
-              className="rc-bevel-btn rc-tile-green text-black px-2.5 py-1.5 font-black text-xs flex items-center gap-1 whitespace-nowrap"
-            >
-              <Play className="w-3.5 h-3.5 fill-current" />
-              <span>TEST (0:00)</span>
-            </button>
-            <button
-              type="button"
-              data-testid="editor-test-checkpoint-btn"
-              onClick={() => startLocalPlaytest(true)}
-              className="rc-bevel-btn rc-tile-purple text-white px-2.5 py-1.5 font-black text-xs flex items-center gap-1 whitespace-nowrap"
-              title={`Test track starting from checkpoint: ${selectedCheckpoint.label}`}
-            >
-              <Flag className="w-3.5 h-3.5" />
-              <span>TEST @ CP ({(selectedCheckpoint.time / 1000).toFixed(1)}s)</span>
-            </button>
-          </div>
-
-          <div className="flex items-center gap-1.5">
-            <div className="rc-dock-rail flex items-center p-1 gap-1 text-xs">
-              <button
-                onClick={() => setNoteType('normal')}
-                className={`rc-bevel-btn px-2 py-1 font-black uppercase whitespace-nowrap ${
-                  noteType === 'normal' ? 'rc-tile-green text-black' : 'rc-sub-dark text-slate-300'
-                }`}
-              >
-                Normal
-              </button>
-              <button
-                onClick={() => setNoteType('hold')}
-                className={`rc-bevel-btn px-2 py-1 font-black uppercase whitespace-nowrap ${
-                  noteType === 'hold' ? 'rc-tile-violet text-white' : 'rc-sub-dark text-slate-300'
-                }`}
-              >
-                Hold
-              </button>
-              <button
-                onClick={() => setNoteType('demon')}
-                className={`rc-bevel-btn px-2 py-1 font-black uppercase whitespace-nowrap ${
-                  noteType === 'demon' ? 'rc-tile-red text-white' : 'rc-sub-dark text-slate-300'
-                }`}
-              >
-                Demon
-              </button>
-            </div>
-
-            <button
-              type="button"
-              data-testid="editor-triggers-toggle-btn"
-              onClick={() => setShowTriggersPanel((v) => !v)}
-              className={`rc-bevel-btn px-2.5 py-1.5 font-black text-xs flex items-center gap-1 whitespace-nowrap ${
-                showTriggersPanel ? 'rc-tile-pink text-white' : 'rc-tile-gold text-black'
-              }`}
-            >
-              <Zap className="w-3.5 h-3.5" />
-              <span>TRIGGERS & CHECKPOINTS</span>
-            </button>
-
-            <button
-              onClick={() => setMobileSettingsOpen((v) => !v)}
-              className="lg:hidden rc-bevel-btn rc-tile-slate text-white px-2.5 py-1.5 font-black text-xs flex items-center gap-1 whitespace-nowrap"
-            >
-              SETTINGS {mobileSettingsOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-            </button>
-          </div>
+        <div className="flex items-center gap-2">
+          <h1 className="text-base sm:text-lg font-black italic tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-amber-300 via-cyan-300 to-fuchsia-400">
+            BEATMAP & TRIGGER STUDIO 3.0
+          </h1>
+          <span className="px-2 py-0.5 rounded bg-cyan-500/15 border border-cyan-400/40 text-cyan-200 text-[10px] font-black uppercase tracking-wider hidden md:inline-block">
+            HOLD OR RIGHT-CLICK ANY SLOT FOR TRIGGERS & CHECKPOINTS
+          </span>
+          <button
+            onClick={() => setShowTutorial(true)}
+            className="text-slate-400 hover:text-white transition-colors cursor-pointer"
+            title="How to use the editor"
+          >
+            <HelpCircle className="w-4 h-4" />
+          </button>
         </div>
 
-        {notice && (
-          <div
-            className={`rc-console-inset px-3 py-1.5 font-black text-xs ${
-              notice.tone === 'error' ? 'border-red-400 text-red-200' : 'border-cyan-400 text-cyan-200'
-            }`}
+        <div className="flex flex-wrap items-center gap-1.5">
+          {onPlaytest && (
+            <>
+              <button
+                onClick={() => handleLocalPlaytest(false)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-200 font-black rounded-lg border border-cyan-400/50 transition-all text-[11px] cursor-pointer"
+                title="Test play your track from the beginning (0:00)"
+              >
+                <Play className="w-3.5 h-3.5" /> TEST START
+              </button>
+              <button
+                onClick={() => handleLocalPlaytest(true)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 font-black rounded-lg border border-emerald-400/50 transition-all text-[11px] cursor-pointer"
+                title="Test play your track from active checkpoint or current playhead"
+              >
+                <Flag className="w-3.5 h-3.5" /> TEST CHECKPOINT
+              </button>
+            </>
+          )}
+          <label className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-lg cursor-pointer transition-colors text-[11px] border border-white/15">
+            <Upload className="w-3.5 h-3.5" /> IMPORT
+            <input type="file" accept=".json" onChange={handleImport} className="hidden" />
+          </label>
+          <button
+            onClick={handleExport}
+            className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-lg transition-colors text-[11px] border border-white/15 cursor-pointer"
           >
-            {notice.text}
-          </div>
-        )}
+            <Download className="w-3.5 h-3.5" /> EXPORT
+          </button>
+          <button
+            onClick={handleSave}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-gradient-to-r from-emerald-400 to-cyan-400 hover:from-emerald-300 hover:to-cyan-300 text-slate-950 font-black rounded-lg transition-all shadow-[0_0_15px_rgba(16,185,129,0.4)] text-[11px] cursor-pointer uppercase tracking-wider"
+          >
+            <UploadCloud className="w-3.5 h-3.5" /> PUBLISH
+          </button>
+        </div>
+      </div>
 
-        {/* Settings & Newgrounds / Spotify Audio Uploader Row */}
-        <div
-          className={`${
-            mobileSettingsOpen ? 'flex' : 'hidden lg:flex'
-          } flex-col lg:flex-row lg:items-center justify-between gap-2 max-h-[42vh] lg:max-h-none overflow-y-auto`}
-        >
-          <div className="rc-console-inset flex items-center gap-2 flex-wrap p-1.5 flex-1">
+      {statusBanner && (
+        <div className="px-4 py-1.5 bg-cyan-500/20 border-b border-cyan-400/40 text-cyan-200 text-xs font-black tracking-wide flex items-center justify-between shrink-0">
+          <span>{statusBanner}</span>
+          <button onClick={() => setStatusBanner(null)} className="text-cyan-300 hover:text-white">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* Primary Track Metadata & External Song Loader Bar */}
+      <div className="px-4 py-2 bg-slate-900/80 border-b border-white/10 flex flex-wrap gap-2.5 items-center justify-between shrink-0">
+        <div className="flex flex-wrap gap-2 items-center">
+          <div className="flex flex-col">
+            <label className="text-[9px] text-slate-400 font-black uppercase">Title</label>
             <input
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              disabled={isRecording}
-              className="bg-[#0a0d16] border border-white/25 rounded-lg text-white px-2 py-1 font-black text-xs w-32 uppercase disabled:opacity-50"
-              placeholder="TITLE"
+              className="bg-slate-950 border border-white/15 rounded px-2 py-1 text-white text-xs font-bold focus:outline-none focus:border-cyan-400 w-32 sm:w-40"
             />
-            <div className="flex items-center gap-1">
-              <span className="font-black text-cyan-300 text-xs">BPM</span>
-              <input
-                type="number"
-                value={bpm}
-                onChange={(e) => setBpm(Number(e.target.value))}
-                disabled={isRecording}
-                className="w-14 bg-[#0a0d16] border border-white/25 rounded-lg text-white px-2 py-1 text-xs font-black tabular-nums disabled:opacity-50"
-              />
-            </div>
-
-            {/* Newgrounds ID or Spotify Link Importer */}
-            <div className="flex items-center gap-1 bg-[#0a0d16] border border-cyan-400/50 rounded-lg px-2 py-0.5 flex-1 min-w-[230px]">
-              <LinkIcon className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-              <input
-                data-testid="editor-external-audio-input"
-                type="text"
-                placeholder="Newgrounds ID (574484) or Spotify Link..."
-                value={externalAudioInput}
-                disabled={isRecording}
-                onChange={(e) => setExternalAudioInput(e.target.value)}
-                className="w-full bg-transparent text-white py-0.5 font-black text-xs focus:outline-none"
-              />
-              <button
-                type="button"
-                data-testid="editor-import-audio-btn"
-                onClick={handleImportExternalAudio}
-                className="rc-bevel-btn rc-tile-cyan text-black px-2 py-0.5 rounded text-[10px] font-black uppercase shrink-0"
-              >
-                IMPORT NG / SPOTIFY
-              </button>
-            </div>
-
-            {/* Direct MP3 URL input */}
-            <div className="flex items-center bg-[#0a0d16] border border-white/25 rounded-lg px-2 w-40">
-              <input
-                type="text"
-                placeholder="Direct Audio URL"
-                value={audioUrl}
-                disabled={isRecording}
-                onChange={(e) => setAudioUrl(e.target.value)}
-                className="w-full bg-transparent text-white py-1 font-black text-xs focus:outline-none"
-              />
-            </div>
-
-            {/* Lane Count Switcher (4 / 6 / 8 Notes) */}
-            <div className="rc-dock-well flex items-center gap-1 px-2 py-1 text-xs">
-              <Layers className="w-3.5 h-3.5 text-pink-400" />
-              <span className="font-black text-pink-300 text-[10px]">LANES:</span>
-              {EXTRA_NOTES_PRESETS.map((cnt) => (
-                <button
-                  key={cnt}
-                  type="button"
-                  onClick={() => setEditorLanes(cnt)}
-                  className={`px-1.5 py-0.5 rounded font-black text-[10px] ${
-                    editorLanes === cnt ? 'bg-pink-500 text-white' : 'bg-white/10 text-white/70'
-                  }`}
-                >
-                  {cnt}K
-                </button>
-              ))}
-            </div>
+          </div>
+          <div className="flex flex-col">
+            <label className="text-[9px] text-slate-400 font-black uppercase">Artist</label>
+            <input
+              type="text"
+              value={artist}
+              onChange={(e) => setArtist(e.target.value)}
+              className="bg-slate-950 border border-white/15 rounded px-2 py-1 text-white text-xs font-bold focus:outline-none focus:border-cyan-400 w-28 sm:w-36"
+            />
+          </div>
+          <div className="flex flex-col">
+            <label className="text-[9px] text-slate-400 font-black uppercase">BPM</label>
+            <input
+              type="number"
+              value={bpm}
+              onChange={(e) => setBpm(Number(e.target.value))}
+              min="40"
+              max="360"
+              className="bg-slate-950 border border-white/15 rounded px-2 py-1 text-white text-xs font-bold focus:outline-none focus:border-cyan-400 w-16"
+            />
+          </div>
+          <div className="flex flex-col">
+            <label className="text-[9px] text-slate-400 font-black uppercase">Len (s)</label>
+            <input
+              type="number"
+              value={duration}
+              onChange={(e) => setDuration(Number(e.target.value))}
+              min="10"
+              max="600"
+              className="bg-slate-950 border border-white/15 rounded px-2 py-1 text-white text-xs font-bold focus:outline-none focus:border-cyan-400 w-16"
+            />
+          </div>
+          <div className="flex flex-col">
+            <label className="text-[9px] text-slate-400 font-black uppercase">Difficulty</label>
+            <select
+              value={difficulty}
+              onChange={(e) => setDifficulty(e.target.value as Difficulty)}
+              className="bg-slate-950 border border-white/15 rounded px-2 py-1 text-white text-xs font-bold focus:outline-none focus:border-cyan-400"
+            >
+              <option value="Easy">Easy</option>
+              <option value="Medium">Medium</option>
+              <option value="Hard">Hard</option>
+              <option value="Expert">Expert</option>
+              <option value="Death">Death</option>
+            </select>
+          </div>
+          <div className="flex flex-col">
+            <label className="text-[9px] text-slate-400 font-black uppercase">Grid Lanes</label>
+            <select
+              value={editorLaneCount}
+              onChange={(e) => setEditorLaneCount(Number(e.target.value) as LaneCountOption)}
+              className="bg-slate-950 border border-cyan-400/50 rounded px-2 py-1 text-cyan-200 text-xs font-black focus:outline-none"
+            >
+              <option value={4}>4 Lanes (Default)</option>
+              <option value={6}>6 Lanes (Expanded)</option>
+              <option value={8}>8 Lanes (Full Stage)</option>
+            </select>
           </div>
 
-          <div className="flex flex-wrap gap-1.5 items-center shrink-0">
-            <div className="rc-dock-well px-2 py-1 flex items-center gap-1.5 text-xs">
-              <span className="text-[9px] font-black text-yellow-300">REC SPD</span>
-              <select
-                value={recordingSpeed}
-                onChange={(e) => setRecordingSpeed(Number(e.target.value))}
-                className="bg-[#0a0d16] text-white border border-white/20 rounded font-black px-1 py-0.5 text-[11px]"
+          {/* Local file upload */}
+          <div className="flex flex-col">
+            <label className="text-[9px] text-slate-400 font-black uppercase">MP3/OGG File</label>
+            <label className="flex items-center gap-1 px-2.5 py-1 bg-slate-950 hover:bg-slate-800 border border-white/15 rounded cursor-pointer text-xs font-bold text-cyan-300">
+              <Music className="w-3.5 h-3.5" />
+              <span className="truncate max-w-[85px]">{audioUrl ? 'Loaded ✓' : 'Upload File'}</span>
+              <input type="file" accept="audio/*" onChange={handleAudioUpload} className="hidden" />
+            </label>
+          </div>
+
+          {/* Newgrounds ID or Spotify Link Upload */}
+          <div className="flex flex-col">
+            <label className="text-[9px] text-amber-300 font-black uppercase flex items-center gap-1">
+              <Link2 className="w-3 h-3" /> Newgrounds ID or Spotify Link
+            </label>
+            <div className="flex items-center gap-1">
+              <input
+                type="text"
+                value={externalAudioInput}
+                onChange={(e) => setExternalAudioInput(e.target.value)}
+                placeholder="NG ID (e.g. 1094821) or Spotify URL..."
+                className="bg-slate-950 border border-amber-400/40 rounded px-2 py-1 text-white text-xs w-44 sm:w-56 focus:outline-none focus:border-amber-300"
+              />
+              <button
+                onClick={handleApplyExternalAudio}
+                className="px-2.5 py-1 rounded bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-[11px] uppercase cursor-pointer"
               >
-                <option value="0.25">0.25x</option>
-                <option value="0.5">0.50x</option>
-                <option value="0.75">0.75x</option>
-                <option value="1">1.00x</option>
-              </select>
-            </div>
-            <div className="rc-dock-well px-2 py-1 flex items-center gap-1.5 text-xs">
-              <label className="text-[9px] font-black text-cyan-300 flex items-center gap-1">
-                <input type="checkbox" checked={stepClick} onChange={(e) => setStepClick(e.target.checked)} /> CLICK
-              </label>
-              <select
-                value={stepSubdivision}
-                onChange={(e) => changeStepSubdivision(e.target.value)}
-                className="bg-[#0a0d16] text-white border border-white/20 rounded font-black px-1 py-0.5 text-[11px]"
+                LOAD
+              </button>
+              <button
+                onClick={handlePreviewExternalAudio}
+                className={`px-2 py-1 rounded border font-black text-[11px] uppercase cursor-pointer flex items-center gap-1 ${
+                  isPreviewingExternal
+                    ? 'bg-rose-500/25 border-rose-400 text-rose-200'
+                    : 'bg-cyan-500/20 border-cyan-400/50 text-cyan-200'
+                }`}
+                title="Preview loaded Newgrounds / Spotify audio"
               >
-                <option value="1">1/1</option>
-                <option value="2">1/2</option>
-                <option value="4">1/4</option>
-                <option value="8">1/8</option>
-                <option value="16">1/16</option>
-              </select>
+                <Volume2 className="w-3 h-3" /> {isPreviewingExternal ? 'STOP' : 'HEAR'}
+              </button>
             </div>
           </div>
         </div>
+      </div>
 
-        {/* Collapsible Checkpoints & Gameplay Triggers Studio Panel */}
-        {showTriggersPanel && (
-          <div className="rc-console-inset p-2.5 grid grid-cols-1 lg:grid-cols-2 gap-3 max-h-[38vh] overflow-y-auto">
-            {/* Left: Editor Checkpoints */}
-            <div className="rc-dock-well p-2.5 rounded-xl space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-black text-cyan-300 uppercase flex items-center gap-1.5">
-                  <Flag className="w-3.5 h-3.5" /> EDITOR CHECKPOINTS ({checkpoints.length})
-                </span>
-                <button
-                  type="button"
-                  onClick={handleClearNotesFromCheckpoint}
-                  className="px-2 py-0.5 rounded bg-rose-500/25 border border-rose-400/50 text-rose-200 text-[10px] font-black uppercase"
-                  title="Clear notes after selected checkpoint to fix offbeat recording"
-                >
-                  CLEAR NOTES FROM CP+
-                </button>
+      {externalStatus && (
+        <div className="px-4 py-1 bg-amber-500/15 border-b border-amber-400/30 text-amber-200 text-[11px] font-bold flex items-center justify-between shrink-0">
+          <span>{externalStatus}</span>
+          <button onClick={() => setExternalStatus('')} className="text-amber-300 hover:text-white">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* Secondary Toolbar: Note Types, Hold Mode, Auto-Sync (Beta), Play/Record */}
+      <div className="px-4 py-2 bg-slate-950/80 border-b border-white/10 flex flex-wrap items-center justify-between gap-2 shrink-0">
+        {/* Note Types */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-lg border border-white/10">
+            <button
+              onClick={() => setSelectedNoteType('normal')}
+              className={`px-2 py-1 rounded text-[11px] font-black transition-colors cursor-pointer ${
+                selectedNoteType === 'normal'
+                  ? 'bg-cyan-400 text-slate-950'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              NORMAL
+            </button>
+            <button
+              onClick={() => setSelectedNoteType('gold')}
+              className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-black transition-colors cursor-pointer ${
+                selectedNoteType === 'gold'
+                  ? 'bg-yellow-400 text-slate-950'
+                  : 'text-yellow-400/70 hover:text-yellow-300'
+              }`}
+            >
+              <Sparkles className="w-3 h-3" /> GOLD
+            </button>
+            <button
+              onClick={() => setSelectedNoteType('fire')}
+              className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-black transition-colors cursor-pointer ${
+                selectedNoteType === 'fire'
+                  ? 'bg-orange-500 text-white'
+                  : 'text-orange-400/70 hover:text-orange-300'
+              }`}
+            >
+              <Flame className="w-3 h-3" /> FIRE
+            </button>
+            <button
+              onClick={() => setSelectedNoteType('mine')}
+              className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-black transition-colors cursor-pointer ${
+                selectedNoteType === 'mine'
+                  ? 'bg-rose-600 text-white'
+                  : 'text-rose-400/70 hover:text-rose-300'
+              }`}
+            >
+              <Skull className="w-3 h-3" /> MINE
+            </button>
+            <button
+              onClick={() => setSelectedNoteType('demon')}
+              className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-black transition-colors cursor-pointer ${
+                selectedNoteType === 'demon'
+                  ? 'bg-red-900 text-red-100 border border-red-400'
+                  : 'text-red-500 hover:text-red-300'
+              }`}
+            >
+              <Skull className="w-3 h-3" /> DEMON
+            </button>
+          </div>
+
+          <button
+            onClick={() => {
+              setIsHoldMode(!isHoldMode);
+              setHoldStart(null);
+            }}
+            className={`px-2.5 py-1.5 rounded-lg text-[11px] font-black border transition-colors cursor-pointer ${
+              isHoldMode
+                ? 'bg-purple-600 border-purple-300 text-white'
+                : 'bg-slate-900 border-white/15 text-slate-300 hover:text-white'
+            }`}
+          >
+            {isHoldMode ? (holdStart ? 'TAP HOLD END' : 'HOLD MODE: ON') : 'HOLD NOTE'}
+          </button>
+
+          {/* Auto-Sync (BETA) Controls */}
+          <div className="flex items-center gap-1 bg-indigo-950/70 border border-indigo-400/40 rounded-lg px-2 py-1">
+            <button
+              onClick={() => setAutoSyncEnabled(!autoSyncEnabled)}
+              className={`flex items-center gap-1 text-[11px] font-black uppercase cursor-pointer ${
+                autoSyncEnabled ? 'text-indigo-200' : 'text-slate-400'
+              }`}
+              title="Auto-Sync (Beta): Automatically snaps placed and recorded notes onto the song's beat grid"
+            >
+              <Wand2 className="w-3.5 h-3.5 text-indigo-400" />
+              AUTO-SYNC
+              <span className="px-1 py-0.2 rounded bg-amber-400 text-slate-950 text-[9px] font-black">
+                BETA
+              </span>
+              <span>{autoSyncEnabled ? 'ON' : 'OFF'}</span>
+            </button>
+            <select
+              value={autoSyncSubdivision}
+              onChange={(e) => setAutoSyncSubdivision(Number(e.target.value))}
+              className="bg-slate-950 border border-indigo-400/30 rounded px-1 py-0.5 text-[10px] font-black text-indigo-200"
+              title="Beat Grid Snap Subdivision"
+            >
+              <option value={2}>1/2 Beat</option>
+              <option value={4}>1/4 Beat</option>
+              <option value={8}>1/8 Beat</option>
+            </select>
+            <button
+              onClick={handleAutoSyncAllNotes}
+              className="px-2 py-0.5 rounded bg-indigo-500 hover:bg-indigo-400 text-white text-[10px] font-black uppercase cursor-pointer"
+              title="Snap all existing notes in the chart to the beat grid"
+            >
+              SNAP ALL
+            </button>
+          </div>
+        </div>
+
+        {/* Transport & Quick Slot Trigger Button */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <button
+            onClick={() => openSlotStudioModal(Math.round(currentTime / stepTime), 0, 'trigger')}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-black border bg-fuchsia-500/20 border-fuchsia-400/60 text-fuchsia-200 hover:bg-fuchsia-500/30 cursor-pointer"
+          >
+            <Zap className="w-3.5 h-3.5" /> + TRIGGER / CP ({triggers.length + checkpoints.length})
+          </button>
+
+          <button
+            onClick={() => togglePlay(true)}
+            className={`flex items-center gap-1 px-3 py-1.5 rounded-lg font-black text-[11px] transition-all cursor-pointer ${
+              isRecording
+                ? 'bg-red-600 text-white animate-pulse shadow-[0_0_15px_rgba(220,38,38,0.8)]'
+                : 'bg-slate-900 border border-red-500/40 text-red-400 hover:bg-red-500/20'
+            }`}
+          >
+            <Mic className="w-3.5 h-3.5" /> {isRecording ? 'STOP REC' : 'LIVE REC'}
+          </button>
+
+          <button
+            onClick={() => togglePlay(false)}
+            className={`flex items-center gap-1 px-3 py-1.5 rounded-lg font-black text-[11px] transition-all cursor-pointer ${
+              isPlaying && !isRecording
+                ? 'bg-rose-500 text-white'
+                : 'bg-cyan-400 text-slate-950 hover:bg-cyan-300'
+            }`}
+          >
+            {isPlaying && !isRecording ? (
+              <>
+                <Square className="w-3.5 h-3.5 fill-current" /> PAUSE
+              </>
+            ) : (
+              <>
+                <Play className="w-3.5 h-3.5 fill-current" /> PLAY
+              </>
+            )}
+          </button>
+
+          <button
+            onClick={() => setNotes([])}
+            className="p-1.5 bg-rose-500/20 text-rose-400 hover:bg-rose-500 hover:text-white rounded-lg transition-colors cursor-pointer"
+            title="Clear All Notes"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* Active Triggers & Checkpoints Quick Strip */}
+      {(triggers.length > 0 || checkpoints.length > 0) && (
+        <div className="px-4 py-1.5 bg-slate-950/95 border-b border-white/10 flex items-center gap-2 overflow-x-auto custom-scrollbar shrink-0">
+          <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 shrink-0">
+            TIMELINE MARKERS:
+          </span>
+          {checkpoints.map((cp) => (
+            <button
+              key={cp.id}
+              onClick={() => jumpToCheckpoint(cp)}
+              className={`px-2 py-0.5 rounded-md border text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shrink-0 cursor-pointer ${
+                activeCheckpointId === cp.id
+                  ? 'bg-emerald-500/30 border-emerald-400 text-emerald-200'
+                  : 'bg-emerald-950/60 border-emerald-500/30 text-emerald-300 hover:border-emerald-400'
+              }`}
+            >
+              <Flag className="w-2.5 h-2.5" /> {cp.name} (R#{cp.row})
+            </button>
+          ))}
+          {triggers.map((trig) => (
+            <button
+              key={trig.id}
+              onClick={() => openSlotStudioModal(trig.row ?? 0, 0, 'trigger')}
+              className="px-2 py-0.5 rounded-md border border-fuchsia-400/40 bg-fuchsia-950/50 hover:border-fuchsia-300 text-fuchsia-200 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shrink-0 cursor-pointer"
+            >
+              <Zap className="w-2.5 h-2.5" />
+              R#{trig.row}:{' '}
+              {trig.type === 'speed'
+                ? `SPD ${trig.speed?.toFixed(2)}x`
+                : trig.type === 'extra_notes'
+                ? `${trig.lanes}K (${trig.transition})`
+                : trig.type === 'invisible_notes'
+                ? `INVISIBLE ${trig.invisibleEnabled !== false ? 'ON' : 'OFF'}`
+                : `VEL: ${trig.velocityEffect?.toUpperCase()}`}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Editor Note Grid — Supports Click to Place Note, and Press-and-Hold or Right-Click for Slot Trigger / Checkpoint */}
+      <div className="flex-1 overflow-y-auto relative flex justify-center bg-[#05070e]" ref={gridRef}>
+        <div
+          className="relative py-8 transition-all duration-300"
+          style={{
+            width: editorLaneCount === 8 ? '820px' : editorLaneCount === 6 ? '640px' : '460px',
+            maxWidth: '96vw',
+          }}
+        >
+          {/* Playhead */}
+          {isPlaying && (
+            <div
+              className="absolute left-0 w-full h-1 bg-emerald-400 z-30 shadow-[0_0_15px_#10b981] pointer-events-none"
+              style={{ top: `${32 + (currentTime / stepTime) * 38}px` }}
+            />
+          )}
+
+          {/* Column Headers */}
+          <div className="flex mb-2 sticky top-0 bg-slate-950/95 backdrop-blur-md z-20 py-2 border-b border-white/15 rounded-t-lg">
+            <div className="w-24 text-center text-[10px] text-slate-400 font-black">
+              ROW / HOLD
+            </div>
+            {Array.from({ length: editorLaneCount }).map((_, col) => (
+              <div
+                key={col}
+                className="flex-1 text-center font-black text-[10px] sm:text-xs truncate px-1"
+                style={{ color: LANE_COLORS_8[col] }}
+              >
+                {getLaneHeaderLabel(col)}
               </div>
-              <div className="flex items-center gap-1.5">
-                <input
-                  type="number"
-                  min={0}
-                  max={rows}
-                  value={newCheckpointRow}
-                  onChange={(e) => setNewCheckpointRow(Number(e.target.value))}
-                  className="w-16 bg-black/70 border border-white/25 rounded px-2 py-1 text-xs font-black text-white"
-                  placeholder="Row"
-                />
-                <input
-                  type="text"
-                  value={newCheckpointLabel}
-                  onChange={(e) => setNewCheckpointLabel(e.target.value)}
-                  className="flex-1 bg-black/70 border border-white/25 rounded px-2 py-1 text-xs font-black text-white"
-                  placeholder="Checkpoint name (e.g. Drop)"
-                />
+            ))}
+          </div>
+
+          {/* Grid Rows */}
+          {Array.from({ length: totalSteps }).map((_, row) => {
+            const isBeat = row % 4 === 0;
+            const isMeasure = row % 16 === 0;
+            const time = row * stepTime;
+            const rowCheckpoint = checkpoints.find((cp) => cp.row === row);
+            const rowTriggers = triggers.filter((tr) => tr.row === row);
+
+            return (
+              <div
+                key={row}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  openSlotStudioModal(row, 0);
+                }}
+                className={`flex items-center h-[38px] border-b transition-colors ${
+                  rowCheckpoint
+                    ? 'bg-emerald-500/15 border-emerald-400/70'
+                    : rowTriggers.length > 0
+                    ? 'bg-fuchsia-500/15 border-fuchsia-400/60'
+                    : isMeasure
+                    ? 'border-white/35 bg-white/[0.04]'
+                    : isBeat
+                    ? 'border-white/15'
+                    : 'border-white/5'
+                }`}
+              >
+                {/* Row Number + Trigger/Checkpoint Indicator Button */}
                 <button
-                  type="button"
-                  data-testid="editor-add-checkpoint-btn"
-                  onClick={() => handleAddCheckpoint()}
-                  className="rc-bevel-btn rc-tile-cyan text-black px-2.5 py-1 rounded text-[10px] font-black uppercase"
+                  onClick={() => openSlotStudioModal(row, 0)}
+                  className="w-24 px-1.5 h-full flex items-center justify-end gap-1 text-[10px] text-slate-400 hover:text-cyan-300 font-mono cursor-pointer group"
+                  title="Click, Press & Hold, or Right-Click to place a Trigger or Checkpoint on this row"
                 >
-                  + ADD CP
+                  {rowCheckpoint && (
+                    <span className="px-1 py-0.2 rounded bg-emerald-500 text-slate-950 font-black text-[8px]">
+                      CP
+                    </span>
+                  )}
+                  {rowTriggers.map((rt) => (
+                    <span
+                      key={rt.id}
+                      className={`px-1 py-0.2 rounded font-black text-[8px] ${
+                        rt.type === 'speed'
+                          ? 'bg-amber-400 text-slate-950'
+                          : rt.type === 'extra_notes'
+                          ? 'bg-fuchsia-400 text-slate-950'
+                          : rt.type === 'invisible_notes'
+                          ? 'bg-cyan-300 text-slate-950'
+                          : 'bg-indigo-400 text-slate-950'
+                      }`}
+                    >
+                      {rt.type === 'speed'
+                        ? `${rt.speed}x`
+                        : rt.type === 'extra_notes'
+                        ? `${rt.lanes}K`
+                        : rt.type === 'invisible_notes'
+                        ? 'INV'
+                        : 'VEL'}
+                    </span>
+                  ))}
+                  <span>{isBeat ? `${row / 4 + 1}` : `·${row}`}</span>
                 </button>
-              </div>
-              <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
-                {checkpoints.map((cp) => {
-                  const isSel = cp.id === selectedCheckpoint.id;
+
+                {Array.from({ length: editorLaneCount }).map((_, col) => {
+                  const note = notes.find(
+                    (n) => Math.abs(n.time - time) < 10 && n.lane === col
+                  );
+                  const isHoldStart = holdStart?.row === row && holdStart?.col === col;
+                  const holdingNote = notes.find(
+                    (n) =>
+                      n.lane === col &&
+                      n.duration &&
+                      n.time < time &&
+                      n.time + n.duration >= time - 10
+                  );
+                  const laneColor = LANE_COLORS_8[col];
+
                   return (
                     <div
-                      key={cp.id}
-                      className={`flex items-center gap-1 px-2 py-1 rounded-lg border text-[10px] font-black cursor-pointer ${
-                        isSel
-                          ? 'bg-cyan-500 text-black border-white'
-                          : 'bg-white/10 text-white border-white/20'
-                      }`}
-                      onClick={() => handleSelectCheckpoint(cp)}
+                      key={col}
+                      onPointerDown={(e) => handleCellPointerDown(row, col, e)}
+                      onPointerUp={clearLongPressTimer}
+                      onPointerLeave={clearLongPressTimer}
+                      onPointerCancel={clearLongPressTimer}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        clearLongPressTimer();
+                        openSlotStudioModal(row, col);
+                      }}
+                      onClick={() => handleCellClick(row, col)}
+                      className="flex-1 h-full border-l border-white/10 flex items-center justify-center cursor-pointer hover:bg-white/10 transition-colors relative"
                     >
-                      <span>
-                        ⚑ {cp.label} (R{cp.row} · {(cp.time / 1000).toFixed(1)}s)
-                      </span>
-                      {cp.id !== 'cp_start' && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setCheckpoints((prev) => prev.filter((x) => x.id !== cp.id));
-                          }}
-                          className="ml-1 text-rose-400 hover:text-rose-200"
+                      {isHoldStart && (
+                        <div className="w-6 h-6 rounded-full border-2 border-dashed border-white animate-spin" />
+                      )}
+
+                      {holdingNote && (
+                        <div
+                          className="w-3.5 h-full opacity-55"
+                          style={{ backgroundColor: laneColor }}
+                        />
+                      )}
+
+                      {note && (
+                        <div
+                          className={`w-7 h-7 shadow-lg transform scale-95 transition-transform flex items-center justify-center z-10 ${
+                            note.type === 'mine'
+                              ? 'rounded-lg bg-red-900 border-2 border-red-500'
+                              : note.type === 'demon'
+                              ? 'rounded-lg bg-black border-2 border-red-600 shadow-[0_0_15px_#dc2626]'
+                              : note.type === 'gold'
+                              ? 'rounded-full bg-yellow-400 border-2 border-white shadow-[0_0_15px_#facc15]'
+                              : note.type === 'fire'
+                              ? 'rounded-full bg-orange-500 border-2 border-yellow-300 shadow-[0_0_15px_#f97316]'
+                              : 'rounded-full'
+                          }`}
+                          style={
+                            !note.type || note.type === 'normal'
+                              ? {
+                                  backgroundColor: laneColor,
+                                  boxShadow: `0 0 10px ${laneColor}`,
+                                }
+                              : {}
+                          }
                         >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
+                          {note.type === 'mine' && <Skull className="w-3.5 h-3.5 text-red-400" />}
+                          {note.type === 'demon' && (
+                            <Flame className="w-4 h-4 text-red-600 animate-pulse" />
+                          )}
+                          {note.type === 'gold' && <Sparkles className="w-3.5 h-3.5 text-black" />}
+                          {note.type === 'fire' && (
+                            <Flame className="w-3.5 h-3.5 text-yellow-200" />
+                          )}
+                        </div>
                       )}
                     </div>
                   );
                 })}
               </div>
-            </div>
-
-            {/* Right: Speed Triggers, Extra Notes Triggers (4/6/8 + 7 PowerPoint Transitions), DJ Stop */}
-            <div className="rc-dock-well p-2.5 rounded-xl space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-black text-pink-300 uppercase flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5" /> GAMEPLAY TRIGGERS @ ROW:
-                </span>
-                <input
-                  type="number"
-                  min={0}
-                  max={rows}
-                  value={triggerRow}
-                  onChange={(e) => setTriggerRow(Number(e.target.value))}
-                  className="w-16 bg-black/70 border border-pink-400/50 rounded px-2 py-0.5 text-xs font-black text-pink-200 text-center"
-                />
-              </div>
-
-              {/* Speed Trigger Row */}
-              <div className="flex flex-wrap items-center justify-between gap-1.5">
-                <div className="flex items-center gap-1">
-                  {SPEED_TRIGGER_PRESETS.map((sp) => (
-                    <button
-                      key={sp}
-                      type="button"
-                      onClick={() => setSpeedPreset(sp)}
-                      className={`px-1.5 py-0.5 rounded text-[10px] font-black ${
-                        speedPreset === sp ? 'bg-cyan-400 text-black' : 'bg-white/10 text-white/75'
-                      }`}
-                    >
-                      {sp.toFixed(2)}x
-                    </button>
-                  ))}
-                </div>
-                <button
-                  type="button"
-                  data-testid="editor-add-speed-trigger-btn"
-                  onClick={() => handleAddTrigger('speed')}
-                  className="rc-bevel-btn rc-tile-cyan text-black px-2.5 py-1 rounded text-[10px] font-black uppercase"
-                >
-                  + SPEED TRIGGER
-                </button>
-              </div>
-
-              {/* Extra Notes Trigger + 7 Transitions + Transition Speed (0.1s - 2.0s) */}
-              <div className="flex flex-wrap items-center justify-between gap-1.5">
-                <div className="flex items-center gap-1">
-                  {EXTRA_NOTES_PRESETS.map((cnt) => (
-                    <button
-                      key={cnt}
-                      type="button"
-                      onClick={() => setExtraNotesCount(cnt)}
-                      className={`px-2 py-0.5 rounded text-[10px] font-black ${
-                        extraNotesCount === cnt ? 'bg-pink-500 text-white' : 'bg-white/10 text-white/75'
-                      }`}
-                    >
-                      {cnt} NOTES
-                    </button>
-                  ))}
-                  <select
-                    value={expansionTransition}
-                    onChange={(e) => setExpansionTransition(e.target.value as ExpansionTransitionType)}
-                    className="bg-black/80 border border-white/25 rounded px-1.5 py-0.5 text-[10px] font-black text-violet-200"
-                  >
-                    {EXPANSION_TRANSITIONS.map((tr) => (
-                      <option key={tr.id} value={tr.id}>
-                        {tr.name}
-                      </option>
-                    ))}
-                  </select>
-                  <div className="flex items-center gap-1 text-[10px] font-black text-amber-300">
-                    <span>{transitionDurationSec.toFixed(1)}s</span>
-                    <input
-                      type="range"
-                      min="0.1"
-                      max="2.0"
-                      step="0.1"
-                      value={transitionDurationSec}
-                      onChange={(e) => setTransitionDurationSec(Number(parseFloat(e.target.value).toFixed(1)))}
-                      className="w-16 accent-amber-400"
-                    />
-                  </div>
-                </div>
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    data-testid="editor-add-extra-notes-trigger-btn"
-                    onClick={() => handleAddTrigger('extra_notes')}
-                    className="rc-bevel-btn rc-tile-pink text-white px-2.5 py-1 rounded text-[10px] font-black uppercase"
-                  >
-                    + EXTRA NOTES
-                  </button>
-                  <button
-                    type="button"
-                    data-testid="editor-add-dj-stop-trigger-btn"
-                    onClick={() => handleAddTrigger('dj_stop')}
-                    className="rc-bevel-btn rc-tile-gold text-black px-2 py-1 rounded text-[10px] font-black uppercase flex items-center gap-1"
-                  >
-                    <Disc3 className="w-3 h-3" /> + DJ STOP
-                  </button>
-                </div>
-              </div>
-
-              {triggers.length > 0 && (
-                <div className="flex flex-wrap gap-1 max-h-16 overflow-y-auto pt-1 border-t border-white/10">
-                  {triggers.map((t) => (
-                    <span
-                      key={t.id}
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-white/10 border border-white/20 text-[9px] font-black text-white"
-                    >
-                      {t.type === 'speed'
-                        ? `⚡ ${t.speed?.toFixed(2)}x @ R${t.row}`
-                        : t.type === 'extra_notes'
-                          ? `🎹 ${t.laneCount}K (${t.transition} · ${t.transitionDurationSec}s) @ R${t.row}`
-                          : `💿 DJ STOP @ R${t.row}`}
-                      <button
-                        type="button"
-                        onClick={() => setTriggers((prev) => prev.filter((x) => x.id !== t.id))}
-                        className="text-rose-400 hover:text-rose-200"
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Always-accessible Action Row */}
-        <div className={`grid grid-cols-5 w-full ${isLandscapeCompact ? 'gap-1.5' : 'gap-2'}`}>
-          <button
-            onClick={() => toggleRecording('notes', true)}
-            className={`rc-bevel-btn flex justify-center items-center gap-1.5 px-2.5 font-black whitespace-nowrap ${
-              isLandscapeCompact ? 'py-1.5 text-xs' : 'py-2 text-xs sm:text-sm'
-            } ${
-              isRecording && recordMode === 'notes'
-                ? 'rc-tile-red text-white animate-pulse'
-                : 'rc-tile-gold text-black'
-            }`}
-          >
-            {isRecording && recordMode === 'notes' ? <StopIcon className="w-3.5 h-3.5" /> : <RecordIcon className="w-3.5 h-3.5" />}
-            REC @ CP
-          </button>
-
-          <button
-            onClick={() => toggleRecording('pulses', true)}
-            className={`rc-bevel-btn flex justify-center items-center gap-1.5 px-2.5 font-black whitespace-nowrap ${
-              isLandscapeCompact ? 'py-1.5 text-xs' : 'py-2 text-xs sm:text-sm'
-            } ${
-              isRecording && recordMode === 'pulses'
-                ? 'rc-tile-violet text-white animate-pulse'
-                : 'rc-tile-cyan text-black'
-            }`}
-          >
-            {isRecording && recordMode === 'pulses' ? <StopIcon className="w-3.5 h-3.5" /> : <Activity className="w-3.5 h-3.5" />}
-            REC PULSES
-          </button>
-
-          <button
-            disabled={isRecording}
-            onClick={() => setShowLoadModal(true)}
-            className={`rc-bevel-btn rc-tile-slate text-white flex justify-center items-center gap-1.5 px-2.5 font-black disabled:opacity-50 whitespace-nowrap ${
-              isLandscapeCompact ? 'py-1.5 text-xs' : 'py-2 text-xs sm:text-sm'
-            }`}
-          >
-            <BookOpen className="w-3.5 h-3.5" /> LOAD
-          </button>
-
-          <button
-            disabled={isRecording}
-            onClick={handleSave}
-            className={`rc-bevel-btn rc-tile-pink text-white flex justify-center items-center gap-1.5 px-2.5 font-black disabled:opacity-50 whitespace-nowrap ${
-              isLandscapeCompact ? 'py-1.5 text-xs' : 'py-2 text-xs sm:text-sm'
-            }`}
-          >
-            <Save className="w-3.5 h-3.5" /> SAVE
-          </button>
-
-          <button
-            disabled={isPublishing || isRecording}
-            onClick={handlePublish}
-            className={`rc-bevel-btn flex justify-center items-center gap-1.5 px-2.5 font-black disabled:opacity-50 whitespace-nowrap ${
-              isPublishing ? 'rc-tile-slate text-slate-300' : 'rc-tile-green text-black'
-            } ${isLandscapeCompact ? 'py-1.5 text-xs' : 'py-2 text-xs sm:text-sm'}`}
-          >
-            <Cloud className="w-3.5 h-3.5" /> {isPublishing ? 'UPLOADING...' : 'PUBLISH'}
-          </button>
+            );
+          })}
         </div>
       </div>
 
-      {/* Note Grid (Widens proportionally for 4, 6, or 8 lanes) */}
-      <div
-        ref={editorScrollRef}
-        className={`relative z-10 flex-1 min-h-0 overflow-auto p-3 md:p-5 flex justify-center custom-scrollbar ${
-          isRecording
-            ? recordMode === 'notes'
-              ? 'smooth-scroll ring-4 ring-red-500/70'
-              : 'smooth-scroll ring-4 ring-cyan-400/70'
-            : ''
-        }`}
-      >
-        <div
-          className={`bg-[#060811] border-4 border-white/80 rounded-xl shadow-[0_12px_28px_rgba(0,0,0,0.7)] relative transition-all duration-300 ${
-            isRecording ? 'mt-[40vh] mb-[40vh]' : 'mt-2 mb-12'
-          }`}
-          style={{
-            width: '100%',
-            maxWidth: `${editorLanes * 115}px`,
-            height: `${rows * rowHeight}px`,
-          }}
-        >
-          <div
-            className="absolute inset-0 grid divide-x-[2px] md:divide-x-4 divide-gray-800 pointer-events-none"
-            style={{ gridTemplateColumns: `repeat(${editorLanes}, minmax(0, 1fr))` }}
-          >
-            {Array.from({ length: editorLanes }).map((_, idx) => (
-              <div
-                key={idx}
-                style={{ backgroundColor: `${expandedColors[idx]}14` }}
-              />
-            ))}
-          </div>
-
-          <div
-            className="absolute inset-0 grid"
-            style={{
-              gridTemplateColumns: `repeat(${editorLanes}, minmax(0, 1fr))`,
-              gridTemplateRows: `repeat(${rows}, ${rowHeight}px)`,
-            }}
-          >
-            {Array.from({ length: rows }).map((_, row) => {
-              const rowCheckpoint = checkpoints.find((cp) => cp.row === row);
-              const rowTrigger = triggers.find((tr) => tr.row === row);
-              return (
-                <React.Fragment key={row}>
-                  {Array.from({ length: editorLanes }).map((__, col) => {
-                    const isBeat = row % stepSubdivision === 0;
-                    const isMeasure = row % (stepSubdivision * 4) === 0;
-                    const noteData = grid[`${row}_${col}`];
-                    const isDemon = noteData === 'demon';
-                    const isHold = typeof noteData === 'string' && noteData.startsWith('hold');
-                    const colColor = expandedColors[col] || '#36e2ff';
-
-                    return (
-                      <div
-                        key={`${row}_${col}`}
-                        onClick={() => {
-                          if (!isRecording) toggleNote(row, col);
-                        }}
-                        onDoubleClick={() => {
-                          if (!isRecording) handleAddCheckpoint(row);
-                        }}
-                        className={`border-b border-gray-800/50 ${
-                          isRecording ? '' : 'cursor-pointer hover:bg-white/20 active:bg-white/30'
-                        } transition-colors relative ${
-                          isBeat ? 'border-b-gray-500 border-b-2 md:border-b-4' : ''
-                        } ${isMeasure ? 'border-b-white border-b-[4px] md:border-b-[6px]' : ''} ${
-                          rowCheckpoint ? 'bg-cyan-500/15' : ''
-                        }`}
-                      >
-                        {col === 0 && rowCheckpoint && (
-                          <span className="absolute left-1 top-0.5 z-20 px-1.5 py-0.2 rounded bg-cyan-400 text-black text-[9px] font-black whitespace-nowrap pointer-events-none">
-                            ⚑ {rowCheckpoint.label}
-                          </span>
-                        )}
-                        {col === editorLanes - 1 && rowTrigger && (
-                          <span className="absolute right-1 top-0.5 z-20 px-1.5 py-0.2 rounded bg-pink-500 text-white text-[9px] font-black whitespace-nowrap pointer-events-none">
-                            {rowTrigger.type === 'speed'
-                              ? `⚡ ${rowTrigger.speed?.toFixed(2)}x`
-                              : rowTrigger.type === 'extra_notes'
-                                ? `🎹 ${rowTrigger.laneCount}K`
-                                : '💿 DJ STOP'}
-                          </span>
-                        )}
-                        {noteData && (
-                          <div
-                            className="absolute inset-1 border-2 md:border-4 rounded shadow-[inset_0_0_5px_rgba(0,0,0,0.8)]"
-                            style={{
-                              background: isHold ? `linear-gradient(${colColor},#7c3aed)` : undefined,
-                              backgroundColor: isDemon ? '#000' : isHold ? undefined : colColor,
-                              borderColor: isDemon ? '#dc2626' : '#fff',
-                            }}
-                          />
-                        )}
-                      </div>
-                    );
-                  })}
-                </React.Fragment>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      {/* Mobile Touch Recording Controls when recording is active */}
-      {isRecording && (
-        <div
-          className={`relative z-20 rc-dock-rail mx-3 mb-2 ${
-            isLandscapeCompact ? 'p-1.5' : 'p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]'
-          } flex justify-center shrink-0`}
-        >
-          {recordMode === 'notes' ? (
-            <TouchLanePads
-              colors={expandedColors.slice(0, editorLanes)}
-              shape="arrow"
-              onLaneDown={handleTouchLaneDown}
-              onLaneUp={handleTouchLaneUp}
-              pressedRef={heldRecordLanes}
-              compact
-            />
-          ) : (
-            <button
-              onPointerDown={(e) => {
-                e.preventDefault();
-                recordPulseTap();
-              }}
-              className={`rc-bevel-btn rc-tile-cyan w-full max-w-md text-black ${
-                isLandscapeCompact ? 'py-2 text-base' : 'py-3 text-xl'
-              } font-black uppercase tracking-widest touch-surface`}
-            >
-              TAP TO ADD PULSE
-            </button>
-          )}
-        </div>
-      )}
-
-      {showLoadModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-3 sm:p-5">
-          <div className="rc-console-tray max-w-2xl w-full flex flex-col gap-3 p-4 sm:p-5 max-h-[88dvh] overflow-y-auto custom-scrollbar">
-            <div className="rc-dock-rail flex items-center justify-between px-3.5 py-2 shrink-0">
-              <h2 className="text-lg sm:text-xl font-black italic text-white uppercase">LOAD TRACK TO EDITOR</h2>
+      {/* PRESS & HOLD / RIGHT-CLICK SLOT TRIGGER & CHECKPOINT MODAL */}
+      {slotModalRow !== null && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-3">
+          <div className="rc-panel w-full max-w-xl border-2 border-fuchsia-400/60 shadow-[0_0_50px_rgba(217,70,239,0.3)] p-4 sm:p-5 max-h-[90vh] overflow-y-auto custom-scrollbar rc-modal-enter">
+            <div className="flex items-center justify-between pb-3 mb-3 border-b border-white/15">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="px-2 py-0.5 rounded bg-fuchsia-500/25 border border-fuchsia-400 text-fuchsia-200 text-[10px] font-black uppercase">
+                    ROW #{slotModalRow} • LANE {slotModalCol + 1}
+                  </span>
+                  <span className="text-xs font-black text-cyan-300">
+                    TIMESTAMP: {((slotModalRow * stepTime) / 1000).toFixed(2)}s
+                  </span>
+                </div>
+                <h3 className="text-base font-black uppercase tracking-wider text-white mt-1">
+                  SLOT TRIGGER & CHECKPOINT STUDIO
+                </h3>
+              </div>
               <button
-                onClick={() => setShowLoadModal(false)}
-                className="rc-bevel-btn rc-tile-red text-white px-3 py-1 font-black text-xs whitespace-nowrap"
+                onClick={() => setSlotModalRow(null)}
+                className="w-8 h-8 rounded-lg bg-white/10 hover:bg-rose-500/20 border border-white/20 flex items-center justify-center text-slate-300 hover:text-rose-300 cursor-pointer"
               >
-                CANCEL
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="w-full flex flex-col gap-2.5 overflow-y-auto custom-scrollbar pr-1">
-              <div className="rc-dock-well px-3 py-1.5 text-xs font-black text-yellow-300 tracking-widest">
-                LOCAL TRACKS
-              </div>
-              {songs.filter((s) => s.artist === 'USER').length === 0 && (
-                <div className="rc-console-inset text-xs sm:text-sm font-bold text-slate-300 text-center p-3">
-                  No locally saved tracks found.
-                </div>
-              )}
-              {songs
-                .filter((s) => s.artist === 'USER')
-                .map((song) => (
-                  <button
-                    key={song.id}
-                    onClick={() => handleLoad(song)}
-                    className="rc-bevel-btn rc-tile-slate text-white w-full text-left px-3.5 py-2.5 flex justify-between items-center gap-3"
-                  >
-                    <span className="font-black text-sm sm:text-base uppercase truncate">{song.title}</span>
-                    <span className="rc-dock-well px-2.5 py-1 text-xs font-black text-cyan-300 whitespace-nowrap tabular-nums">
-                      {song.bpm} BPM
-                    </span>
-                  </button>
-                ))}
-
-              <div className="rc-dock-well px-3 py-1.5 text-xs font-black text-cyan-300 tracking-widest mt-1">
-                COMMUNITY & FEATURED TRACKS (REMIX)
-              </div>
-              {songs
-                .filter((s) => s.artist !== 'USER')
-                .map((song) => (
-                  <button
-                    key={song.id}
-                    onClick={() => handleLoad(song)}
-                    className="rc-bevel-btn rc-tile-slate text-white w-full text-left px-3.5 py-2.5 flex justify-between items-center gap-3"
-                  >
-                    <span className="font-black text-sm sm:text-base uppercase truncate">{song.title}</span>
-                    <span className="rc-dock-well px-2.5 py-1 text-xs font-black text-cyan-300 whitespace-nowrap tabular-nums">
-                      {song.bpm} BPM
-                    </span>
-                  </button>
-                ))}
+            {/* Mode Switcher: Trigger vs Editor Checkpoint */}
+            <div className="grid grid-cols-2 gap-2 mb-4">
+              <button
+                onClick={() => setSlotTab('trigger')}
+                className={`py-2 px-3 rounded-xl border font-black text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
+                  slotTab === 'trigger'
+                    ? 'bg-fuchsia-500/25 border-fuchsia-400 text-fuchsia-200 shadow-[0_0_15px_rgba(217,70,239,0.25)]'
+                    : 'bg-slate-900 border-white/15 text-slate-400'
+                }`}
+              >
+                <Zap className="w-4 h-4" /> MARK AS CHART TRIGGER
+              </button>
+              <button
+                onClick={() => setSlotTab('checkpoint')}
+                className={`py-2 px-3 rounded-xl border font-black text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
+                  slotTab === 'checkpoint'
+                    ? 'bg-emerald-500/25 border-emerald-400 text-emerald-200 shadow-[0_0_15px_rgba(16,185,129,0.25)]'
+                    : 'bg-slate-900 border-white/15 text-slate-400'
+                }`}
+              >
+                <BookmarkCheck className="w-4 h-4" /> MARK AS CHECKPOINT
+              </button>
             </div>
+
+            {slotTab === 'trigger' ? (
+              <div className="space-y-3.5">
+                {/* 4 Trigger Types */}
+                <div>
+                  <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 block mb-1.5">
+                    SELECT TRIGGER TYPE FOR ROW #{slotModalRow}
+                  </label>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <button
+                      onClick={() => setSlotTriggerType('speed')}
+                      className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
+                        slotTriggerType === 'speed'
+                          ? 'bg-amber-500/25 border-amber-400 text-amber-200'
+                          : 'bg-slate-900 border-white/10 text-slate-400'
+                      }`}
+                    >
+                      <Gauge className="w-4 h-4 mb-1 text-amber-300" />
+                      <div className="text-[11px] font-black uppercase">SPEED</div>
+                      <div className="text-[9px] text-slate-300">6 Speed Presets</div>
+                    </button>
+
+                    <button
+                      onClick={() => setSlotTriggerType('extra_notes')}
+                      className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
+                        slotTriggerType === 'extra_notes'
+                          ? 'bg-fuchsia-500/25 border-fuchsia-400 text-fuchsia-200'
+                          : 'bg-slate-900 border-white/10 text-slate-400'
+                      }`}
+                    >
+                      <Columns className="w-4 h-4 mb-1 text-fuchsia-300" />
+                      <div className="text-[11px] font-black uppercase">EXTRA NOTES</div>
+                      <div className="text-[9px] text-slate-300">4 / 6 / 8 Lanes</div>
+                    </button>
+
+                    <button
+                      onClick={() => setSlotTriggerType('invisible_notes')}
+                      className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
+                        slotTriggerType === 'invisible_notes'
+                          ? 'bg-cyan-500/25 border-cyan-400 text-cyan-200'
+                          : 'bg-slate-900 border-white/10 text-slate-400'
+                      }`}
+                    >
+                      <EyeOff className="w-4 h-4 mb-1 text-cyan-300" />
+                      <div className="text-[11px] font-black uppercase">INVISIBLE</div>
+                      <div className="text-[9px] text-slate-300">Early Flash & Fade</div>
+                    </button>
+
+                    <button
+                      onClick={() => setSlotTriggerType('note_velocity')}
+                      className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
+                        slotTriggerType === 'note_velocity'
+                          ? 'bg-indigo-500/25 border-indigo-400 text-indigo-200'
+                          : 'bg-slate-900 border-white/10 text-slate-400'
+                      }`}
+                    >
+                      <Radio className="w-4 h-4 mb-1 text-indigo-300" />
+                      <div className="text-[11px] font-black uppercase">VELOCITY</div>
+                      <div className="text-[9px] text-slate-300">12 Scroll FX</div>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Trigger Configuration Specifics */}
+                {slotTriggerType === 'speed' && (
+                  <div className="bg-slate-900/90 border border-amber-400/40 rounded-xl p-3">
+                    <label className="text-[10px] font-black uppercase text-amber-300 block mb-2">
+                      SPEED TRIGGER PRESET (KEEPS DIFFICULTY SPEED RATIO)
+                    </label>
+                    <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
+                      {SPEED_TRIGGER_PRESETS.map((preset) => (
+                        <button
+                          key={preset}
+                          onClick={() => setSlotSpeedPreset(preset)}
+                          className={`py-2 rounded-lg font-black text-xs border cursor-pointer ${
+                            slotSpeedPreset === preset
+                              ? 'bg-amber-400 text-slate-950 border-white'
+                              : 'bg-slate-950 text-slate-300 border-white/15'
+                          }`}
+                        >
+                          {preset.toFixed(2)}x
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {slotTriggerType === 'extra_notes' && (
+                  <div className="bg-slate-900/90 border border-fuchsia-400/40 rounded-xl p-3 space-y-3">
+                    <div>
+                      <label className="text-[10px] font-black uppercase text-fuchsia-300 block mb-1.5">
+                        LANE EXPANSION COUNT (WIDENS STAGE WITH SAME NOTE SIZE)
+                      </label>
+                      <div className="grid grid-cols-3 gap-2">
+                        {EXTRA_LANE_OPTIONS.map((lanes) => (
+                          <button
+                            key={lanes}
+                            onClick={() => setSlotExtraLanes(lanes)}
+                            className={`py-2 rounded-lg font-black text-xs border cursor-pointer ${
+                              slotExtraLanes === lanes
+                                ? 'bg-fuchsia-400 text-slate-950 border-white'
+                                : 'bg-slate-950 text-slate-300 border-white/15'
+                            }`}
+                          >
+                            {lanes} NOTES
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[10px] font-black uppercase text-slate-300 block mb-1">
+                          POWERPOINT EXPANSION TRANSITION (7 ESSENTIAL)
+                        </label>
+                        <select
+                          value={slotTransition}
+                          onChange={(e) =>
+                            setSlotTransition(e.target.value as LaneExpansionTransition)
+                          }
+                          className="w-full px-2.5 py-2 rounded-lg bg-slate-950 border border-white/20 text-xs font-bold text-white"
+                        >
+                          {LANE_EXPANSION_TRANSITIONS.map((tr) => (
+                            <option key={tr.id} value={tr.id}>
+                              {tr.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <div className="flex justify-between text-[10px] font-black uppercase text-slate-300 mb-1">
+                          <span>TRANSITION SPEED</span>
+                          <span className="text-fuchsia-300">{slotTransitionSpeed.toFixed(1)}s</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0.1}
+                          max={2.0}
+                          step={0.1}
+                          value={slotTransitionSpeed}
+                          onChange={(e) => setSlotTransitionSpeed(Number(e.target.value))}
+                          className="w-full accent-fuchsia-400 cursor-pointer mt-1"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {slotTriggerType === 'invisible_notes' && (
+                  <div className="bg-slate-900/90 border border-cyan-400/40 rounded-xl p-3 space-y-3">
+                    <div className="text-xs font-black text-cyan-300">
+                      INVISIBLE NOTES TRIGGER — FLASH & FADE STEALTH CALCULATION
+                    </div>
+                    <p className="text-[11px] text-slate-300">
+                      Notes flash brightly towards the beginning-to-middle of their render and then quickly fade out to invisible, challenging the player to calculate the exact hit timing.
+                    </p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => setSlotInvisibleEnabled(true)}
+                        className={`py-2 rounded-lg font-black text-xs border cursor-pointer ${
+                          slotInvisibleEnabled
+                            ? 'bg-cyan-400 text-slate-950 border-white'
+                            : 'bg-slate-950 text-slate-400 border-white/15'
+                        }`}
+                      >
+                        ENABLE INVISIBLE NOTES
+                      </button>
+                      <button
+                        onClick={() => setSlotInvisibleEnabled(false)}
+                        className={`py-2 rounded-lg font-black text-xs border cursor-pointer ${
+                          !slotInvisibleEnabled
+                            ? 'bg-emerald-400 text-slate-950 border-white'
+                            : 'bg-slate-950 text-slate-400 border-white/15'
+                        }`}
+                      >
+                        RESTORE NORMAL NOTES
+                      </button>
+                    </div>
+                    {slotInvisibleEnabled && (
+                      <div>
+                        <div className="flex justify-between text-[10px] font-black uppercase text-slate-300 mb-1">
+                          <span>ACTIVE DURATION (0s = UNTIL NEXT TRIGGER)</span>
+                          <span className="text-cyan-300">
+                            {slotInvisibleDurationSec === 0 ? 'INFINITE / UNTIL OFF' : `${slotInvisibleDurationSec}s`}
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0}
+                          max={30}
+                          step={1}
+                          value={slotInvisibleDurationSec}
+                          onChange={(e) => setSlotInvisibleDurationSec(Number(e.target.value))}
+                          className="w-full accent-cyan-400 cursor-pointer"
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {slotTriggerType === 'note_velocity' && (
+                  <div className="bg-slate-900/90 border border-indigo-400/40 rounded-xl p-3 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black uppercase text-indigo-300">
+                        12 NOTE VELOCITY SCROLL EFFECTS (ALWAYS ARRIVES ON BEAT)
+                      </span>
+                      <span className="text-[10px] font-black text-cyan-300">
+                        INTENSITY: {slotVelocityIntensity.toFixed(1)}x
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-44 overflow-y-auto pr-1 custom-scrollbar">
+                      {NOTE_VELOCITY_EFFECTS.map((fx) => (
+                        <button
+                          key={fx.id}
+                          onClick={() => setSlotVelocityEffect(fx.id)}
+                          className={`p-2 rounded-lg border text-left cursor-pointer transition-all ${
+                            slotVelocityEffect === fx.id
+                              ? 'bg-indigo-500/30 border-indigo-300 text-white'
+                              : 'bg-slate-950 border-white/10 text-slate-400 hover:border-white/25'
+                          }`}
+                        >
+                          <div className="text-[10px] font-black truncate" style={{ color: fx.color }}>
+                            {fx.name}
+                          </div>
+                          <div className="text-[9px] text-slate-400 line-clamp-1">
+                            {fx.description}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                    <div>
+                      <input
+                        type="range"
+                        min={0.5}
+                        max={2.0}
+                        step={0.1}
+                        value={slotVelocityIntensity}
+                        onChange={(e) => setSlotVelocityIntensity(Number(e.target.value))}
+                        className="w-full accent-indigo-400 cursor-pointer"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Existing Triggers at this Row */}
+                {triggers.filter((t) => t.row === slotModalRow).length > 0 && (
+                  <div className="bg-slate-950/90 border border-white/15 rounded-xl p-2.5">
+                    <div className="text-[10px] font-black uppercase text-slate-400 mb-1.5">
+                      EXISTING TRIGGERS ON ROW #{slotModalRow}
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {triggers
+                        .filter((t) => t.row === slotModalRow)
+                        .map((t) => (
+                          <div
+                            key={t.id}
+                            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-fuchsia-500/20 border border-fuchsia-400/50 text-xs font-black text-fuchsia-200"
+                          >
+                            <span>{t.type.toUpperCase()}</span>
+                            <button
+                              onClick={() =>
+                                setTriggers((prev) => prev.filter((item) => item.id !== t.id))
+                              }
+                              className="text-rose-300 hover:text-rose-200 cursor-pointer"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <button
+                    onClick={() => setSlotModalRow(null)}
+                    className="px-4 py-2 rounded-xl bg-white/10 text-xs font-black text-slate-300 cursor-pointer"
+                  >
+                    CANCEL
+                  </button>
+                  <button
+                    onClick={handleSaveSlotTrigger}
+                    className="px-5 py-2 rounded-xl bg-gradient-to-r from-fuchsia-400 to-cyan-400 text-slate-950 font-black text-xs uppercase tracking-wider cursor-pointer shadow-[0_0_20px_rgba(217,70,239,0.4)]"
+                  >
+                    SAVE TRIGGER ON ROW #{slotModalRow}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* Editor Checkpoint Tab inside Slot Studio Modal */
+              <div className="space-y-3.5">
+                <div className="bg-slate-900/90 border border-emerald-400/40 rounded-xl p-3 space-y-2.5">
+                  <div className="text-xs font-black text-emerald-300 uppercase">
+                    PLACE OR JUMP TO EDITOR CHECKPOINT AT ROW #{slotModalRow}
+                  </div>
+                  <p className="text-[11px] text-slate-300">
+                    Editor checkpoints let you jump directly to this measure to fix off-beat recordings or launch a local playtest starting right from Row #{slotModalRow}.
+                  </p>
+                  <div>
+                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">
+                      CHECKPOINT LABEL
+                    </label>
+                    <input
+                      type="text"
+                      value={slotCheckpointName}
+                      onChange={(e) => setSlotCheckpointName(e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-emerald-400/40 text-xs font-bold text-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+                  {checkpoints.some((cp) => cp.row === slotModalRow) ? (
+                    <button
+                      onClick={() => {
+                        const existing = checkpoints.find((cp) => cp.row === slotModalRow);
+                        if (existing) handleDeleteCheckpoint(existing.id);
+                        setSlotModalRow(null);
+                      }}
+                      className="px-3 py-2 rounded-xl bg-rose-500/20 border border-rose-400/50 text-rose-200 text-xs font-black uppercase cursor-pointer"
+                    >
+                      REMOVE CHECKPOINT
+                    </button>
+                  ) : (
+                    <div />
+                  )}
+
+                  <div className="flex items-center gap-2">
+                    {onPlaytest && (
+                      <button
+                        onClick={() => {
+                          const time = Math.round(slotModalRow * stepTime);
+                          setSlotModalRow(null);
+                          stopPlayback();
+                          onPlaytest(buildCurrentSongObject(), time);
+                        }}
+                        className="px-3.5 py-2 rounded-xl bg-cyan-500/25 border border-cyan-400 text-cyan-200 font-black text-xs uppercase cursor-pointer"
+                      >
+                        PLAYTEST FROM HERE
+                      </button>
+                    )}
+                    <button
+                      onClick={handleSaveSlotCheckpoint}
+                      className="px-5 py-2 rounded-xl bg-emerald-400 hover:bg-emerald-300 text-slate-950 font-black text-xs uppercase tracking-wider cursor-pointer"
+                    >
+                      SAVE CHECKPOINT
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Tutorial Modal */}
+      {showTutorial && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-white/20 p-5 rounded-2xl max-w-lg w-full relative max-h-[88vh] overflow-y-auto">
+            <button
+              onClick={() => setShowTutorial(false)}
+              className="absolute top-3 right-3 text-slate-400 hover:text-white cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <h2 className="text-lg font-black mb-3 text-amber-300 uppercase tracking-wider">
+              BEATMAP & TRIGGER STUDIO GUIDE
+            </h2>
+            <div className="space-y-2.5 text-slate-300 text-xs">
+              <p>
+                <strong className="text-white">1. Press & Hold or Right-Click Any Slot:</strong>{' '}
+                Long-press (~0.35s) or Right-Click any cell in the note grid to mark that row as a{' '}
+                <strong className="text-fuchsia-300">Speed Trigger</strong>,{' '}
+                <strong className="text-fuchsia-300">Extra Notes Trigger (4/6/8 Lanes)</strong>,{' '}
+                <strong className="text-cyan-300">Invisible Notes Trigger</strong>,{' '}
+                <strong className="text-indigo-300">Note Velocity Trigger (12 Scroll FX)</strong>, or an{' '}
+                <strong className="text-emerald-300">Editor Checkpoint</strong>!
+              </p>
+              <p>
+                <strong className="text-white">2. Local Playtesting:</strong> Click{' '}
+                <strong className="text-cyan-300">TEST START</strong> or{' '}
+                <strong className="text-emerald-300">TEST CHECKPOINT</strong> to test your chart immediately.
+              </p>
+              <p>
+                <strong className="text-white">3. Newgrounds & Spotify Audio:</strong> Paste any
+                Newgrounds Audio ID or Spotify Track/Playlist link and click{' '}
+                <strong className="text-amber-300">LOAD</strong> and <strong className="text-cyan-300">HEAR</strong>.
+              </p>
+            </div>
+            <button
+              onClick={() => setShowTutorial(false)}
+              className="mt-4 w-full py-2 bg-amber-400 text-slate-950 font-black rounded-xl hover:bg-amber-300 transition-colors cursor-pointer uppercase text-xs"
+            >
+              GOT IT!
+            </button>
           </div>
         </div>
       )}

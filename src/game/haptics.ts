@@ -1,300 +1,266 @@
-import { AudioEngine } from './audio.ts';
-import type { HapticsSettings } from './types.ts';
+import { DEFAULT_HAPTICS } from './constants';
+import type { HapticsSettings } from './types';
 
-export type HapticEvent = 'press' | 'hit' | 'holdTick' | 'miss' | 'demon' | 'comboMilestone' | 'menuTap';
+export type HapticEventType =
+  | 'hit'
+  | 'miss'
+  | 'press'
+  | 'holdTick'
+  | 'hold_crescendo'
+  | 'hold_complete'
+  | 'comboMilestone'
+  | 'menuTap'
+  | 'menu'
+  | 'heavy'
+  | 'perfect'
+  | 'light'
+  | 'demon'
+  | 'hit_sick'
+  | 'hit_good'
+  | 'hit_bad'
+  | 'ui_click'
+  | 'trigger_fire';
 
-export interface HapticPulseTelemetry {
-  event: HapticEvent;
-  intensity: number;
-  quality?: 'sick' | 'good' | 'bad';
-  pattern: number[];
-  timestamp: number;
-}
-
-export const DEFAULT_HAPTICS_SETTINGS: HapticsSettings = {
-  enabled: true,
-  intensity: 90,
-  pulseDurationMs: 32,
-  accuracyScaling: true,
-  audioFallback: false,
-  alwaysAudioAssist: false,
-  triggers: {
-    onPress: true,
-    onHit: true,
-    onHoldTick: true,
-    onMiss: true,
-    onDemon: true,
-    onComboMilestone: true,
-    onMenuTap: true,
-  },
-};
-
-export const normalizeHapticsSettings = (raw?: Partial<HapticsSettings> | null): HapticsSettings => {
-  const intensityRaw = Number(raw?.intensity);
-  const durationRaw = Number(raw?.pulseDurationMs);
-  const triggers = raw?.triggers || ({} as Partial<HapticsSettings['triggers']>);
-  const explicitV2Audio = Boolean((raw as any)?.v2ExplicitAudioAssist);
+export const normalizeHapticsSettings = (
+  raw?: Partial<HapticsSettings> | null
+): HapticsSettings => {
+  const intensity =
+    typeof raw?.intensity === 'number'
+      ? Math.max(0, Math.min(100, raw.intensity <= 1 ? Math.round(raw.intensity * 100) : raw.intensity))
+      : DEFAULT_HAPTICS.intensity;
+  const holdEffectVolume =
+    typeof raw?.holdEffectVolume === 'number'
+      ? Math.max(0, Math.min(100, raw.holdEffectVolume <= 1 ? Math.round(raw.holdEffectVolume * 100) : raw.holdEffectVolume))
+      : DEFAULT_HAPTICS.holdEffectVolume ?? 80;
 
   return {
-    enabled: raw?.enabled !== undefined ? Boolean(raw.enabled) : DEFAULT_HAPTICS_SETTINGS.enabled,
-    intensity: Number.isFinite(intensityRaw)
-      ? Math.max(10, Math.min(100, Math.round(intensityRaw)))
-      : DEFAULT_HAPTICS_SETTINGS.intensity,
-    pulseDurationMs: Number.isFinite(durationRaw)
-      ? Math.max(8, Math.min(60, Math.round(durationRaw)))
-      : DEFAULT_HAPTICS_SETTINGS.pulseDurationMs,
-    accuracyScaling:
-      raw?.accuracyScaling !== undefined ? Boolean(raw.accuracyScaling) : DEFAULT_HAPTICS_SETTINGS.accuracyScaling,
-    audioFallback: explicitV2Audio && raw?.audioFallback !== undefined ? Boolean(raw.audioFallback) : false,
-    alwaysAudioAssist:
-      explicitV2Audio && raw?.alwaysAudioAssist !== undefined ? Boolean(raw.alwaysAudioAssist) : false,
+    enabled: raw?.enabled ?? DEFAULT_HAPTICS.enabled,
+    intensity,
+    holdEffectVolume,
+    gameplayHits: raw?.gameplayHits ?? raw?.triggers?.onHit ?? true,
+    holdPulses: raw?.holdPulses ?? raw?.triggers?.onHoldTick ?? true,
+    missAlerts: raw?.missAlerts ?? raw?.triggers?.onMiss ?? true,
+    menuNavigation: raw?.menuNavigation ?? raw?.triggers?.onMenuTap ?? true,
+    visualShake: raw?.visualShake ?? true,
+    soundPulse: raw?.soundPulse ?? true,
     triggers: {
-      onPress: triggers.onPress !== undefined ? Boolean(triggers.onPress) : DEFAULT_HAPTICS_SETTINGS.triggers.onPress,
-      onHit: triggers.onHit !== undefined ? Boolean(triggers.onHit) : DEFAULT_HAPTICS_SETTINGS.triggers.onHit,
-      onHoldTick:
-        triggers.onHoldTick !== undefined ? Boolean(triggers.onHoldTick) : DEFAULT_HAPTICS_SETTINGS.triggers.onHoldTick,
-      onMiss: triggers.onMiss !== undefined ? Boolean(triggers.onMiss) : DEFAULT_HAPTICS_SETTINGS.triggers.onMiss,
-      onDemon: triggers.onDemon !== undefined ? Boolean(triggers.onDemon) : DEFAULT_HAPTICS_SETTINGS.triggers.onDemon,
-      onComboMilestone:
-        triggers.onComboMilestone !== undefined
-          ? Boolean(triggers.onComboMilestone)
-          : DEFAULT_HAPTICS_SETTINGS.triggers.onComboMilestone,
-      onMenuTap:
-        triggers.onMenuTap !== undefined ? Boolean(triggers.onMenuTap) : DEFAULT_HAPTICS_SETTINGS.triggers.onMenuTap,
+      onHit: raw?.triggers?.onHit ?? raw?.gameplayHits ?? true,
+      onMiss: raw?.triggers?.onMiss ?? raw?.missAlerts ?? true,
+      onHoldTick: raw?.triggers?.onHoldTick ?? raw?.holdPulses ?? true,
+      onComboMilestone: raw?.triggers?.onComboMilestone ?? true,
+      onMenuTap: raw?.triggers?.onMenuTap ?? raw?.menuNavigation ?? true,
     },
   };
 };
 
-export const isHapticEventEnabled = (event: HapticEvent, settings: HapticsSettings): boolean => {
-  if (!settings.enabled) return false;
-  switch (event) {
-    case 'press':
-      return settings.triggers.onPress;
-    case 'hit':
-      return settings.triggers.onHit;
-    case 'holdTick':
-      return settings.triggers.onHoldTick;
-    case 'miss':
-      return settings.triggers.onMiss;
-    case 'demon':
-      return settings.triggers.onDemon;
-    case 'comboMilestone':
-      return settings.triggers.onComboMilestone;
-    case 'menuTap':
-      return settings.triggers.onMenuTap;
+/**
+ * Real iOS / iPhone Taptic Engine Web Trigger Pool:
+ * Safari on iOS 17.4+ triggers native iPhone Taptic Engine actuation when a
+ * `<label>` associated with `<input type="checkbox" switch>` receives a programmatic `.click()`.
+ * We maintain a pool of hidden switch inputs so rapid rhythm hits and escalating hold note
+ * crescendos fire crisp, genuine iPhone Taptic Engine pulses alongside Android `navigator.vibrate`
+ * and Gamepad dual-rumble motors.
+ */
+const IOS_SWITCH_POOL_SIZE = 6;
+let iosSwitchLabels: HTMLLabelElement[] = [];
+let iosPoolIndex = 0;
+
+function ensureIosTapticSwitchPool(): HTMLLabelElement[] {
+  if (typeof document === 'undefined') return [];
+  if (iosSwitchLabels.length > 0 && document.body.contains(iosSwitchLabels[0])) {
+    return iosSwitchLabels;
   }
-};
 
-export const buildVibrationPattern = (
-  event: HapticEvent,
-  settings: HapticsSettings,
-  quality?: 'sick' | 'good' | 'bad'
-): number[] => {
-  const norm = normalizeHapticsSettings(settings);
-  const strength = norm.intensity / 100;
-  const base = norm.pulseDurationMs;
-  const qualityScale = !norm.accuracyScaling
-    ? 1
-    : quality === 'sick'
-    ? 1.32
-    : quality === 'good'
-    ? 1.0
-    : quality === 'bad'
-    ? 0.72
-    : 1;
-
-  // Tuned for physical Android LRA / ERM vibration motors so every pulse spins up crisply (20ms-55ms+)
-  const scaled = (mult: number, minMs = 20) =>
-    Math.max(minMs, Math.round(base * mult * (0.55 + strength * 0.75) * qualityScale));
-
-  switch (event) {
-    case 'press':
-      return [scaled(0.85, 20)];
-    case 'hit':
-      if (strength < 0.45) {
-        const pulse = scaled(0.75, 18);
-        return [pulse, 12, Math.max(16, Math.round(pulse * 0.85))];
-      }
-      return [scaled(1.3, 28)];
-    case 'holdTick':
-      return [scaled(0.68, 18)];
-    case 'miss': {
-      const a = scaled(1.35, 32);
-      const b = scaled(1.65, 38);
-      return [a, 28, b];
-    }
-    case 'demon': {
-      const heavy = scaled(1.9, 42);
-      return [heavy, 24, heavy, 24, Math.round(heavy * 1.35)];
-    }
-    case 'comboMilestone': {
-      const pop = scaled(1.2, 26);
-      return [pop, 20, Math.round(pop * 1.4)];
-    }
-    case 'menuTap':
-      return [scaled(0.75, 18)];
-  }
-};
-
-export const isHardwareVibrationSupported = (): boolean =>
-  typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function';
-
-export const isIOSSwitchHapticSupported = (): boolean => {
-  if (typeof navigator === 'undefined') return false;
-  const ua = navigator.userAgent || '';
-  const isIOS = /iPhone|iPad|iPod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  return isIOS;
-};
-
-let iosSwitchLabelEl: HTMLLabelElement | null = null;
-const triggerIOSSwitchHaptic = (pulses = 1): boolean => {
-  if (typeof document === 'undefined' || !document.body) return false;
   try {
-    if (!iosSwitchLabelEl || !document.body.contains(iosSwitchLabelEl)) {
-      const label = document.createElement('label');
-      label.setAttribute('aria-hidden', 'true');
-      // Positioned inside viewport at (2px,2px) with 0.01 opacity so iOS 17.4+/18 Safari Taptic Engine fires reliably
-      label.style.cssText =
-        'position:fixed;left:2px;top:2px;width:2px;height:2px;opacity:0.01;pointer-events:none;overflow:hidden;z-index:99999;';
+    iosSwitchLabels = [];
+    const container = document.createElement('div');
+    container.id = 'ios-taptic-switch-pool';
+    container.setAttribute('aria-hidden', 'true');
+    container.style.position = 'fixed';
+    container.style.left = '-9999px';
+    container.style.top = '-9999px';
+    container.style.width = '1px';
+    container.style.height = '1px';
+    container.style.opacity = '0.001';
+    container.style.pointerEvents = 'none';
+    container.style.overflow = 'hidden';
+
+    for (let i = 0; i < IOS_SWITCH_POOL_SIZE; i++) {
+      const id = `rhythm-ios-taptic-sw-${i}`;
       const input = document.createElement('input');
       input.type = 'checkbox';
+      input.id = id;
       input.setAttribute('switch', '');
-      input.tabIndex = -1;
+      const label = document.createElement('label');
+      label.htmlFor = id;
       label.appendChild(input);
-      document.body.appendChild(label);
-      iosSwitchLabelEl = label;
+      container.appendChild(label);
+      iosSwitchLabels.push(label);
     }
-    iosSwitchLabelEl.click();
-    if (pulses > 1) {
-      setTimeout(() => {
-        try {
-          iosSwitchLabelEl?.click();
-        } catch {
-          // ignore
-        }
-      }, 45);
-    }
-    return true;
+
+    document.body.appendChild(container);
   } catch {
+    // Ignore DOM errors
+  }
+
+  return iosSwitchLabels;
+}
+
+function fireIosTapticClick(pulses = 1) {
+  const pool = ensureIosTapticSwitchPool();
+  if (!pool.length) return;
+  const fireOnce = () => {
+    const label = pool[iosPoolIndex % pool.length];
+    iosPoolIndex = (iosPoolIndex + 1) % pool.length;
+    try {
+      label.click();
+    } catch {
+      // Ignore
+    }
+  };
+
+  fireOnce();
+  if (pulses >= 2) {
+    setTimeout(fireOnce, 32);
+  }
+  if (pulses >= 3) {
+    setTimeout(fireOnce, 68);
+  }
+}
+
+function fireGamepadRumble(durationMs: number, weakMagnitude: number, strongMagnitude: number) {
+  if (typeof navigator === 'undefined' || typeof navigator.getGamepads !== 'function') return;
+  try {
+    const pads = navigator.getGamepads();
+    for (const pad of pads) {
+      if (!pad) continue;
+      const actuator = (pad as any).vibrationActuator;
+      if (actuator && typeof actuator.playEffect === 'function') {
+        actuator.playEffect('dual-rumble', {
+          startDelay: 0,
+          duration: Math.max(10, Math.round(durationMs)),
+          weakMagnitude: Math.min(1, Math.max(0, weakMagnitude)),
+          strongMagnitude: Math.min(1, Math.max(0, strongMagnitude)),
+        });
+      }
+    }
+  } catch {
+    // Ignore gamepad permission errors
+  }
+}
+
+export function triggerHaptic(
+  event: HapticEventType,
+  rawSettings?: Partial<HapticsSettings> | null,
+  bucket?: 'sick' | 'good' | 'bad' | 'miss',
+  progress01 = 0.5
+): boolean {
+  const settings = normalizeHapticsSettings(rawSettings);
+  if (!settings.enabled || settings.intensity <= 0) return false;
+
+  if (
+    (event === 'hit' || event === 'press' || event === 'hit_sick' || event === 'hit_good' || event === 'hit_bad') &&
+    !settings.triggers.onHit
+  ) {
     return false;
   }
-};
+  if ((event === 'miss' || event === 'demon') && !settings.triggers.onMiss) {
+    return false;
+  }
+  if (
+    (event === 'holdTick' || event === 'hold_crescendo' || event === 'hold_complete') &&
+    !settings.triggers.onHoldTick
+  ) {
+    return false;
+  }
+  if (event === 'comboMilestone' && !settings.triggers.onComboMilestone) {
+    return false;
+  }
+  if ((event === 'menuTap' || event === 'ui_click') && !settings.triggers.onMenuTap) {
+    return false;
+  }
 
-const EVENT_PRIORITY: Record<HapticEvent, number> = {
-  holdTick: 1,
-  menuTap: 1,
-  press: 2,
-  hit: 3,
-  comboMilestone: 4,
-  miss: 4,
-  demon: 5,
-};
+  const scale = Math.max(0.2, Math.min(1.5, settings.intensity / 80));
+  const clampedProgress = Math.max(0, Math.min(1, progress01));
 
-let activeMotorUntil = 0;
-let activeMotorPriority = 0;
-const lastHapticAt: Partial<Record<HapticEvent, number>> = {};
-const chordBurstCount: Partial<Record<HapticEvent, number>> = {};
+  let pattern: number | number[] = 14;
+  let iosPulses = 1;
+  let weak = 0.45 * scale;
+  let strong = 0.35 * scale;
 
-export const triggerHaptic = (
-  event: HapticEvent,
-  rawSettings?: Partial<HapticsSettings> | null,
-  quality?: 'sick' | 'good' | 'bad'
-): void => {
-  const settings = normalizeHapticsSettings(rawSettings);
-  if (!isHapticEventEnabled(event, settings)) return;
-
-  const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-  const prevAt = lastHapticAt[event] || 0;
-  const delta = now - prevAt;
-
-  if (event === 'holdTick') {
-    if (delta < 85) return;
-  } else if (event === 'press' || event === 'hit') {
-    if (delta < 8) {
-      const count = (chordBurstCount[event] || 0) + 1;
-      chordBurstCount[event] = count;
-      if (count > 4) return;
-    } else if (delta < 10) {
-      return;
+  if (event === 'menuTap' || event === 'ui_click' || event === 'press') {
+    pattern = Math.round(10 * scale);
+    iosPulses = 1;
+    weak = 0.3 * scale;
+    strong = 0.15 * scale;
+  } else if (event === 'hit' || event === 'hit_sick' || event === 'hit_good' || event === 'hit_bad') {
+    if (bucket === 'sick' || event === 'hit_sick') {
+      pattern = Math.round(20 * scale);
+      iosPulses = 1;
+      weak = 0.7 * scale;
+      strong = 0.5 * scale;
+    } else if (bucket === 'bad' || event === 'hit_bad') {
+      pattern = Math.round(10 * scale);
+      iosPulses = 1;
     } else {
-      chordBurstCount[event] = 1;
+      pattern = Math.round(15 * scale);
+      iosPulses = 1;
     }
-  } else {
-    if (delta < 14) return;
+  } else if (event === 'holdTick' || event === 'hold_crescendo') {
+    // Rising haptic intensity as the player holds a 1s+ hold note
+    const dynDuration = Math.round((8 + clampedProgress * 24) * scale);
+    pattern = clampedProgress > 0.72 ? [dynDuration, 14, dynDuration] : dynDuration;
+    iosPulses = clampedProgress > 0.78 ? 2 : 1;
+    weak = Math.min(1, (0.25 + clampedProgress * 0.75) * scale);
+    strong = Math.min(1, (0.15 + clampedProgress * 0.85) * scale);
+  } else if (event === 'hold_complete') {
+    // Satisfying double-pulse pop at the completion of a 1.0s+ hold note
+    pattern = [Math.round(18 * scale), 22, Math.round(28 * scale)];
+    iosPulses = 2;
+    weak = 0.9 * scale;
+    strong = 0.85 * scale;
+  } else if (event === 'comboMilestone' || event === 'trigger_fire') {
+    pattern = [Math.round(16 * scale), 24, Math.round(24 * scale)];
+    iosPulses = 2;
+    weak = 0.8 * scale;
+    strong = 0.75 * scale;
+  } else if (event === 'miss' || event === 'demon') {
+    pattern = [Math.round(32 * scale), 30, Math.round(45 * scale)];
+    iosPulses = 3;
+    weak = 0.95;
+    strong = 1.0;
   }
-  lastHapticAt[event] = now;
 
-  const pattern = buildVibrationPattern(event, settings, quality);
-  const patternDuration = pattern.reduce((sum, n) => sum + n, 0);
-  const priority = EVENT_PRIORITY[event] || 1;
-  let hardwareFired = false;
-
-  // Prevent a weaker 'press' or 'holdTick' call from overwriting a stronger 'hit'/'miss'/'demon' vibration in flight
-  if (isHardwareVibrationSupported()) {
-    if (now >= activeMotorUntil || priority >= activeMotorPriority) {
-      try {
-        hardwareFired = Boolean(navigator.vibrate(pattern));
-        if (hardwareFired) {
-          activeMotorUntil = now + patternDuration * 0.75;
-          activeMotorPriority = priority;
-        }
-      } catch {
-        hardwareFired = false;
-      }
-    } else {
-      hardwareFired = true;
+  let vibrated = false;
+  if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+    try {
+      vibrated = navigator.vibrate(pattern);
+    } catch {
+      vibrated = false;
     }
   }
 
-  // Forward vibration request to parent window when running inside a mobile preview wrapper
-  try {
-    if (typeof window !== 'undefined' && window.parent && window.parent !== window) {
-      window.parent.postMessage({ type: 'rc-vibrate', pattern, event, intensity: settings.intensity }, '*');
-      if (typeof (window.parent as any).navigator?.vibrate === 'function') {
-        hardwareFired = Boolean((window.parent as any).navigator.vibrate(pattern)) || hardwareFired;
-      }
-    }
-  } catch {
-    // Cross-origin parent access ignored
-  }
+  // Always fire iOS Taptic switch click pool + Gamepad rumble so iPhones & controllers get physical feedback
+  fireIosTapticClick(iosPulses);
+  const totalDur = Array.isArray(pattern) ? pattern.reduce((a, b) => a + b, 0) : pattern;
+  fireGamepadRumble(totalDur, weak, strong);
 
-  // Trigger iOS 17.4+/18 Taptic Engine physical switch pulse on iPhones/iPads
-  if (!hardwareFired && isIOSSwitchHapticSupported()) {
-    hardwareFired = triggerIOSSwitchHaptic(event === 'miss' || event === 'demon' ? 2 : 1);
-  }
+  return vibrated || true;
+}
 
-  // Simulated speaker noise is strictly OFF unless the user explicitly turns on Audio Assist in settings
-  const shouldPlayAudioThump =
-    typeof window !== 'undefined' &&
-    Boolean((rawSettings as any)?.v2ExplicitAudioAssist) &&
-    (settings.alwaysAudioAssist || (settings.audioFallback && !hardwareFired));
+export function triggerHapticFeedback(
+  type: HapticEventType,
+  settings?: Partial<HapticsSettings> | null,
+  progress01 = 0.5
+) {
+  triggerHaptic(type, settings, 'sick', progress01);
+}
 
-  if (shouldPlayAudioThump) {
-    const strength = (settings.intensity / 100) * (quality === 'sick' ? 1.2 : quality === 'bad' ? 0.72 : 1);
-    const freq =
-      event === 'miss'
-        ? 92
-        : event === 'demon'
-        ? 76
-        : event === 'comboMilestone'
-        ? 172
-        : event === 'menuTap'
-        ? 155
-        : event === 'hit'
-        ? 138
-        : 126;
-    const totalMs = Math.min(68, Math.max(20, pattern[0] || settings.pulseDurationMs));
-    AudioEngine.playTactileThump(strength, freq, totalMs);
-  }
-
-  if (typeof window !== 'undefined' && typeof CustomEvent !== 'undefined') {
-    const detail: HapticPulseTelemetry = {
-      event,
-      intensity: settings.intensity,
-      quality,
-      pattern,
-      timestamp: now,
-    };
-    window.dispatchEvent(new CustomEvent('rc-haptic-pulse', { detail }));
-  }
-};
+/**
+ * Computes the interval (in ms) between haptic crescendo pulses while holding a 1s+ hold note.
+ * Starts at 130ms and accelerates down to 45ms as `holdProgress01` approaches 1.0.
+ */
+export function getHoldCrescendoPulseIntervalMs(holdProgress01: number): number {
+  const p = Math.max(0, Math.min(1, holdProgress01));
+  return Math.round(130 - p * 85);
+}

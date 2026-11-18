@@ -1,540 +1,259 @@
-import React, { useEffect, useState } from 'react';
-import { Activity, RotateCcw, Smartphone, Vibrate, Volume2, X, Zap } from 'lucide-react';
+import React, { useState } from 'react';
+import { HapticsSettings } from '../game/types';
+import { DEFAULT_HAPTICS } from '../game/constants';
+import { triggerHapticFeedback } from '../game/haptics';
 import { AudioEngine } from '../game/audio';
-import {
-  DEFAULT_HAPTICS_SETTINGS,
-  type HapticPulseTelemetry,
-  isHardwareVibrationSupported,
-  isIOSSwitchHapticSupported,
-  normalizeHapticsSettings,
-  triggerHaptic,
-} from '../game/haptics';
-import { useIsCompactLandscape } from '../game/useViewport';
-import type { HapticsSettings, HapticsTriggers } from '../game/types';
+import { Vibrate, Volume2, Smartphone, Sparkles, AlertTriangle, MousePointerClick, X, Music2 } from 'lucide-react';
 
 interface HapticsSettingsModalProps {
-  settings?: Partial<HapticsSettings> | null;
+  settings?: HapticsSettings;
   onChange: (next: HapticsSettings) => void;
   onClose: () => void;
 }
 
-const TRIGGER_LABELS: Array<{ key: keyof HapticsTriggers; label: string; desc: string }> = [
-  { key: 'onPress', label: 'Note / Lane Tap', desc: 'Crisp tactile tick the instant you tap a receptor' },
-  { key: 'onHit', label: 'Note Hit', desc: 'Punchy bass pulse when hitting a note on beat' },
-  { key: 'onHoldTick', label: 'Hold Tail Tick', desc: 'Rhythmic pulse stream while holding long notes' },
-  { key: 'onMiss', label: 'Miss / Let Go', desc: 'Double buzz warning on missed notes' },
-  { key: 'onDemon', label: 'Demon Note', desc: 'Heavy triple alert on demon hazard hit' },
-  { key: 'onComboMilestone', label: '25x Combo Milestone', desc: 'Celebration pop every 25 combo streak' },
-  { key: 'onMenuTap', label: 'Menu Navigation', desc: 'Micro feedback on buttons and toggles' },
-];
-
-const INTENSITY_PRESETS = [
-  { label: 'LIGHT', value: 35 },
-  { label: 'MEDIUM', value: 65 },
-  { label: 'STRONG', value: 85 },
-  { label: 'OVERDRIVE', value: 100 },
-];
-
-export const HapticsSettingsModal: React.FC<HapticsSettingsModalProps> = ({ settings, onChange, onClose }) => {
-  const isLandscapeCompact = useIsCompactLandscape();
-  const current = normalizeHapticsSettings(settings);
-  const hwSupported = isHardwareVibrationSupported();
-  const iosTapticSupported = isIOSSwitchHapticSupported();
-  const [lastPulse, setLastPulse] = useState<HapticPulseTelemetry | null>(null);
-  const [pulseActive, setPulseActive] = useState(false);
-
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const onHapticPulse = (e: Event) => {
-      const custom = e as CustomEvent<HapticPulseTelemetry>;
-      if (custom.detail) {
-        setLastPulse(custom.detail);
-        setPulseActive(true);
-        if (timer) clearTimeout(timer);
-        timer = setTimeout(() => setPulseActive(false), 260);
-      }
-    };
-    window.addEventListener('rc-haptic-pulse', onHapticPulse);
-    return () => {
-      window.removeEventListener('rc-haptic-pulse', onHapticPulse);
-      if (timer) clearTimeout(timer);
-    };
-  }, []);
+export const HapticsSettingsModal: React.FC<HapticsSettingsModalProps> = ({
+  settings,
+  onChange,
+  onClose,
+}) => {
+  const current: HapticsSettings = { ...DEFAULT_HAPTICS, ...(settings || {}) };
+  const [testingHoldRiser, setTestingHoldRiser] = useState(false);
 
   const update = (patch: Partial<HapticsSettings>) => {
-    const next = normalizeHapticsSettings({
-      ...current,
-      ...patch,
-      triggers: patch.triggers ? { ...current.triggers, ...patch.triggers } : current.triggers,
-    });
+    const next = { ...current, ...patch };
     onChange(next);
+    triggerHapticFeedback('menu', next);
   };
 
-  const toggleTrigger = (key: keyof HapticsTriggers) => {
-    AudioEngine.init();
-    const next = normalizeHapticsSettings({
-      ...current,
-      triggers: { ...current.triggers, [key]: !current.triggers[key] },
-    });
-    onChange(next);
-    triggerHaptic('menuTap', next);
+  const testMikuHoldEffect = () => {
+    if (testingHoldRiser) return;
+    setTestingHoldRiser(true);
+    const vol = current.holdEffectVolume ?? 80;
+    const start = performance.now();
+    const duration = 1200; // 1.2s hold note demo
+    const interval = window.setInterval(() => {
+      const elapsed = performance.now() - start;
+      const p = Math.min(1, elapsed / duration);
+      AudioEngine.updateMikuHoldRiser(2, p, vol);
+      triggerHapticFeedback('hold_crescendo', current, p);
+      if (p >= 1) {
+        clearInterval(interval);
+        AudioEngine.stopMikuHoldRiser(2, true, vol);
+        triggerHapticFeedback('hold_complete', current, 1);
+        setTestingHoldRiser(false);
+      }
+    }, 65);
   };
+
+  const toggleItems: {
+    key: keyof HapticsSettings;
+    label: string;
+    desc: string;
+    icon: React.ReactNode;
+  }[] = [
+    {
+      key: 'gameplayHits',
+      label: 'Note Hit Vibration',
+      desc: 'Physical vibration & iOS Taptic Engine feedback on note strikes',
+      icon: <Sparkles className="w-4 h-4 text-cyan-400" />,
+    },
+    {
+      key: 'holdPulses',
+      label: '1s+ Hold Note Haptic Crescendo',
+      desc: 'Intensifying iOS Taptic / vibration pulses + release pulse on 1.0s+ hold notes',
+      icon: <Vibrate className="w-4 h-4 text-emerald-400" />,
+    },
+    {
+      key: 'missAlerts',
+      label: 'Miss & Mine Shock',
+      desc: 'Heavy double-pulse vibration on missed notes or mines',
+      icon: <AlertTriangle className="w-4 h-4 text-rose-400" />,
+    },
+    {
+      key: 'menuNavigation',
+      label: 'Menu Button Tactile Clicks',
+      desc: 'Crisp physical micro-pulse when tapping console buttons',
+      icon: <MousePointerClick className="w-4 h-4 text-amber-400" />,
+    },
+    {
+      key: 'visualShake',
+      label: 'Screen Impact Micro-Shake',
+      desc: 'Visual screen punch synced with heavy note hits',
+      icon: <Smartphone className="w-4 h-4 text-fuchsia-400" />,
+    },
+    {
+      key: 'soundPulse',
+      label: 'Sub-Bass Speaker Thump (Optional)',
+      desc: 'Optional low-frequency speaker resonance alongside physical device vibration',
+      icon: <Volume2 className="w-4 h-4 text-sky-400" />,
+    },
+  ];
 
   return (
-    <div
-      data-testid="haptics-settings-modal"
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/85 p-3 sm:p-5"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Haptics Settings"
-    >
-      <div
-        className={`rc-console-tray w-full max-h-[94dvh] flex flex-col overflow-hidden text-white transition-transform duration-100 ${
-          pulseActive ? 'scale-[1.008] ring-2 ring-cyan-400' : ''
-        } ${isLandscapeCompact ? 'max-w-3xl p-3 gap-2' : 'max-w-2xl p-4 gap-3'}`}
-      >
-        {/* Header */}
-        <div
-          className={`rc-dock-rail flex items-center justify-between gap-3 shrink-0 ${
-            isLandscapeCompact ? 'px-3 py-1.5' : 'px-4 py-2.5'
-          }`}
-        >
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div
-              className={`${
-                isLandscapeCompact ? 'w-7 h-7' : 'w-9 h-9'
-              } rc-bevel-btn rc-tile-gold text-black flex items-center justify-center shrink-0 ${
-                pulseActive ? 'animate-bounce' : ''
-              }`}
-            >
-              <Vibrate className={isLandscapeCompact ? 'w-4 h-4' : 'w-5 h-5'} />
+    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-3 select-none">
+      <div className="rc-panel w-full max-w-xl border-2 border-cyan-400/50 shadow-[0_0_50px_rgba(0,240,255,0.25)] p-4 sm:p-5 max-h-[92vh] overflow-y-auto custom-scrollbar">
+        <div className="flex items-center justify-between pb-3 mb-3 border-b border-white/15">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-lg bg-cyan-500/20 border border-cyan-400/50 flex items-center justify-center text-cyan-300">
+              <Vibrate className="w-5 h-5" />
             </div>
-            <div className="min-w-0">
-              <h2
-                className={`${
-                  isLandscapeCompact ? 'text-base' : 'text-lg sm:text-xl'
-                } font-black italic tracking-wide uppercase truncate`}
-              >
-                HAPTICS ENGINE &amp; TACTILE STUDIO
+            <div>
+              <h2 className="text-base sm:text-lg font-black tracking-wider uppercase text-white">
+                HAPTICS & HOLD SYNTH ENGINE
               </h2>
-              <p className="text-[11px] font-bold text-cyan-300 truncate">
-                {hwSupported
-                  ? 'Physical Phone Vibration Motor Active (navigator.vibrate)'
-                  : iosTapticSupported
-                  ? 'iOS Taptic Engine Switch Pulse Active'
-                  : 'Hardware Vibration Ready (Mobile LRA / Taptic Engine)'}
+              <p className="text-[11px] text-slate-300">
+                iOS 17.4+/18 Safari Taptic Engine + Navigator Vibration + Project DIVA 1s+ Hold Riser
               </p>
             </div>
           </div>
-
           <button
-            type="button"
-            data-testid="haptics-close-btn"
-            onClick={() => {
-              triggerHaptic('menuTap', current);
-              onClose();
-            }}
-            className="rc-bevel-btn rc-tile-slate text-white p-1.5 font-black min-w-[36px] min-h-[36px] flex items-center justify-center shrink-0"
-            aria-label="Close haptics settings"
+            onClick={onClose}
+            className="w-8 h-8 rounded-lg bg-white/10 hover:bg-rose-500/20 border border-white/20 hover:border-rose-400/50 flex items-center justify-center text-slate-200 hover:text-rose-300 transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Scrollable Content */}
-        <div className={`flex-1 overflow-y-auto custom-scrollbar pr-1 ${isLandscapeCompact ? 'space-y-2' : 'space-y-3'}`}>
-          {/* Master Toggle + Live Haptic Telemetry Meter */}
-          <div className="grid grid-cols-1 sm:grid-cols-[1.2fr_1fr] gap-2.5">
-            <div className="rc-console-inset flex items-center justify-between gap-3 p-3">
-              <div>
-                <div className="font-black text-sm sm:text-base tracking-wider">MASTER HAPTICS</div>
-                <div className="text-xs text-slate-300">Physical phone vibration on note hits, holds &amp; menus</div>
+        {/* Master Toggle + Sliders */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+          <div className="bg-slate-900/90 border border-white/15 rounded-xl p-3 flex items-center justify-between">
+            <div>
+              <div className="text-xs font-black uppercase tracking-wider text-white">
+                Master Haptics
               </div>
-              <button
-                type="button"
-                data-testid="haptics-master-toggle"
-                onClick={() => {
-                  AudioEngine.init();
-                  const next = { ...current, enabled: !current.enabled };
-                  onChange(next);
-                  if (next.enabled) triggerHaptic('hit', next, 'sick');
-                }}
-                className={`rc-bevel-btn px-5 py-2 font-black text-sm min-w-[88px] min-h-[42px] whitespace-nowrap ${
-                  current.enabled ? 'rc-tile-green text-black' : 'rc-tile-slate text-slate-300'
-                }`}
-              >
-                {current.enabled ? 'ON' : 'OFF'}
-              </button>
+              <div className="text-[10px] text-slate-400">
+                {current.enabled ? 'ACTIVE ON DEVICE' : 'DISABLED'}
+              </div>
             </div>
-
-            <div
-              data-testid="haptics-live-meter"
-              className={`rc-console-inset p-3 flex items-center justify-between gap-2.5 border transition-colors ${
-                pulseActive ? 'border-cyan-400 bg-cyan-950/30' : 'border-transparent'
+            <button
+              onClick={() => update({ enabled: !current.enabled })}
+              className={`px-3.5 py-1.5 rounded-lg font-black text-xs uppercase tracking-wider border transition-all cursor-pointer ${
+                current.enabled
+                  ? 'bg-emerald-500/25 border-emerald-400 text-emerald-200 shadow-[0_0_15px_rgba(16,185,129,0.3)]'
+                  : 'bg-slate-800 border-white/15 text-slate-400'
               }`}
             >
-              <div className="flex items-center gap-2 min-w-0">
-                <Activity className={`w-5 h-5 shrink-0 ${pulseActive ? 'text-cyan-300 animate-pulse' : 'text-slate-400'}`} />
-                <div className="min-w-0">
-                  <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">LIVE PULSE MONITOR</div>
-                  <div className="text-xs font-black text-cyan-200 truncate">
-                    {lastPulse
-                      ? `${lastPulse.event.toUpperCase()} · [${lastPulse.pattern.join('ms, ')}ms]`
-                      : 'Tap any test pad below'}
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-end gap-1 h-6 shrink-0">
-                {[0.45, 0.8, 1, 0.7, 0.5].map((bar, i) => (
-                  <span
-                    key={i}
-                    className={`w-1.5 rounded-full transition-all duration-75 ${
-                      pulseActive ? 'bg-cyan-300 shadow-[0_0_8px_#22d3ee]' : 'bg-slate-700'
-                    }`}
-                    style={{
-                      height: pulseActive ? `${Math.max(25, Math.round(bar * current.intensity * 0.24))}px` : '6px',
-                    }}
-                  />
-                ))}
-              </div>
-            </div>
+              {current.enabled ? 'ON' : 'OFF'}
+            </button>
           </div>
 
-          {/* Live Test Pads (Moved near top so user can test immediately) */}
-          <div className="rc-console-inset p-3">
-            <div className="flex items-center justify-between mb-2">
-              <span className="font-black text-xs tracking-wider text-yellow-300 uppercase">
-                INTERACTIVE HAPTIC TEST PADS (TAP TO VIBRATE)
+          <div className="bg-slate-900/90 border border-white/15 rounded-xl p-3">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-black uppercase tracking-wider text-white">
+                Vibration Strength
               </span>
-              <span className="text-[11px] font-bold text-cyan-300">Direct Motor Actuation</span>
-            </div>
-            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-              <button
-                type="button"
-                data-testid="haptics-test-press"
-                disabled={!current.enabled}
-                onClick={() => {
-                  AudioEngine.init();
-                  triggerHaptic('press', current);
-                }}
-                className="rc-bevel-btn rc-sub-teal text-white font-black text-xs py-2 px-2 min-h-[40px] disabled:opacity-40 whitespace-nowrap"
-              >
-                TAP TICK
-              </button>
-              <button
-                type="button"
-                data-testid="haptics-test-hit"
-                disabled={!current.enabled}
-                onClick={() => {
-                  AudioEngine.init();
-                  triggerHaptic('hit', current, 'sick');
-                }}
-                className="rc-bevel-btn rc-tile-cyan text-black font-black text-xs py-2 px-2 min-h-[40px] disabled:opacity-40 whitespace-nowrap"
-              >
-                TEST HIT
-              </button>
-              <button
-                type="button"
-                data-testid="haptics-test-hold"
-                disabled={!current.enabled}
-                onClick={() => {
-                  AudioEngine.init();
-                  triggerHaptic('holdTick', current);
-                }}
-                className="rc-bevel-btn rc-tile-violet text-white font-black text-xs py-2 px-2 min-h-[40px] disabled:opacity-40 whitespace-nowrap"
-              >
-                HOLD PULSE
-              </button>
-              <button
-                type="button"
-                data-testid="haptics-test-milestone"
-                disabled={!current.enabled}
-                onClick={() => {
-                  AudioEngine.init();
-                  triggerHaptic('comboMilestone', current);
-                }}
-                className="rc-bevel-btn rc-tile-gold text-black font-black text-xs py-2 px-2 min-h-[40px] disabled:opacity-40 whitespace-nowrap"
-              >
-                TEST 25x
-              </button>
-              <button
-                type="button"
-                data-testid="haptics-test-demon"
-                disabled={!current.enabled}
-                onClick={() => {
-                  AudioEngine.init();
-                  triggerHaptic('demon', current);
-                }}
-                className="rc-bevel-btn rc-sub-rose text-white font-black text-xs py-2 px-2 min-h-[40px] disabled:opacity-40 whitespace-nowrap"
-              >
-                DEMON HIT
-              </button>
-              <button
-                type="button"
-                data-testid="haptics-test-miss"
-                disabled={!current.enabled}
-                onClick={() => {
-                  AudioEngine.init();
-                  triggerHaptic('miss', current);
-                }}
-                className="rc-bevel-btn rc-tile-red text-white font-black text-xs py-2 px-2 min-h-[40px] disabled:opacity-40 whitespace-nowrap"
-              >
-                TEST MISS
-              </button>
-            </div>
-          </div>
-
-          {/* Intensity Slider + Presets */}
-          <div className="rc-console-inset p-3.5 space-y-2.5">
-            <div className="flex items-center justify-between">
-              <label htmlFor="haptics-intensity" className="font-black text-sm sm:text-base tracking-wider flex items-center gap-2">
-                <Zap className="w-4 h-4 text-yellow-400" />
-                INTENSITY
-              </label>
-              <span data-testid="haptics-intensity-value" className="font-black text-lg text-cyan-300 tabular-nums">
-                {current.intensity}%
-              </span>
+              <span className="text-xs font-black text-cyan-300">{current.intensity}%</span>
             </div>
             <input
-              id="haptics-intensity"
-              data-testid="haptics-intensity-slider"
               type="range"
               min={10}
               max={100}
               step={5}
               value={current.intensity}
               disabled={!current.enabled}
-              onChange={(e) => {
-                const val = Number(e.target.value);
-                const next = normalizeHapticsSettings({ ...current, intensity: val });
-                onChange(next);
-                triggerHaptic('press', next);
-              }}
-              className="w-full accent-cyan-400 h-3 cursor-pointer disabled:opacity-40"
+              onChange={(e) => update({ intensity: Number(e.target.value) })}
+              className="w-full accent-cyan-400 cursor-pointer"
             />
-            <div className="grid grid-cols-4 gap-2">
-              {INTENSITY_PRESETS.map((preset) => (
-                <button
-                  key={preset.label}
-                  type="button"
-                  disabled={!current.enabled}
-                  onClick={() => {
-                    AudioEngine.init();
-                    const next = normalizeHapticsSettings({ ...current, intensity: preset.value });
-                    onChange(next);
-                    triggerHaptic('hit', next, 'sick');
-                  }}
-                  className={`rc-bevel-btn py-2 px-1 font-black text-xs min-h-[38px] disabled:opacity-40 whitespace-nowrap ${
-                    Math.abs(current.intensity - preset.value) <= 5
-                      ? 'rc-tile-cyan text-black'
-                      : 'rc-sub-dark text-slate-200'
-                  }`}
-                >
-                  {preset.label}
-                </button>
-              ))}
-            </div>
           </div>
+        </div>
 
-          {/* Pulse Duration Slider */}
-          <div className="rc-console-inset p-3.5 space-y-2">
-            <div className="flex items-center justify-between">
-              <label htmlFor="haptics-duration" className="font-black text-sm sm:text-base tracking-wider flex items-center gap-2">
-                <Smartphone className="w-4 h-4 text-pink-400" />
-                PULSE LENGTH
-              </label>
-              <span data-testid="haptics-duration-value" className="font-black text-lg text-pink-300 tabular-nums">
-                {current.pulseDurationMs}ms
-              </span>
-            </div>
-            <input
-              id="haptics-duration"
-              data-testid="haptics-duration-slider"
-              type="range"
-              min={8}
-              max={60}
-              step={2}
-              value={current.pulseDurationMs}
-              disabled={!current.enabled}
-              onChange={(e) => {
-                const val = Number(e.target.value);
-                const next = normalizeHapticsSettings({ ...current, pulseDurationMs: val });
-                onChange(next);
-                triggerHaptic('press', next);
-              }}
-              className="w-full accent-pink-400 h-3 cursor-pointer disabled:opacity-40"
-            />
-            <div className="flex justify-between text-[11px] font-bold text-slate-400">
-              <span>8ms (Snappy)</span>
-              <span>32ms (Strong Motor Kick)</span>
-              <span>60ms (Heavy Rumble)</span>
-            </div>
-          </div>
-
-          {/* Behavior Modifiers */}
-          <div className="grid grid-cols-2 gap-2.5">
-            <button
-              type="button"
-              data-testid="haptics-accuracy-toggle"
-              disabled={!current.enabled}
-              onClick={() => {
-                AudioEngine.init();
-                const next = normalizeHapticsSettings({ ...current, accuracyScaling: !current.accuracyScaling });
-                onChange(next);
-                triggerHaptic('hit', next, 'sick');
-              }}
-              className={`rc-panel flex items-center justify-between gap-2 p-3 text-left transition-colors min-h-[54px] disabled:opacity-40 ${
-                current.accuracyScaling ? 'border-cyan-400' : ''
-              }`}
-            >
+        {/* Hatsune Miku / Project DIVA 1s+ Hold Note Rising Effect Volume Slider */}
+        <div className="bg-gradient-to-r from-cyan-950/60 via-slate-900/90 to-fuchsia-950/50 border border-cyan-400/40 rounded-xl p-3.5 mb-4">
+          <div className="flex items-center justify-between mb-1.5">
+            <div className="flex items-center gap-2">
+              <Music2 className="w-4 h-4 text-cyan-300" />
               <div>
-                <div className="font-black text-xs sm:text-sm">ACCURACY SCALING</div>
-                <div className="text-[11px] text-slate-300">SICK!! hits vibrate stronger than BAD</div>
-              </div>
-              <span
-                className={`px-2.5 py-1 rounded-md text-xs font-black shrink-0 ${
-                  current.accuracyScaling ? 'bg-cyan-400 text-black' : 'bg-[#0d1018] text-slate-400'
-                }`}
-              >
-                {current.accuracyScaling ? 'ON' : 'OFF'}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              data-testid="haptics-audio-fallback-toggle"
-              disabled={!current.enabled}
-              onClick={() => {
-                AudioEngine.init();
-                const next = {
-                  ...normalizeHapticsSettings({
-                    ...current,
-                    audioFallback: !current.audioFallback,
-                    v2ExplicitAudioAssist: true,
-                  } as any),
-                  v2ExplicitAudioAssist: true,
-                } as HapticsSettings;
-                onChange(next);
-                triggerHaptic('hit', next, 'sick');
-              }}
-              className={`rc-panel flex items-center justify-between gap-2 p-3 text-left transition-colors min-h-[54px] disabled:opacity-40 ${
-                current.audioFallback ? 'border-violet-400' : ''
-              }`}
-            >
-              <div className="min-w-0">
-                <div className="font-black text-xs sm:text-sm flex items-center gap-1">
-                  <Volume2 className="w-3.5 h-3.5 text-violet-300 shrink-0" />
-                  SPEAKER ASSIST (OPTIONAL)
+                <div className="text-xs font-black uppercase tracking-wider text-white">
+                  1.0s+ Hold Note Rising Synth Volume (DIVA Trigger FX)
                 </div>
-                <div className="text-[11px] text-slate-300">Off by default — physical motor only</div>
-              </div>
-              <span
-                className={`px-2.5 py-1 rounded-md text-xs font-black shrink-0 ${
-                  current.audioFallback ? 'bg-violet-400 text-black' : 'bg-[#0d1018] text-slate-400'
-                }`}
-              >
-                {current.audioFallback ? 'ON' : 'OFF'}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              data-testid="haptics-always-audio-toggle"
-              disabled={!current.enabled}
-              onClick={() => {
-                AudioEngine.init();
-                const next = {
-                  ...normalizeHapticsSettings({
-                    ...current,
-                    alwaysAudioAssist: !current.alwaysAudioAssist,
-                    v2ExplicitAudioAssist: true,
-                  } as any),
-                  v2ExplicitAudioAssist: true,
-                } as HapticsSettings;
-                onChange(next);
-                triggerHaptic('hit', next, 'sick');
-              }}
-              className={`col-span-2 rc-panel flex items-center justify-between gap-2 p-3 text-left transition-colors min-h-[52px] disabled:opacity-40 ${
-                current.alwaysAudioAssist ? 'border-yellow-400' : ''
-              }`}
-            >
-              <div className="min-w-0">
-                <div className="font-black text-xs sm:text-sm">SIMULATED BASS AUDIO LAYER (OPTIONAL)</div>
-                <div className="text-[11px] text-slate-300">
-                  Disabled by default so haptics strictly vibrates your phone without simulated speaker noise
+                <div className="text-[10px] text-slate-300">
+                  Rising harmonic synth + intensifying haptics & end pulse on hold notes 1 second or longer
                 </div>
               </div>
-              <span
-                className={`px-2.5 py-1 rounded-md text-xs font-black shrink-0 ${
-                  current.alwaysAudioAssist ? 'bg-yellow-400 text-black' : 'bg-[#0d1018] text-slate-400'
-                }`}
-              >
-                {current.alwaysAudioAssist ? 'ON' : 'OFF'}
-              </span>
-            </button>
+            </div>
+            <span className="text-xs font-black text-cyan-300 px-2 py-0.5 rounded bg-cyan-500/15 border border-cyan-400/30">
+              {current.holdEffectVolume ?? 80}%
+            </span>
           </div>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={5}
+            value={current.holdEffectVolume ?? 80}
+            onChange={(e) => update({ holdEffectVolume: Number(e.target.value) })}
+            className="w-full accent-cyan-400 cursor-pointer"
+          />
+        </div>
 
-          {/* Individual Activation Triggers */}
-          <div className="rc-console-inset p-3.5 space-y-2">
-            <div className="font-black text-xs sm:text-sm tracking-wider text-yellow-300">WHEN HAPTICS ACTIVATE</div>
-            <div className="grid grid-cols-2 gap-2">
-              {TRIGGER_LABELS.map((item) => {
-                const active = current.triggers[item.key];
-                return (
-                  <button
-                    key={item.key}
-                    type="button"
-                    data-testid={`haptics-trigger-${item.key}`}
-                    disabled={!current.enabled}
-                    onClick={() => toggleTrigger(item.key)}
-                    className={`rc-panel flex items-center justify-between gap-2 p-2.5 text-left transition-colors min-h-[48px] disabled:opacity-40 ${
-                      active ? 'border-emerald-400' : ''
-                    }`}
-                  >
-                    <div className="min-w-0">
-                      <div className="font-black text-xs text-white truncate">{item.label}</div>
-                      <div className="text-[10px] text-slate-400 leading-tight">{item.desc}</div>
-                    </div>
+        {/* Per-channel options */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mb-4">
+          {toggleItems.map((item) => {
+            const active = Boolean(current[item.key]);
+            return (
+              <button
+                key={item.key}
+                disabled={!current.enabled}
+                onClick={() => update({ [item.key]: !active } as Partial<HapticsSettings>)}
+                className={`text-left p-2.5 rounded-xl border transition-all flex items-start gap-2.5 cursor-pointer ${
+                  !current.enabled
+                    ? 'opacity-40 bg-slate-900/40 border-white/10 cursor-not-allowed'
+                    : active
+                    ? 'bg-slate-900/90 border-cyan-400/50 shadow-[0_0_14px_rgba(0,240,255,0.12)]'
+                    : 'bg-slate-950/70 border-white/10 hover:border-white/25'
+                }`}
+              >
+                <div className="mt-0.5 p-1.5 rounded-lg bg-white/5 border border-white/10">
+                  {item.icon}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="text-xs font-black text-white truncate">{item.label}</span>
                     <span
-                      className={`px-2 py-0.5 rounded text-[11px] font-black shrink-0 ${
-                        active ? 'bg-emerald-400 text-black' : 'bg-[#0d1018] text-slate-400'
+                      className={`text-[10px] font-black px-1.5 py-0.5 rounded ${
+                        active
+                          ? 'bg-cyan-400/20 text-cyan-300 border border-cyan-400/40'
+                          : 'bg-white/5 text-slate-400'
                       }`}
                     >
                       {active ? 'ON' : 'OFF'}
                     </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+                  </div>
+                  <p className="text-[10px] text-slate-400 leading-snug mt-0.5">{item.desc}</p>
+                </div>
+              </button>
+            );
+          })}
         </div>
 
-        {/* Footer */}
-        <div className="rc-dock-rail flex items-center justify-between gap-3 px-3 py-2 shrink-0">
+        {/* Test Bar */}
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-white/15">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => triggerHapticFeedback('perfect', current)}
+              className="px-3 py-1.5 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-400/50 text-cyan-200 font-black text-xs uppercase tracking-wider cursor-pointer transition-all"
+            >
+              TEST PERFECT HIT
+            </button>
+            <button
+              onClick={testMikuHoldEffect}
+              disabled={testingHoldRiser}
+              className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/50 text-emerald-200 font-black text-xs uppercase tracking-wider cursor-pointer transition-all disabled:opacity-50"
+            >
+              {testingHoldRiser ? 'RISING HOLD...' : 'TEST 1S+ HOLD RISER'}
+            </button>
+            <button
+              onClick={() => triggerHapticFeedback('miss', current)}
+              className="px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 border border-rose-400/50 text-rose-200 font-black text-xs uppercase tracking-wider cursor-pointer transition-all"
+            >
+              TEST MISS SHOCK
+            </button>
+          </div>
           <button
-            type="button"
-            data-testid="haptics-reset-btn"
-            onClick={() => {
-              AudioEngine.init();
-              onChange(DEFAULT_HAPTICS_SETTINGS);
-              triggerHaptic('hit', DEFAULT_HAPTICS_SETTINGS, 'sick');
-            }}
-            className="rc-bevel-btn rc-tile-slate flex items-center gap-1.5 px-3 py-1.5 text-xs font-black text-slate-200 min-h-[36px] whitespace-nowrap"
+            onClick={onClose}
+            className="px-4 py-1.5 rounded-lg bg-white text-slate-950 font-black text-xs uppercase tracking-wider hover:bg-cyan-300 transition-colors cursor-pointer"
           >
-            <RotateCcw className="w-3.5 h-3.5" />
-            RESET DEFAULTS
-          </button>
-
-          <button
-            type="button"
-            data-testid="haptics-done-btn"
-            onClick={() => {
-              triggerHaptic('menuTap', current);
-              onClose();
-            }}
-            className="rc-bevel-btn rc-tile-gold px-5 py-2 text-black font-black text-sm min-h-[38px] whitespace-nowrap"
-          >
-            SAVE &amp; CLOSE
+            DONE
           </button>
         </div>
       </div>

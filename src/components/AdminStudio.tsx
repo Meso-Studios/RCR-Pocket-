@@ -13,11 +13,16 @@ import {
   Star,
   Trash2,
   Unlock,
+  UserPlus,
+  Users,
   Volume2,
 } from 'lucide-react';
 import { db } from '../firebaseClient';
 import {
+  ACTIVE_RIVAL_PROFILES,
   ADMIN_EMAILS,
+  CUSTOM_ADMINS_STORAGE_KEY,
+  DEFAULT_OWNER_EMAIL,
   NOTE_EFFECTS,
   NOTE_RARITIES,
   RHYTHM_LIST_STORAGE_KEY,
@@ -25,11 +30,14 @@ import {
   SECRET_DEV_CODE,
   SHOP_SHUTDOWN_STORAGE_KEY,
   TRACK_RATINGS_STORAGE_KEY,
+  isUserAdmin,
 } from '../game/constants';
 import { AudioEngine } from '../game/audio';
 import {
   autoIndexFeaturedTracks,
+  formatTrackRatingBadge,
   getCommunityVoteStats,
+  getDisplayTrackRating,
   getEffectiveTrackRating,
   getHighestTrackRating,
   isTrackLabeledNewTop1,
@@ -87,7 +95,19 @@ export const AdminStudio: React.FC<AdminStudioProps> = ({
   setShopShutdown: setExternalShopShutdown,
   onBack,
 }) => {
-  const isAdminUser = externalIsAdmin ?? Boolean(user?.email && ADMIN_EMAILS.includes(user.email));
+  const [customAdmins, setCustomAdmins] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem(CUSTOM_ADMINS_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [newAdminEmail, setNewAdminEmail] = useState('');
+
+  const isAdminUser =
+    externalIsAdmin ??
+    isUserAdmin(user?.email || DEFAULT_OWNER_EMAIL, customAdmins);
   const handleBack = () => {
     if (onBack) onBack();
     else if (setScreen) setScreen('menu');
@@ -96,8 +116,48 @@ export const AdminStudio: React.FC<AdminStudioProps> = ({
   const [unlocked, setUnlocked] = useState<boolean>(true);
   const [passInput, setPassInput] = useState('');
   const [passErr, setPassErr] = useState('');
-  const [tab, setTab] = useState<'list' | 'shop_control' | 'note' | 'sound' | 'interrupt'>('list');
+  const [tab, setTab] = useState<
+    'list' | 'accounts' | 'shop_control' | 'note' | 'sound' | 'interrupt'
+  >('list');
   const [statusBanner, setStatusBanner] = useState('');
+
+  const saveCustomAdmins = (nextList: string[]) => {
+    setCustomAdmins(nextList);
+    try {
+      localStorage.setItem(CUSTOM_ADMINS_STORAGE_KEY, JSON.stringify(nextList));
+    } catch {}
+    if (db) {
+      db.collection('system')
+        .doc('admins')
+        .set({ customAdmins: nextList, updatedAt: Date.now() }, { merge: true })
+        .catch(() => {});
+    }
+  };
+
+  const handleAddAdminEmail = (emailToAdd: string) => {
+    const clean = emailToAdd.trim().toLowerCase();
+    if (!clean || !clean.includes('@')) {
+      setStatusBanner('Enter a valid email address to grant Admin privileges.');
+      return;
+    }
+    if (isUserAdmin(clean, customAdmins)) {
+      setStatusBanner(`${clean} already has Admin access.`);
+      return;
+    }
+    const next = [...customAdmins, clean];
+    saveCustomAdmins(next);
+    setNewAdminEmail('');
+    AudioEngine.playUI('confirm');
+    setStatusBanner(`Granted Admin Studio & Track Rating privileges to ${clean}!`);
+  };
+
+  const handleRemoveAdminEmail = (emailToRemove: string) => {
+    const clean = emailToRemove.trim().toLowerCase();
+    const next = customAdmins.filter((e) => e.trim().toLowerCase() !== clean);
+    saveCustomAdmins(next);
+    AudioEngine.playUI('back');
+    setStatusBanner(`Revoked dynamic Admin privileges for ${clean}.`);
+  };
 
   const [localNoteProducts, setLocalNoteProducts] = useState<NoteProduct[]>([]);
   const [localHitSounds, setLocalHitSounds] = useState<HitSoundProduct[]>([]);
@@ -644,6 +704,7 @@ export const AdminStudio: React.FC<AdminStudioProps> = ({
           {(
             [
               ['list', 'RATINGS & AUTO-INDEX'],
+              ['accounts', 'ACCOUNTS & ADMINS'],
               ['shop_control', shopShutdown.closed ? 'SHOP: SHUT DOWN' : 'SHOP CONTROL'],
               ['note', 'NOTE BUILDER'],
               ['sound', 'HIT SOUNDS'],
@@ -742,7 +803,9 @@ export const AdminStudio: React.FC<AdminStudioProps> = ({
                   <div className="space-y-1.5 max-h-[380px] overflow-y-auto pr-1">
                     {rhythmList.map((id, idx) => {
                       const track = allAvailableTracks.find((s) => String(s.id) === String(id));
-                      const rating = track ? getEffectiveTrackRating(track, trackRatings) : 0;
+                      const rating = track
+                        ? getDisplayTrackRating(track, trackRatings, rhythmList.map(String))
+                        : null;
                       const isTop1 = track ? isTrackLabeledNewTop1(track, trackRatings) : false;
                       return (
                         <div
@@ -763,7 +826,10 @@ export const AdminStudio: React.FC<AdminStudioProps> = ({
                                 )}
                               </div>
                               <div className="text-[10px] text-white/55 font-bold">
-                                Rating: <span className="text-amber-300 font-black">★ {rating.toFixed(1)}</span>{' '}
+                                Rating:{' '}
+                                <span className="text-amber-300 font-black">
+                                  ★ {formatTrackRatingBadge(rating)}
+                                </span>{' '}
                                 · {track?.bpm || 120} BPM
                               </div>
                             </div>
@@ -806,13 +872,19 @@ export const AdminStudio: React.FC<AdminStudioProps> = ({
                 <div className="space-y-2 max-h-[380px] overflow-y-auto pr-1">
                   {allAvailableTracks.map((song) => {
                     const inList = rhythmList.some((id) => String(id) === String(song.id));
-                    const effectiveRating = getEffectiveTrackRating(song, trackRatings);
+                    const effectiveRating = getDisplayTrackRating(
+                      song,
+                      trackRatings,
+                      rhythmList.map(String)
+                    );
                     const voteStats = getCommunityVoteStats(song, trackRatings);
                     const labeledTop1 = isTrackLabeledNewTop1(song, trackRatings);
                     const draftVal =
                       ratingInputs[String(song.id)] !== undefined
                         ? ratingInputs[String(song.id)]
-                        : String(effectiveRating);
+                        : effectiveRating !== null
+                        ? String(effectiveRating)
+                        : '';
 
                     return (
                       <div
@@ -827,7 +899,7 @@ export const AdminStudio: React.FC<AdminStudioProps> = ({
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <span className="text-xs font-black text-white truncate">{song.title}</span>
                             <span className="px-2 py-0.5 rounded-md bg-amber-500/25 border border-amber-400/50 text-amber-300 text-[10px] font-black">
-                              ★ {effectiveRating.toFixed(1)}
+                              ★ {formatTrackRatingBadge(effectiveRating)}
                             </span>
                             {labeledTop1 && (
                               <span className="px-2 py-0.5 rounded-md bg-gradient-to-r from-amber-500 to-rose-500 text-white text-[9px] font-black uppercase tracking-wider">
@@ -1113,7 +1185,7 @@ export const AdminStudio: React.FC<AdminStudioProps> = ({
                           className="w-full text-left"
                         >
                           <div className="text-xs font-black">{eff.name}</div>
-                          <div className="text-[10px] text-white/50">{eff.description}</div>
+                          <div className="text-[10px] text-white/50">{eff.desc}</div>
                         </button>
                         {sel && (
                           <input
@@ -1320,6 +1392,155 @@ export const AdminStudio: React.FC<AdminStudioProps> = ({
                 Active Broadcast: &ldquo;{interruption.message}&rdquo;
               </div>
             )}
+          </div>
+        )}
+
+        {tab === 'accounts' && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+            {/* Left 6 cols: Add & Manage Admin Emails */}
+            <div className="lg:col-span-6 bg-black/60 border-2 border-cyan-400/40 rounded-2xl p-5 space-y-4">
+              <div className="flex items-center gap-2.5">
+                <UserPlus className="w-5 h-5 text-cyan-300" />
+                <div>
+                  <h3 className="text-sm font-black uppercase tracking-wider text-white">
+                    ADMIN ACCESS & PRIVILEGE MANAGER
+                  </h3>
+                  <p className="text-xs text-white/60">
+                    Grant or revoke Admin Studio & Track Rating privileges for any account email.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <input
+                  data-testid="admin-add-email-input"
+                  type="email"
+                  value={newAdminEmail}
+                  onChange={(e) => setNewAdminEmail(e.target.value)}
+                  placeholder="Enter player email (e.g. friend@gmail.com)..."
+                  className="flex-1 bg-white/10 border border-white/25 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none focus:border-cyan-400"
+                />
+                <button
+                  type="button"
+                  data-testid="admin-add-email-btn"
+                  onClick={() => handleAddAdminEmail(newAdminEmail)}
+                  className="px-4 py-2 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-black font-black text-xs uppercase tracking-wider cursor-pointer"
+                >
+                  + ADD ADMIN
+                </button>
+              </div>
+
+              <div className="space-y-2">
+                <div className="text-[11px] font-black uppercase tracking-widest text-amber-300">
+                  CORE & GRANTED ADMIN ACCOUNTS ({ADMIN_EMAILS.length + customAdmins.length})
+                </div>
+                <div className="space-y-1.5 max-h-[300px] overflow-y-auto pr-1">
+                  {ADMIN_EMAILS.map((email) => (
+                    <div
+                      key={email}
+                      className="flex items-center justify-between bg-amber-500/10 border border-amber-400/40 px-3 py-2 rounded-xl"
+                    >
+                      <div className="text-xs font-black text-white truncate">{email}</div>
+                      <span className="px-2 py-0.5 rounded bg-amber-400 text-black text-[9px] font-black uppercase">
+                        CORE OWNER / ADMIN
+                      </span>
+                    </div>
+                  ))}
+                  {customAdmins.map((email) => (
+                    <div
+                      key={email}
+                      className="flex items-center justify-between bg-cyan-500/10 border border-cyan-400/40 px-3 py-2 rounded-xl"
+                    >
+                      <div className="text-xs font-black text-cyan-200 truncate">{email}</div>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveAdminEmail(email)}
+                        className="px-2.5 py-1 rounded bg-rose-500/30 hover:bg-rose-500/50 border border-rose-400/50 text-rose-200 text-[10px] font-black uppercase cursor-pointer"
+                      >
+                        REMOVE ADMIN
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Right 6 cols: Player Accounts Directory with One-Click Promote/Demote */}
+            <div className="lg:col-span-6 bg-black/60 border border-white/15 rounded-2xl p-5 space-y-3">
+              <div className="flex items-center gap-2">
+                <Users className="w-5 h-5 text-fuchsia-400" />
+                <div>
+                  <h3 className="text-sm font-black uppercase tracking-wider text-white">
+                    REGISTERED PLAYER ACCOUNTS ({ACTIVE_RIVAL_PROFILES.length + 1})
+                  </h3>
+                  <p className="text-xs text-white/60">
+                    Inspect player accounts and toggle their Admin permissions with one click.
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-2 max-h-[360px] overflow-y-auto pr-1">
+                {[
+                  {
+                    uid: user?.uid || 'owner-01',
+                    displayName: user?.displayName || 'Marin (Owner)',
+                    email: user?.email || DEFAULT_OWNER_EMAIL,
+                    titleBadge: 'GAME CREATOR & TOP 1 JUDGE',
+                    ratingPoints: 3100,
+                    wins1v1: 95,
+                  },
+                  ...ACTIVE_RIVAL_PROFILES,
+                ].map((acct) => {
+                  const acctEmail = acct.email || '';
+                  const isCore = ADMIN_EMAILS.some(
+                    (e) => e.toLowerCase() === acctEmail.toLowerCase()
+                  );
+                  const isPromoted = isUserAdmin(acctEmail, customAdmins);
+                  return (
+                    <div
+                      key={acct.uid || acctEmail}
+                      className="flex items-center justify-between gap-2 bg-white/5 border border-white/10 px-3.5 py-2.5 rounded-xl"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-black text-white truncate">
+                            {acct.displayName}
+                          </span>
+                          <span className="px-1.5 py-0.5 rounded bg-fuchsia-500/20 border border-fuchsia-400/40 text-[9px] font-black text-fuchsia-200">
+                            {acct.titleBadge}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-cyan-300 font-bold truncate">
+                          {acctEmail} · {acct.wins1v1 || 0}W 1v1
+                        </div>
+                      </div>
+
+                      {isCore ? (
+                        <span className="px-2.5 py-1 rounded-lg bg-amber-400/20 border border-amber-400/60 text-amber-300 text-[10px] font-black uppercase shrink-0">
+                          CORE ADMIN
+                        </span>
+                      ) : isPromoted ? (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveAdminEmail(acctEmail)}
+                          className="px-2.5 py-1 rounded-lg bg-rose-500/25 hover:bg-rose-500/40 border border-rose-400/50 text-rose-200 text-[10px] font-black uppercase shrink-0 cursor-pointer"
+                        >
+                          REVOKE ADMIN
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleAddAdminEmail(acctEmail)}
+                          className="px-2.5 py-1 rounded-lg bg-emerald-500/25 hover:bg-emerald-500/40 border border-emerald-400/60 text-emerald-200 text-[10px] font-black uppercase shrink-0 cursor-pointer"
+                        >
+                          + MAKE ADMIN
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         )}
       </div>

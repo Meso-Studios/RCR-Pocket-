@@ -1,79 +1,110 @@
 export type ScreenId =
   | 'menu'
-  | 'events'
   | 'freeplay'
   | 'online_tracks'
-  | 'lobby'
   | 'game'
-  | 'horse'
-  | 'editor'
   | 'shop'
-  | 'admin_studio';
+  | 'editor'
+  | 'lobby'
+  | 'horse'
+  | 'admin_studio'
+  | 'events';
+
+export type GameState = ScreenId;
 
 export type Difficulty = 'easy' | 'normal' | 'hard' | 'insane';
+
 export type GameMode = 'standard' | 'endless' | 'online_vs' | 'battle_royale' | 'horse';
-export type NoteType = 'normal' | 'hold' | 'demon';
-export type SkinShape = 'arrow' | 'circle';
+
 export type MenuGenre = 'spotify' | 'rave' | 'dubstep' | 'hardtekk';
 
-export type SpeedTriggerPreset = 0.5 | 0.75 | 1.0 | 1.5 | 1.75 | 2.0;
+export type SkinShape = 'arrow' | 'circle';
+
+export type NoteType = 'normal' | 'hold' | 'demon' | 'mine' | 'gold' | 'fire';
+
+export type SpeedTriggerPreset = 0.5 | 0.75 | 1 | 1.5 | 1.75 | 2;
+
 export type ExtraNotesCount = 4 | 6 | 8;
+export type LaneCountOption = ExtraNotesCount;
+
 export type ExpansionTransitionType =
   | 'split_out'
-  | 'push_slide'
   | 'wipe_reveal'
   | 'zoom_burst'
-  | 'flip_3d'
   | 'blinds_snap'
-  | 'morph_fade';
+  | 'flip_3d'
+  | 'edge_slide'
+  | 'flash_cut'
+  | 'cut'
+  | 'push'
+  | 'wipe'
+  | 'split'
+  | 'fade_zoom'
+  | 'cube_rotate'
+  | 'cover_slide';
+
+export type LaneExpansionTransition = ExpansionTransitionType;
+
+export type NoteVelocityEffect =
+  | 'linear'
+  | 'ease_in_rush'
+  | 'ease_out_brake'
+  | 'elastic_bounce'
+  | 'sine_wave_flow'
+  | 'stutter_step'
+  | 'boomerang_pull'
+  | 'heartbeat_pulse'
+  | 'hyper_warp'
+  | 'spiral_sway'
+  | 'gravity_drop'
+  | 'pendulum_swing';
+
+export type TriggerType =
+  | 'speed'
+  | 'extra_notes'
+  | 'invisible_notes'
+  | 'note_velocity'
+  | 'dj_stop';
+
+export interface ChartNote {
+  time: number;
+  lane: number;
+  hit?: boolean;
+  missed?: boolean;
+  type?: NoteType;
+  duration?: number;
+  holding?: boolean;
+  holdStartedAt?: number;
+  isHolding?: boolean;
+  holdCompleted?: boolean;
+  isBot?: boolean;
+}
+
+export type Note = ChartNote;
 
 export interface ChartTrigger {
   id: string;
   time: number;
   row?: number;
-  type: 'speed' | 'extra_notes' | 'dj_stop';
+  type: TriggerType;
   speed?: SpeedTriggerPreset;
-  laneCount?: ExtraNotesCount;
+  lanes?: ExtraNotesCount;
   transition?: ExpansionTransitionType;
-  transitionDurationSec?: number;
+  transitionDuration?: number;
   stopDurationSec?: number;
+  stopDurationMs?: number;
+  invisibleEnabled?: boolean;
+  invisibleDurationMs?: number;
+  velocityEffect?: NoteVelocityEffect;
+  velocityIntensity?: number;
 }
 
 export interface EditorCheckpoint {
   id: string;
+  name: string;
+  time: number;
   row: number;
-  time: number;
-  label: string;
-}
-
-export interface TrackRatingEntry {
-  songId: string | number;
-  adminRating?: number | null;
-  isNewTop1?: boolean;
-  votes?: number[];
-  updatedAt?: number;
-  updatedBy?: string;
-}
-
-export type TrackRatingsMap = Record<string, TrackRatingEntry>;
-
-export interface ShopShutdownConfig {
-  closed: boolean;
-  message: string;
-  updatedAt?: number;
-  updatedBy?: string;
-}
-
-export interface ChartNote {
-  time: number;
-  lane: number;
-  type: NoteType;
-  duration?: number;
-  hit?: boolean;
-  missed?: boolean;
-  holding?: boolean;
-  holdStartedAt?: number;
-  isBot?: boolean;
+  color?: string;
 }
 
 export interface Song {
@@ -81,28 +112,52 @@ export interface Song {
   title: string;
   artist: string;
   bpm: number;
-  color: string;
-  audioUrl?: string | null;
+  difficulty?: Difficulty | string;
+  color?: string;
+  audioUrl?: string;
   coverUrl?: string;
   coverPulse?: boolean;
   coverPulseBpm?: number;
   coverPulseSubdivision?: number;
   coverUpdatedAt?: number;
+  ownerUid?: string;
+  featured?: boolean;
+  customMap?: ChartNote[];
+  notes?: ChartNote[];
+  triggers?: ChartTrigger[];
+  checkpoints?: EditorCheckpoint[];
+  duration?: number;
+  newgroundsId?: string;
+  spotifyUrl?: string;
+  difficultyRating?: number | null;
+  isNewTop1?: boolean;
   stepClick?: boolean;
   stepSubdivision?: number;
   pulses?: number[];
-  customMap?: ChartNote[];
-  chartVersion?: number;
-  noteCount?: number;
-  featured?: boolean;
-  ownerUid?: string;
-  difficultyRating?: number;
+  entityType?: string;
+  hasDemonNotes?: boolean;
+  isCustom?: boolean;
+  upvotes?: number;
+  plays?: number;
+}
+
+export interface TrackRatingEntry {
+  songId?: string | number;
+  adminRating?: number | null;
   isNewTop1?: boolean;
-  ratingVotes?: number[];
-  triggers?: ChartTrigger[];
-  checkpoints?: EditorCheckpoint[];
-  sourceType?: 'file' | 'newgrounds' | 'spotify' | 'url';
-  sourceId?: string;
+  votes?: number[];
+  updatedAt?: number;
+  updatedBy?: string;
+}
+
+export type TrackRatingRecord = TrackRatingEntry;
+export type TrackRatingsMap = Record<string, TrackRatingEntry>;
+
+export interface ShopShutdownConfig {
+  closed: boolean;
+  message: string;
+  updatedAt?: number;
+  updatedBy?: string;
 }
 
 export interface NoteEffectConfig {
@@ -113,16 +168,16 @@ export interface NoteEffectConfig {
 export interface NoteProduct {
   id: string;
   name: string;
-  description: string;
-  fill: string;
-  outline: string;
-  text: string;
-  sticker: string;
-  stickerScaleX: number;
-  stickerScaleY: number;
+  description?: string;
+  fill?: string;
+  outline?: string;
+  text?: string;
+  sticker?: string;
+  stickerScaleX?: number;
+  stickerScaleY?: number;
   rarity: string;
   price: number;
-  effects: NoteEffectConfig[];
+  effects?: NoteEffectConfig[];
   createdAt?: number;
   createdBy?: string;
   active?: boolean;
@@ -133,31 +188,11 @@ export interface HitSoundProduct {
   name: string;
   price: number;
   kind: 'single' | 'pack';
-  sound: string | null;
-  sounds: (string | null)[] | null;
+  sound?: string | null;
+  sounds?: (string | null)[] | null;
   active?: boolean;
   createdBy?: string;
   createdAt?: number;
-}
-
-export interface HapticsTriggers {
-  onPress: boolean;
-  onHit: boolean;
-  onHoldTick: boolean;
-  onMiss: boolean;
-  onDemon: boolean;
-  onComboMilestone: boolean;
-  onMenuTap: boolean;
-}
-
-export interface HapticsSettings {
-  enabled: boolean;
-  intensity: number;
-  pulseDurationMs: number;
-  accuracyScaling: boolean;
-  audioFallback: boolean;
-  alwaysAudioAssist?: boolean;
-  triggers: HapticsTriggers;
 }
 
 export interface LaneCoord {
@@ -175,31 +210,32 @@ export interface ControlLayoutSettings {
   landscapeLanes: LaneCoord[] | null;
   portraitPads: PadCoord[] | null;
   landscapePads: PadCoord[] | null;
+  preset?: string;
+  buttonScale?: number;
+  buttonOpacity?: number;
+  verticalOffset?: number;
+  horizontalSpread?: number;
+  swapUpDown?: boolean;
+  receptorYPercent?: number;
 }
 
-export interface PlayerInfo {
-  level: number;
-  xp: number;
-  coins: number;
-  equippedSkin: string;
-  unlockedSkins: string[];
-  equippedShape: SkinShape;
-  unlockedShapes: string[];
-  customColors: string[];
-  botplay: boolean;
-  downscroll: boolean;
-  bgFloatingNotes?: boolean;
-  menuGenre?: MenuGenre;
-  menuBgmMuted?: boolean;
-  spotifyTrackIndex?: number;
-  haptics?: HapticsSettings;
-  controlLayout?: ControlLayoutSettings;
-  unlockedNoteProducts: string[];
-  equippedNoteProduct: NoteProduct | null;
-  unlockedHitSounds: string[];
-  equippedHitSound: HitSoundProduct | null;
-  unlockedGameMods: string[];
-  activeGameMods: string[];
+export interface HapticsSettings {
+  enabled: boolean;
+  intensity: number;
+  holdEffectVolume?: number;
+  gameplayHits?: boolean;
+  holdPulses?: boolean;
+  missAlerts?: boolean;
+  menuNavigation?: boolean;
+  visualShake?: boolean;
+  soundPulse?: boolean;
+  triggers: {
+    onHit: boolean;
+    onMiss: boolean;
+    onHoldTick: boolean;
+    onComboMilestone: boolean;
+    onMenuTap: boolean;
+  };
 }
 
 export interface Modifiers {
@@ -215,26 +251,95 @@ export interface Modifiers {
   expansionTransition?: ExpansionTransitionType;
   transitionDurationSec?: number;
   transitionSpeed?: number;
-  djStopEffect?: boolean;
+  allowedDeaths?: 1 | 2 | 3;
+}
+
+export interface FirebaseUser {
+  uid: string;
+  email?: string | null;
+  displayName?: string | null;
 }
 
 export interface InterruptionData {
-  active?: boolean;
+  active: boolean;
   message?: string;
   issuedBy?: string;
   issuedAt?: number;
   stoppedAt?: number;
 }
 
-export interface FirebaseUser {
-  uid: string;
-  email: string | null;
-}
-
 export interface PeerConnectionLike {
   open?: boolean;
   _rhythmRole?: 'host' | 'guest';
+  _allowedDeaths?: 1 | 2 | 3;
+  _opponentName?: string;
+  _isSimulatedBot?: boolean;
   send: (data: any) => void;
   on: (event: string, cb: (data: any) => void) => void;
   off?: (event: string, cb: (data: any) => void) => void;
+}
+
+export interface PlayerProfile {
+  id?: string;
+  uid?: string;
+  displayName: string;
+  email?: string;
+  avatarEmoji?: string;
+  avatarIcon?: string;
+  bannerColor: string;
+  bio: string;
+  titleBadge: string;
+  ratingPoints?: number;
+  wins1v1?: number;
+  losses1v1?: number;
+  highestDifficultyCleared?: number;
+  tracksCleared?: number;
+  bestAccuracy?: number;
+  versusWins?: number;
+  versusMatches?: number;
+  horseWins?: number;
+  isAdmin?: boolean;
+  status?: 'online' | 'in_match' | 'idle';
+  lastActiveAt?: number;
+}
+
+export interface MatchInviteConfig {
+  id?: string;
+  fromName?: string;
+  toName?: string;
+  targetProfile?: PlayerProfile;
+  mode: 'online_vs' | 'horse';
+  songId?: string;
+  allowedDeaths: 1 | 2 | 3;
+  createdAt?: number;
+}
+
+export interface PlayerInfo {
+  level: number;
+  xp: number;
+  coins: number;
+  equippedSkin: string;
+  unlockedSkins: string[];
+  equippedShape: SkinShape;
+  unlockedShapes: (SkinShape | string)[];
+  customColors: string[];
+  botplay: boolean;
+  downscroll: boolean;
+  unlockedNoteProducts: string[];
+  equippedNoteProduct: NoteProduct | null;
+  unlockedHitSounds: string[];
+  equippedHitSound: HitSoundProduct | null;
+  unlockedGameMods: string[];
+  activeGameMods: string[];
+  menuBgmMuted?: boolean;
+  menuGenre?: MenuGenre;
+  spotifyTrackIndex?: number;
+  v2SpotifyDefaultApplied?: boolean;
+  bgFloatingNotes?: boolean;
+  haptics: HapticsSettings;
+  controlLayout: ControlLayoutSettings;
+  customKeybinds?: string[];
+  profile?: PlayerProfile;
+  unlockedItems?: string[];
+  completedLevels?: string[];
 }

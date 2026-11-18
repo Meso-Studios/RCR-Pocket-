@@ -15,11 +15,19 @@ import {
 } from 'lucide-react';
 import { db, storage } from '../firebaseClient';
 import { AudioEngine, WaveformPulse } from '../game/audio';
-import { ADMIN_EMAILS, TRACK_RATINGS_STORAGE_KEY } from '../game/constants';
 import {
+  ADMIN_EMAILS,
+  CUSTOM_ADMINS_STORAGE_KEY,
+  DEFAULT_OWNER_EMAIL,
+  RHYTHM_LIST_STORAGE_KEY,
+  TRACK_RATINGS_STORAGE_KEY,
+  isUserAdmin,
+} from '../game/constants';
+import {
+  formatTrackRatingBadge,
   getCommunityVoteStats,
+  getDisplayTrackRating,
   getDurationString,
-  getEffectiveTrackRating,
   getGrade,
   getHighestTrackRating,
   isTrackLabeledNewTop1,
@@ -58,6 +66,7 @@ interface OnlineTracksMenuProps {
   modifiers: Modifiers;
   setModifiers: React.Dispatch<React.SetStateAction<Modifiers>>;
   bestGrades: Record<string, number>;
+  rhythmList?: Array<string | number>;
 }
 
 export const OnlineTracksMenu: React.FC<OnlineTracksMenuProps> = ({
@@ -120,7 +129,30 @@ export const OnlineTracksMenu: React.FC<OnlineTracksMenuProps> = ({
     }
   });
   const [voteInput, setVoteInput] = useState('');
+  const [adminRateInput, setAdminRateInput] = useState('');
   const [voteFeedback, setVoteFeedback] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  const customAdmins = useMemo<string[]>(() => {
+    try {
+      const raw = safeGetStorage(CUSTOM_ADMINS_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  }, []);
+
+  const rhythmListIds = useMemo<string[]>(() => {
+    try {
+      const raw = safeGetStorage(RHYTHM_LIST_STORAGE_KEY);
+      return raw ? JSON.parse(raw).map(String) : [];
+    } catch {
+      return [];
+    }
+  }, []);
+
+  const effectiveEmail =
+    user?.email || playerInfo.profile?.email || DEFAULT_OWNER_EMAIL;
+  const isAdminUser = isUserAdmin(effectiveEmail, customAdmins);
 
   useEffect(() => {
     if (!db) return;
@@ -147,9 +179,48 @@ export const OnlineTracksMenu: React.FC<OnlineTracksMenuProps> = ({
   useEffect(() => {
     setVoteFeedback(null);
     if (selectedSong) {
-      setVoteInput(String(getEffectiveTrackRating(selectedSong, trackRatings)));
+      const disp = getDisplayTrackRating(selectedSong, trackRatings, rhythmListIds);
+      setVoteInput(disp !== null ? String(disp) : '10');
+      setAdminRateInput(disp !== null ? String(disp) : '');
     }
-  }, [selectedSong, trackRatings]);
+  }, [selectedSong, trackRatings, rhythmListIds]);
+
+  const handleAdminDirectRate = (markTop1?: boolean) => {
+    if (!selectedSong || !isAdminUser) return;
+    const key = String(selectedSong.id);
+    const currentEntry = trackRatings[key] || { songId: selectedSong.id };
+    const nextTop1 = markTop1 !== undefined ? markTop1 : Boolean(currentEntry.isNewTop1);
+    const parsed = parseFloat(adminRateInput);
+    const nextAdminRating =
+      Number.isFinite(parsed) && parsed >= 0.1
+        ? Number(parsed.toFixed(1))
+        : currentEntry.adminRating;
+
+    const nextRatings: TrackRatingsMap = {
+      ...trackRatings,
+      [key]: {
+        ...currentEntry,
+        songId: selectedSong.id,
+        adminRating: nextAdminRating,
+        isNewTop1: nextTop1,
+        updatedAt: Date.now(),
+        updatedBy: effectiveEmail,
+      },
+    };
+    setTrackRatings(nextRatings);
+    safeSetStorage(TRACK_RATINGS_STORAGE_KEY, JSON.stringify(nextRatings));
+    if (db) {
+      db.collection('system')
+        .doc('trackRatings')
+        .set({ ratings: nextRatings, updatedAt: Date.now() }, { merge: true })
+        .catch(() => {});
+    }
+    AudioEngine.playUI('confirm');
+    setVoteFeedback({
+      ok: true,
+      msg: `Admin saved track rating ★ ${nextAdminRating ?? 'N/A'}${nextTop1 ? ' [NEW TOP 1]' : ''}!`,
+    });
+  };
 
   const handleVoteSubmit = () => {
     if (!selectedSong) return;
@@ -215,7 +286,7 @@ export const OnlineTracksMenu: React.FC<OnlineTracksMenuProps> = ({
   }, [filteredSongs, selectedSong, setSelectedSong]);
 
   useEffect(() => {
-    if (!selectedSong || !selectedSong.audioUrl) {
+    if (!selectedSong || !selectedSong.audioUrl || selectedSong.audioUrl.startsWith('synth:')) {
       setIsPreviewing(false);
       if (previewAudioRef.current) {
         previewAudioRef.current.pause();
@@ -429,7 +500,6 @@ export const OnlineTracksMenu: React.FC<OnlineTracksMenuProps> = ({
     user &&
     selectedSong &&
     ((selectedSong.ownerUid && selectedSong.ownerUid === user.uid) || selectedSong.artist === user.email);
-  const isAdminUser = Boolean(user && ADMIN_EMAILS.includes(user.email || ''));
 
   return (
     <div className="rc-stage relative w-full h-full flex flex-row overflow-hidden safe-top safe-bottom">
@@ -609,7 +679,10 @@ export const OnlineTracksMenu: React.FC<OnlineTracksMenuProps> = ({
                   <div className="mt-1 flex flex-wrap items-center gap-2 text-xs sm:text-sm font-black text-slate-200 tabular-nums">
                     <span className="px-2 py-0.5 rounded-lg bg-amber-500/25 border border-amber-400/70 text-amber-300 flex items-center gap-1">
                       <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-                      RATING ★ {getEffectiveTrackRating(selectedSong, trackRatings).toFixed(1)}
+                      RATING ★{' '}
+                      {formatTrackRatingBadge(
+                        getDisplayTrackRating(selectedSong, trackRatings, rhythmListIds)
+                      )}
                     </span>
                     {isTrackLabeledNewTop1(selectedSong, trackRatings) && (
                       <span className="px-2 py-0.5 rounded-lg bg-gradient-to-r from-amber-500 to-rose-500 text-white text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
@@ -657,15 +730,56 @@ export const OnlineTracksMenu: React.FC<OnlineTracksMenuProps> = ({
                       >
                         VOTE ★
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => setScreen('admin_studio')}
-                        className="rc-bevel-btn rc-tile-red text-white px-2.5 py-1 rounded-lg text-[10px] font-black uppercase"
-                      >
-                        ADMIN ★
-                      </button>
                     </div>
                   </div>
+
+                  {isAdminUser && (
+                    <div className="mt-1 rc-dock-well p-2 rounded-xl border border-rose-500/40 bg-rose-950/25 flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-[10px] font-black uppercase tracking-wider text-rose-300 flex items-center gap-1.5">
+                        <Crown className="w-3.5 h-3.5 text-amber-400" />
+                        <span>ADMIN DIRECT RATING</span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0.1"
+                          placeholder="Set ★"
+                          value={adminRateInput}
+                          onChange={(e) => setAdminRateInput(e.target.value)}
+                          className="w-16 bg-black/80 border border-rose-400/60 rounded-lg px-2 py-1 text-xs font-black text-amber-300 text-center"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleAdminDirectRate()}
+                          className="rc-bevel-btn rc-tile-gold text-black px-2.5 py-1 rounded-lg text-[10px] font-black uppercase"
+                        >
+                          SET ★
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleAdminDirectRate(!isTrackLabeledNewTop1(selectedSong, trackRatings))
+                          }
+                          className={`rc-bevel-btn px-2.5 py-1 rounded-lg text-[10px] font-black uppercase ${
+                            isTrackLabeledNewTop1(selectedSong, trackRatings)
+                              ? 'rc-tile-pink text-white'
+                              : 'rc-sub-dark text-amber-200'
+                          }`}
+                        >
+                          {isTrackLabeledNewTop1(selectedSong, trackRatings) ? 'TOP 1 ON' : 'MARK TOP 1'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setScreen('admin_studio')}
+                          className="rc-bevel-btn rc-tile-red text-white px-2.5 py-1 rounded-lg text-[10px] font-black uppercase"
+                        >
+                          STUDIO ★
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   {voteFeedback && (
                     <div
                       className={`text-[11px] font-black ${

@@ -12,7 +12,11 @@ import {
   SPEED_TRIGGER_PRESETS,
 } from '../game/constants';
 import { pollActiveGamepadLanes, type LaneTuple } from '../game/gamepad';
-import { normalizeHapticsSettings, triggerHaptic } from '../game/haptics';
+import {
+  getHoldCrescendoPulseIntervalMs,
+  normalizeHapticsSettings,
+  triggerHaptic,
+} from '../game/haptics';
 import { normalizeControlLayout } from '../game/layoutConfig';
 import {
   drawExpansionTransitionOverlay,
@@ -23,17 +27,23 @@ import {
 } from '../game/renderer';
 import {
   applyNerfChart,
+  computeInvisibleNoteVisibility,
+  computeVelocityNoteScroll,
   createAltChart,
   evaluateHitTiming,
+  formatTrackRatingBadge,
   generateBeatmap,
   getActiveLaneExpansionState,
   getActiveSpeedMultiplierAtTime,
+  getActiveVelocityEffectAtTime,
+  getDisplayTrackRating,
   getEffectiveScrollSpeed,
-  getEffectiveTrackRating,
   getExpandedLaneColors,
   getGrade,
   getLaneFromPlayfieldPoint,
   getPlayfieldLayout,
+  isInvisibleTriggerActiveAtTime,
+  mapCustomKeyToLane,
   normalizeChart,
 } from '../game/rhythmLogic';
 import { safeGetStorage, safeSetStorage } from '../game/storage';
@@ -136,21 +146,21 @@ export const GameEngine: React.FC<GameEngineProps> = ({
   const [songProgressPct, setSongProgressPct] = useState(0);
   const lastProgressSyncRef = useRef(0);
 
-  // Live Gameplay Mechanics: Speed Trigger (6 presets), Extra Notes (4/6/8), 7 Transitions, Transition Speed (0.1s-2.0s), DJ Stop
-  const [liveSpeedTrigger, setLiveSpeedTrigger] = useState<SpeedTriggerPreset>(
-    () => (modifiers?.speedPreset || modifiers?.speedTrigger || 1.0) as SpeedTriggerPreset
-  );
-  const [liveExtraNotes, setLiveExtraNotes] = useState<ExtraNotesCount>(
-    () => (modifiers?.laneCount || modifiers?.extraNotes || 4) as ExtraNotesCount
-  );
-  const [liveTransitionType, setLiveTransitionType] = useState<ExpansionTransitionType>(
-    () => modifiers?.expansionTransition || 'split_out'
-  );
-  const [liveTransitionSpeed, setLiveTransitionSpeed] = useState<number>(
-    () => Number(modifiers?.transitionDurationSec ?? modifiers?.transitionSpeed ?? 0.6)
-  );
+  // Track-authored triggers base defaults (triggers are strictly authored in the track and not editable by players)
+  const [liveSpeedTrigger] = useState<SpeedTriggerPreset>(1.0);
+  const [liveExtraNotes] = useState<ExtraNotesCount>(4);
+  const [liveTransitionType] = useState<ExpansionTransitionType>('split_out');
+  const [liveTransitionSpeed] = useState<number>(0.6);
   const [djStopActive, setDjStopActive] = useState(false);
-  const [showTriggersBar, setShowTriggersBar] = useState(false);
+
+  const allowedDeaths = Math.max(
+    1,
+    Math.min(3, Number(networkConnection?._allowedDeaths || modifiers?.allowedDeaths || 2))
+  ) as 1 | 2 | 3;
+  const [vsDeathsUsed, setVsDeathsUsed] = useState(0);
+  const vsDeathsUsedRef = useRef(0);
+  vsDeathsUsedRef.current = vsDeathsUsed;
+  const lossStopActiveRef = useRef(false);
 
   const liveSpeedTriggerRef = useRef<SpeedTriggerPreset>(liveSpeedTrigger);
   liveSpeedTriggerRef.current = liveSpeedTrigger;
@@ -175,6 +185,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
     durationMs: number;
   }>({ active: false, startedAtMs: 0, durationMs: 1400 });
   const firedDjTriggerIdsRef = useRef<Set<string>>(new Set());
+  const lastLaneHoldHapticAtRef = useRef<number[]>([0, 0, 0, 0, 0, 0, 0, 0]);
 
   const synthGenre: MenuGenre | null = song.audioUrl?.startsWith('synth:')
     ? ((song.audioUrl.replace('synth:', '') as MenuGenre) || 'rave')
@@ -271,6 +282,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
 
   useEffect(() => {
     return () => {
+      AudioEngine.stopAllMikuHoldRisers();
       if (synthGenre) {
         MenuMusicEngine.stop();
       }
@@ -457,13 +469,13 @@ export const GameEngine: React.FC<GameEngineProps> = ({
         isVS,
         downscroll: playerInfo.downscroll,
         heroMode,
-        customLanes: activeCustomLanes,
+        controlLayout: !isVS && !heroMode ? effectiveControlLayout : null,
         laneCount: isVS ? 4 : liveExtraNotes,
         fromLaneCount: isVS ? 4 : liveExtraNotes,
         transitionProgress: 1,
         transitionType: liveTransitionType,
       }),
-    [isVS, playerInfo.downscroll, heroMode, activeCustomLanes, liveExtraNotes, liveTransitionType]
+    [isVS, playerInfo.downscroll, heroMode, effectiveControlLayout, liveExtraNotes, liveTransitionType]
   );
   const playfieldLayoutRef = useRef(playfieldLayout);
   playfieldLayoutRef.current = playfieldLayout;
@@ -491,22 +503,6 @@ export const GameEngine: React.FC<GameEngineProps> = ({
     );
   }, [playfieldLayout.noteSize, gameplaySkinColors, gameplaySkinShape, gameplayNoteProduct]);
 
-  const handleSelectExtraNotes = useCallback(
-    (nextLanes: ExtraNotesCount) => {
-      const prevLanes = liveExtraNotesRef.current;
-      if (prevLanes !== nextLanes) {
-        manualExpansionRef.current = {
-          fromLanes: prevLanes,
-          toLanes: nextLanes,
-          startedAtMs: performance.now(),
-          durationMs: Math.max(100, Math.round(liveTransitionSpeedRef.current * 1000)),
-          transitionType: liveTransitionTypeRef.current,
-        };
-      }
-      setLiveExtraNotes(nextLanes);
-    },
-    []
-  );
 
   const triggerDjRecordStop = useCallback((durationSec = 1.4) => {
     const durMs = Math.max(400, Math.round(durationSec * 1000));
@@ -894,6 +890,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
         smoothAudioTimeRef.current + frameDeltaMs * targetRate * (inDemonMode ? 0.5 : 1);
 
       if (!isDown) {
+        AudioEngine.stopMikuHoldRiser(laneIdx, false);
         const held = mapRef.current.find(
           (n) => n.lane === laneIdx && n.type === 'hold' && n.holding && !n.hit && !n.missed
         );
@@ -1031,9 +1028,11 @@ export const GameEngine: React.FC<GameEngineProps> = ({
   const handleLaneDown = useCallback((lane: number) => handleLaneInput(lane, true), [handleLaneInput]);
   const handleLaneUp = useCallback((lane: number) => handleLaneInput(lane, false), [handleLaneInput]);
 
-  // Wireless / Bluetooth / Hardware Keyboard listener (Arrow, WASD, IJKL, ZXCV via e.code & e.key for up to 8 lanes)
+  // Wireless / Bluetooth / Hardware Keyboard listener supporting user-configured 8-note Custom Keybinds + fallback presets
   useEffect(() => {
     const resolveKeyLane = (e: KeyboardEvent): number | undefined => {
+      const customLane = mapCustomKeyToLane(e.key, e.code, playerInfo.customKeybinds);
+      if (customLane !== null) return customLane;
       const byCode = KEY_CODE_MAP[e.code];
       if (byCode !== undefined) return byCode;
       return KEY_MAP[e.key.toLowerCase()];
@@ -1072,7 +1071,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
       window.removeEventListener('blur', releaseAll);
       document.removeEventListener('visibilitychange', onVisChange);
     };
-  }, [handleLaneInput]);
+  }, [handleLaneInput, playerInfo.customKeybinds]);
 
   // Direct zero-latency multi-touch tapping on the gray receptor notes & canvas lanes
   useEffect(() => {
@@ -1126,18 +1125,40 @@ export const GameEngine: React.FC<GameEngineProps> = ({
 
   useEffect(() => {
     if (health <= 0 && gameState === 'playing' && !modifiers?.noFail) {
+      AudioEngine.stopAllMikuHoldRisers();
+      if (isVS && vsDeathsUsedRef.current + 1 < allowedDeaths) {
+        const nextDeaths = vsDeathsUsedRef.current + 1;
+        vsDeathsUsedRef.current = nextDeaths;
+        setVsDeathsUsed(nextDeaths);
+        setHealth(100);
+        spawnJudgment(`DEATH ${nextDeaths}/${allowedDeaths} • ${allowedDeaths - nextDeaths} LEFT!`, '#f59e0b', true);
+        triggerShake();
+        triggerHaptic('miss', hapticsRef.current);
+        return;
+      }
       if (isBattleRoyale) {
         activeJudgments.current = [];
         hitBursts.current = [];
         keysPressed.current = [false, false, false, false, false, false, false, false];
         setPlayerEliminated(true);
+        triggerDjRecordStop(1.0);
         const first = brBots.current.find((b) => b.alive);
         setSpectateBotId(first?.id || null);
-      } else {
-        setGameState('finished');
+      } else if (!lossStopActiveRef.current) {
+        lossStopActiveRef.current = true;
+        if (isVS) {
+          vsDeathsUsedRef.current = allowedDeaths;
+          setVsDeathsUsed(allowedDeaths);
+        }
+        // DJ Stop ONLY happens automatically when the player loses, syncing vinyl spin-down with chart scroll deceleration
+        triggerDjRecordStop(1.15);
+        spawnJudgment('DJ STOP • TRACK FAILED', '#f43f5e', true);
+        setTimeout(() => {
+          setGameState('finished');
+        }, 900);
       }
     }
-  }, [health, gameState, isBattleRoyale, modifiers?.noFail]);
+  }, [health, gameState, isBattleRoyale, isVS, allowedDeaths, modifiers?.noFail, spawnJudgment, triggerDjRecordStop, triggerShake]);
 
   useEffect(() => {
     if (gameState === 'countdown') {
@@ -1199,7 +1220,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
           }));
         }
         if (modifiers?.altChart) mapRef.current = createAltChart(mapRef.current);
-        if (modifiers?.nerf) mapRef.current = applyNerfChart(mapRef.current, modifiers.nerf, song.id || song.title);
+        if (modifiers?.nerf) mapRef.current = applyNerfChart(mapRef.current, modifiers.nerf, Number(song.id) || 1);
       }, delayMs);
       return () => clearTimeout(timer);
     }
@@ -1316,6 +1337,10 @@ export const GameEngine: React.FC<GameEngineProps> = ({
     audioClockInitializedRef.current = false;
     loopCountRef.current = 0;
     djBrakeRef.current = { active: false, startedAtMs: 0, durationMs: 1400 };
+    lossStopActiveRef.current = false;
+    vsDeathsUsedRef.current = 0;
+    setVsDeathsUsed(0);
+    AudioEngine.stopAllMikuHoldRisers();
     firedDjTriggerIdsRef.current.clear();
     brBots.current = [];
     setBrBoard([]);
@@ -1425,24 +1450,17 @@ export const GameEngine: React.FC<GameEngineProps> = ({
       const curEliminated = playerEliminatedRef.current;
       const curSpectateBotId = spectateBotIdRef.current;
 
-      // DJ Record Stopping brake factor (decelerates both audio playback AND chart scroll speed in sync)
+      // Loss-only DJ Record Stopping brake factor (decelerates both audio playback AND chart scroll speed to a halt on loss)
       let vinylBrakeFactor = 1;
       if (djBrakeRef.current.active) {
         const brakeElapsed = now - djBrakeRef.current.startedAtMs;
         const brakeDur = djBrakeRef.current.durationMs;
         if (brakeElapsed < brakeDur) {
-          const p = brakeElapsed / brakeDur;
-          // Smooth vinyl brake curve down to 0.06x then spin-back recovery in final 20%
-          if (p < 0.78) {
-            const k = p / 0.78;
-            vinylBrakeFactor = Math.max(0.06, Math.pow(1 - k, 2.2));
-          } else {
-            const k = (p - 0.78) / 0.22;
-            vinylBrakeFactor = 0.06 + 0.94 * (k * k);
-          }
+          const p = Math.max(0, Math.min(1, brakeElapsed / brakeDur));
+          vinylBrakeFactor = Math.max(0.02, Math.pow(1 - p, 2.3));
         } else {
+          vinylBrakeFactor = lossStopActiveRef.current ? 0.02 : 1;
           djBrakeRef.current.active = false;
-          vinylBrakeFactor = 1;
         }
       }
 
@@ -1492,22 +1510,6 @@ export const GameEngine: React.FC<GameEngineProps> = ({
         currentAudioTime = virtualTimeRef.current;
       }
 
-      // Check chart-authored DJ Record Stop triggers
-      if (Array.isArray(curSong.triggers)) {
-        for (const trig of curSong.triggers) {
-          if (
-            trig.type === 'dj_stop' &&
-            currentAudioTime >= trig.time &&
-            currentAudioTime <= trig.time + 250 &&
-            !firedDjTriggerIdsRef.current.has(trig.id)
-          ) {
-            firedDjTriggerIdsRef.current.add(trig.id);
-            triggerDjRecordStopRef.current(trig.stopDurationSec || 1.4);
-            spawnJudgmentRef.current('DJ RECORD STOP!', '#f43f5e', true);
-          }
-        }
-      }
-
       // Update Song Completion Percentage Bar (0% -> 100%)
       const lastChartNoteTime = mapRef.current.length > 0 ? mapRef.current[mapRef.current.length - 1].time : 60000;
       const audioDurMs =
@@ -1554,11 +1556,12 @@ export const GameEngine: React.FC<GameEngineProps> = ({
           expansionState = {
             fromLanes: man.fromLanes,
             toLanes: man.toLanes,
+            targetLanes: man.toLanes,
             currentLanes: man.toLanes,
             progress: prog,
+            transition: man.transitionType,
             transitionType: man.transitionType,
-            transitionDurationSec: man.durationMs / 1000,
-            isTransitioning: prog < 1,
+            durationSec: man.durationMs / 1000,
           };
         } else {
           manualExpansionRef.current = null;
@@ -1573,7 +1576,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
         isVS,
         downscroll: curDownscroll,
         heroMode,
-        customLanes: activeCustomLanesRef.current,
+        controlLayout: !isVS && !heroMode ? effectiveControlLayout : null,
         laneCount: activePlayerLaneCount,
         fromLaneCount: isVS ? 4 : expansionState.fromLanes,
         transitionProgress: expansionState.progress,
@@ -1667,6 +1670,21 @@ export const GameEngine: React.FC<GameEngineProps> = ({
             if (note.holding && isPlayerNote) {
               anyHolding = true;
               laneHolding[note.lane] = true;
+              const holdDur = note.duration || 500;
+              // Hatsune Miku Project DIVA-style 1.0s+ hold note rising synth + escalating haptics crescendo
+              if (holdDur >= 1000) {
+                const holdProgress01 = Math.max(0, Math.min(1, (currentAudioTime - note.time) / Math.max(1, holdDur)));
+                AudioEngine.updateMikuHoldRiser(
+                  note.lane,
+                  holdProgress01,
+                  hapticsRef.current.holdEffectVolume ?? 80
+                );
+                const pulseInterval = getHoldCrescendoPulseIntervalMs(holdProgress01);
+                if (now - (lastLaneHoldHapticAtRef.current[note.lane] || 0) >= pulseInterval) {
+                  lastLaneHoldHapticAtRef.current[note.lane] = now;
+                  triggerHaptic('hold_crescendo', hapticsRef.current, 'sick', holdProgress01);
+                }
+              }
             }
 
             if (
@@ -1694,7 +1712,16 @@ export const GameEngine: React.FC<GameEngineProps> = ({
               spawnJudgmentRef.current('SICK!!', '#a78bfa', true);
               hitBursts.current.push({ lane: note.lane, time: performance.now(), color: '#a78bfa' });
               playGameplayHitRef.current(note.lane);
-              triggerHaptic('hit', hapticsRef.current, 'sick');
+              if ((note.duration || 500) >= 1000) {
+                AudioEngine.stopMikuHoldRiser(
+                  note.lane,
+                  true,
+                  hapticsRef.current.holdEffectVolume ?? 80
+                );
+                triggerHaptic('hold_complete', hapticsRef.current, 'sick', 1);
+              } else {
+                triggerHaptic('hit', hapticsRef.current, 'sick');
+              }
             }
             if (
               curBotplay &&
@@ -1922,6 +1949,9 @@ export const GameEngine: React.FC<GameEngineProps> = ({
       }
 
       const renderLeadMs = heroMode ? 1450 : (layout.height + 160) / Math.max(0.15, visualSpeed);
+      const invisibleNotesActive = isInvisibleTriggerActiveAtTime(curSong.triggers, currentAudioTime);
+      const activeVelocityTrigger = getActiveVelocityEffectAtTime(curSong.triggers, currentAudioTime);
+
       mapRef.current.forEach((note, noteIndex) => {
         if (!isVS && note.lane >= activePlayerLaneCount) return;
         if (
@@ -1936,14 +1966,30 @@ export const GameEngine: React.FC<GameEngineProps> = ({
         }
         const isOppNote = isVS && note.lane >= 4;
         const laneY = isOppNote ? layout.receptorY : layout.playerLaneYs[note.lane] ?? layout.receptorY;
+        const travelProgress01 = Math.max(
+          0,
+          Math.min(1.15, 1 - (note.time - currentAudioTime) / Math.max(250, renderLeadMs))
+        );
+        const velocityScroll =
+          !heroMode && !note.holding && activeVelocityTrigger.effect !== 'linear'
+            ? computeVelocityNoteScroll(
+                travelProgress01,
+                activeVelocityTrigger.effect,
+                activeVelocityTrigger.intensity
+              )
+            : null;
+        const effectiveTimeRemainingMs = velocityScroll
+          ? (1 - velocityScroll.visualProgress) * renderLeadMs
+          : note.time - currentAudioTime;
+
         let y =
           watchedBot?.resolved?.[noteIndex] === 1 && now - (watchedBot.resolvedAt?.[noteIndex] || 0) < 180
             ? laneY
             : note.holding
             ? laneY
             : curDownscroll
-            ? laneY - (note.time - currentAudioTime) * visualSpeed
-            : laneY + (note.time - currentAudioTime) * visualSpeed;
+            ? laneY - effectiveTimeRemainingMs * visualSpeed
+            : laneY + effectiveTimeRemainingMs * visualSpeed;
         let heroScale = 1;
         if (heroMode) {
           const farY = 55;
@@ -1956,6 +2002,9 @@ export const GameEngine: React.FC<GameEngineProps> = ({
           let x = isOppNote
             ? layout.opponentLaneXs[note.lane - 4] ?? 400
             : layout.playerLaneXs[note.lane] ?? 20;
+          if (velocityScroll) {
+            x += velocityScroll.lateralOffsetPx;
+          }
           if (heroMode) {
             const cx = layout.width / 2;
             const farHalf = layout.width * 0.14;
@@ -1966,32 +2015,52 @@ export const GameEngine: React.FC<GameEngineProps> = ({
             const size = layout.noteSize * heroScale;
             x = cx - half + (note.lane % activePlayerLaneCount) * laneW + (laneW - size) / 2;
           }
+
+          // Invisible Notes Trigger: flash brightly towards beginning-to-middle of travel, then fade to invisible
+          const invisibleState =
+            !note.holding && invisibleNotesActive ? computeInvisibleNoteVisibility(travelProgress01) : null;
+          if (invisibleState && invisibleState.alpha <= 0.01) {
+            return;
+          }
+
           const colorIdx = isOppNote ? (note.lane - 4) % 4 : note.lane % curSkinColors.length;
-          const noteColor = curSkinColors[colorIdx];
+          const noteColor = invisibleState && invisibleState.flashGlow > 0.35 ? '#ffffff' : curSkinColors[colorIdx];
           if (note.type === 'hold') {
             const remain = note.holding
               ? Math.max(0, note.time + (note.duration || 500) - currentAudioTime)
               : note.duration || 500;
             const tail = remain * visualSpeed * (curDownscroll ? -1 : 1);
+            ctx.save();
+            if (invisibleState) ctx.globalAlpha = invisibleState.alpha;
             drawHoldTail(
               ctx,
               x,
               y,
               layout.noteSize,
               tail,
-              noteColor,
+              curSkinColors[colorIdx],
               Boolean(note.holding),
               currentAudioTime
             );
+            ctx.restore();
           }
 
           // Subtle BPM-synced note pulse + approach pop when entering perfect hit zone
           const timeDist = Math.abs(note.time - currentAudioTime);
           const approachPop = timeDist < HIT_WINDOWS.sick ? (1 - timeDist / HIT_WINDOWS.sick) * 0.08 : 0;
+          const flashScaleBoost = invisibleState ? invisibleState.flashGlow * 0.16 : 0;
           const noteAnimScale = note.holding
             ? 1.1 + 0.06 * Math.sin(currentAudioTime * 0.03)
-            : 1 + beatPulse * 0.045 + approachPop;
-          const laneTransform = !isOppNote ? layout.laneTransforms?.[note.lane] : undefined;
+            : 1 + beatPulse * 0.045 + approachPop + flashScaleBoost;
+          const baseLaneTransform = !isOppNote ? layout.laneTransforms?.[note.lane] : undefined;
+          const laneTransform = invisibleState
+            ? {
+                alpha: (baseLaneTransform?.alpha ?? 1) * invisibleState.alpha,
+                scaleX: baseLaneTransform?.scaleX ?? 1,
+                scaleY: baseLaneTransform?.scaleY ?? 1,
+                slatClip: baseLaneTransform?.slatClip,
+              }
+            : baseLaneTransform;
 
           drawNote(
             ctx,
@@ -2254,32 +2323,23 @@ export const GameEngine: React.FC<GameEngineProps> = ({
               <span className="hidden md:inline">{onExitPlaytest ? 'RETURN TO EDITOR' : 'EXIT'}</span>
             </button>
 
-            <button
-              data-testid="game-dj-stop-btn"
-              onClick={() => triggerDjRecordStop(1.4)}
-              title="Trigger DJ Record Stop Effect (Synced with Scroll Speed)"
-              className={`rc-bevel-btn font-black flex items-center gap-1 whitespace-nowrap ${
-                isLandscapeCompact ? 'px-2 py-1 text-[10px]' : 'px-2.5 py-1.5 text-xs'
-              } ${djStopActive ? 'rc-tile-red text-white animate-pulse' : 'rc-tile-violet text-white'}`}
-            >
-              <Disc3 className={`w-3.5 h-3.5 ${djStopActive ? 'animate-spin' : ''}`} />
-              <span>DJ STOP</span>
-            </button>
-
-            {!isVS && (
-              <button
-                data-testid="game-triggers-hud-btn"
-                onClick={() => setShowTriggersBar((v) => !v)}
-                title="Toggle Live Speed & Extra Notes Triggers Deck"
-                className={`rc-bevel-btn font-black flex items-center gap-1 whitespace-nowrap ${
-                  isLandscapeCompact ? 'px-2 py-1 text-[10px]' : 'px-2.5 py-1.5 text-xs'
-                } ${showTriggersBar ? 'rc-tile-cyan text-black' : 'rc-tile-slate text-cyan-200'}`}
+            {djStopActive && (
+              <div
+                data-testid="game-dj-stop-indicator"
+                className="rc-bevel-btn rc-tile-red text-white px-2.5 py-1 text-[10px] font-black flex items-center gap-1 animate-pulse whitespace-nowrap"
               >
-                <Zap className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">
-                  {liveSpeedTrigger.toFixed(2)}x · {liveExtraNotes}L
-                </span>
-              </button>
+                <Disc3 className="w-3.5 h-3.5 animate-spin" />
+                <span>DJ RECORD STOP</span>
+              </div>
+            )}
+
+            {isVS && (
+              <div
+                data-testid="game-vs-lives-badge"
+                className="rc-dock-well px-2.5 py-1 text-[10px] font-black text-amber-300 border border-amber-400/50 whitespace-nowrap"
+              >
+                LIVES: {Math.max(0, allowedDeaths - vsDeathsUsed)}/{allowedDeaths}
+              </div>
             )}
           </div>
 
@@ -2384,82 +2444,6 @@ export const GameEngine: React.FC<GameEngineProps> = ({
             </button>
           </div>
         </div>
-
-        {/* Live Gameplay Triggers Strip: 6 Speed Presets + Extra Notes (4/6/8) + 7 PowerPoint Transitions + Transition Speed (0.1s-2.0s) */}
-        {showTriggersBar && !isVS && (
-          <div
-            data-testid="live-triggers-bar"
-            className="rc-dock-rail w-full px-3 py-1.5 flex flex-wrap items-center justify-between gap-2 text-[10px] font-black"
-          >
-            <div className="flex items-center gap-1 flex-wrap">
-              <span className="text-amber-300 uppercase mr-1 flex items-center gap-1">
-                <Zap className="w-3 h-3" /> SPEED TRIGGER:
-              </span>
-              {SPEED_TRIGGER_PRESETS.map((preset) => (
-                <button
-                  key={preset}
-                  type="button"
-                  data-testid={`hud-speed-${preset}`}
-                  onClick={() => setLiveSpeedTrigger(preset)}
-                  className={`px-2 py-0.5 rounded border transition-all ${
-                    liveSpeedTrigger === preset
-                      ? 'bg-amber-400 text-black border-white font-black'
-                      : 'bg-black/60 text-white/75 border-white/20 hover:bg-white/10'
-                  }`}
-                >
-                  {preset.toFixed(2)}x
-                </button>
-              ))}
-            </div>
-
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-fuchsia-300 uppercase flex items-center gap-1">
-                <Layers className="w-3 h-3" /> EXTRA NOTES:
-              </span>
-              {EXTRA_NOTES_PRESETS.map((cnt) => (
-                <button
-                  key={cnt}
-                  type="button"
-                  data-testid={`hud-lanes-${cnt}`}
-                  onClick={() => handleSelectExtraNotes(cnt)}
-                  className={`px-2 py-0.5 rounded border transition-all ${
-                    liveExtraNotes === cnt
-                      ? 'bg-fuchsia-500 text-white border-white font-black'
-                      : 'bg-black/60 text-white/75 border-white/20 hover:bg-white/10'
-                  }`}
-                >
-                  {cnt} LANES
-                </button>
-              ))}
-
-              <select
-                aria-label="Note Expansion Transition"
-                value={liveTransitionType}
-                onChange={(e) => setLiveTransitionType(e.target.value as ExpansionTransitionType)}
-                className="bg-[#0b0e17] border border-fuchsia-400/50 rounded px-2 py-0.5 text-[10px] font-black text-fuchsia-200"
-              >
-                {EXPANSION_TRANSITIONS.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-              </select>
-
-              <label className="flex items-center gap-1 text-cyan-200">
-                <span>{liveTransitionSpeed.toFixed(1)}s</span>
-                <input
-                  type="range"
-                  min={0.1}
-                  max={2.0}
-                  step={0.1}
-                  value={liveTransitionSpeed}
-                  onChange={(e) => setLiveTransitionSpeed(Number(parseFloat(e.target.value).toFixed(1)))}
-                  className="w-16 accent-fuchsia-400"
-                />
-              </label>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Desktop Left Active Mods Well */}
@@ -2719,7 +2703,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
                     {song.artist} • {difficulty} • {gameMode}
                   </span>
                   <span className="px-2 py-0.5 rounded bg-amber-500/20 border border-amber-400/50 text-[10px] font-black text-amber-300">
-                    ★ {getEffectiveTrackRating(song).toFixed(1)} DIFFICULTY
+                    ★ {formatTrackRatingBadge(getDisplayTrackRating(song))} DIFFICULTY
                   </span>
                   <span className="px-2 py-0.5 rounded bg-fuchsia-500/20 border border-fuchsia-400/50 text-[10px] font-black text-fuchsia-200">
                     {liveExtraNotes} LANES • {liveSpeedTrigger.toFixed(2)}x SCROLL

@@ -20,6 +20,8 @@ import {
   ShoppingCart,
   Sparkles,
   Star,
+  User,
+  Keyboard,
   Vibrate,
   Volume2,
   VolumeX,
@@ -30,6 +32,9 @@ import { AudioEngine, MenuMusicEngine } from '../game/audio';
 import {
   ADMIN_EMAILS,
   APP_VERSION,
+  CUSTOM_ADMINS_STORAGE_KEY,
+  DEFAULT_CUSTOM_KEYBINDS,
+  DEFAULT_OWNER_EMAIL,
   MENU_GENRE_CONFIGS,
   MENU_GENRE_ORDER,
   SKINS,
@@ -38,15 +43,26 @@ import {
   SPOTIFY_PLAYLIST_TITLE,
   SPOTIFY_PLAYLIST_TRACKS,
   SPOTIFY_PLAYLIST_URL,
+  isUserAdmin,
 } from '../game/constants';
 import { normalizeHapticsSettings, triggerHaptic } from '../game/haptics';
 import { normalizeControlLayout } from '../game/layoutConfig';
 import { getXpRequirement } from '../game/rhythmLogic';
-import { safeSetStorage } from '../game/storage';
-import type { FirebaseUser, InterruptionData, MenuGenre, PlayerInfo, ScreenId } from '../game/types';
+import { safeGetStorage, safeSetStorage } from '../game/storage';
+import type {
+  FirebaseUser,
+  InterruptionData,
+  MatchInviteConfig,
+  MenuGenre,
+  PlayerInfo,
+  PlayerProfile,
+  ScreenId,
+} from '../game/types';
 import { useIsCompactLandscape } from '../game/useViewport';
 import { ControlLayoutModal } from './ControlLayoutModal';
 import { HapticsSettingsModal } from './HapticsSettingsModal';
+import { KeybindsModal } from './KeybindsModal';
+import { ProfileModal } from './ProfileModal';
 import { RaveStageCanvas } from './RaveStageCanvas';
 
 interface MainMenuProps {
@@ -61,6 +77,7 @@ interface MainMenuProps {
   onOpenChangelog: () => void;
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
+  onLaunch1v1Invite?: (invite: MatchInviteConfig) => void;
 }
 
 const InterruptionAdminPanel: React.FC<{ interruption: InterruptionData | null }> = ({ interruption }) => {
@@ -147,6 +164,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({
   onOpenChangelog,
   isFullscreen = false,
   onToggleFullscreen,
+  onLaunch1v1Invite,
 }) => {
   const xpRequired = getXpRequirement(playerInfo.level);
   const xpPercent = Math.min(100, Math.max(0, (playerInfo.xp / xpRequired) * 100));
@@ -164,6 +182,8 @@ export const MainMenu: React.FC<MainMenuProps> = ({
   const [showAdminDrawer, setShowAdminDrawer] = useState(false);
   const [showHapticsModal, setShowHapticsModal] = useState(false);
   const [showLayoutModal, setShowLayoutModal] = useState(false);
+  const [showKeybindsModal, setShowKeybindsModal] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
   const [otaVer, setOtaVer] = useState((APP_VERSION + 0.1).toFixed(1));
   const [otaMsg, setOtaMsg] = useState('New features added! Restart to play.');
   const [otaStatus, setOtaStatus] = useState('');
@@ -367,7 +387,18 @@ export const MainMenu: React.FC<MainMenuProps> = ({
     }
   };
 
-  const isAdminUser = Boolean(user && ADMIN_EMAILS.includes(user.email || ''));
+  const customAdmins: string[] = (() => {
+    try {
+      const raw = safeGetStorage(CUSTOM_ADMINS_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  })();
+
+  const effectiveEmail =
+    user?.email || playerInfo.profile?.email || DEFAULT_OWNER_EMAIL;
+  const isAdminUser = isUserAdmin(effectiveEmail, customAdmins);
 
   return (
     <div className="relative w-full h-full flex flex-col justify-between rc-stage overflow-x-hidden overflow-y-auto custom-scrollbar safe-top safe-bottom">
@@ -534,17 +565,49 @@ export const MainMenu: React.FC<MainMenuProps> = ({
 
             <button
               type="button"
-              data-testid="menu-admin-btn"
+              data-testid="menu-profile-btn"
               onClick={() => {
                 triggerHaptic('menuTap', hapticsConfig);
-                setScreen('admin_studio');
+                setShowProfileModal(true);
               }}
-              className={`rc-bevel-btn rc-tile-red rounded-lg text-[10px] sm:text-xs font-black text-white tracking-wider whitespace-nowrap ${
+              className={`rc-bevel-btn rc-tile-purple rounded-lg flex items-center gap-1 text-[10px] sm:text-xs font-black text-white tracking-wider whitespace-nowrap ${
                 isCompact ? 'px-2 py-0.5 min-h-[26px]' : 'px-2.5 py-1 min-h-[32px]'
               }`}
             >
-              ADMIN
+              <User className="w-3.5 h-3.5 shrink-0" />
+              <span>PROFILE</span>
             </button>
+
+            <button
+              type="button"
+              data-testid="menu-keybinds-btn"
+              onClick={() => {
+                triggerHaptic('menuTap', hapticsConfig);
+                setShowKeybindsModal(true);
+              }}
+              className={`rc-bevel-btn rc-sub-dark rounded-lg flex items-center gap-1 text-[10px] sm:text-xs font-black text-cyan-200 tracking-wider whitespace-nowrap ${
+                isCompact ? 'px-2 py-0.5 min-h-[26px]' : 'px-2.5 py-1 min-h-[32px]'
+              }`}
+            >
+              <Keyboard className="w-3.5 h-3.5 shrink-0 text-cyan-300" />
+              <span className="hidden md:inline">KEYBINDS</span>
+            </button>
+
+            {isAdminUser && (
+              <button
+                type="button"
+                data-testid="menu-admin-btn"
+                onClick={() => {
+                  triggerHaptic('menuTap', hapticsConfig);
+                  setScreen('admin_studio');
+                }}
+                className={`rc-bevel-btn rc-tile-red rounded-lg text-[10px] sm:text-xs font-black text-white tracking-wider whitespace-nowrap ${
+                  isCompact ? 'px-2 py-0.5 min-h-[26px]' : 'px-2.5 py-1 min-h-[32px]'
+                }`}
+              >
+                ADMIN
+              </button>
+            )}
 
             <button
               type="button"
@@ -1010,6 +1073,30 @@ export const MainMenu: React.FC<MainMenuProps> = ({
               </button>
               <button
                 type="button"
+                data-testid="quick-settings-keybinds-btn"
+                onClick={() => {
+                  setShowQuickSettingsModal(false);
+                  setShowKeybindsModal(true);
+                }}
+                className="rc-bevel-btn rc-tile-cyan text-black px-3 py-2.5 text-xs font-black uppercase tracking-wide flex items-center justify-center gap-1.5 whitespace-nowrap min-h-[42px]"
+              >
+                <Keyboard className="w-3.5 h-3.5" />
+                <span>8-NOTE KEYBINDS</span>
+              </button>
+              <button
+                type="button"
+                data-testid="quick-settings-profile-btn"
+                onClick={() => {
+                  setShowQuickSettingsModal(false);
+                  setShowProfileModal(true);
+                }}
+                className="rc-bevel-btn rc-tile-purple text-white px-3 py-2.5 text-xs font-black uppercase tracking-wide flex items-center justify-center gap-1.5 whitespace-nowrap min-h-[42px]"
+              >
+                <User className="w-3.5 h-3.5" />
+                <span>PLAYER PROFILE & 1V1</span>
+              </button>
+              <button
+                type="button"
                 data-testid="menu-notices-btn"
                 onClick={onToggleInterruptions}
                 className="rc-bevel-btn rc-sub-dark px-3 py-2.5 text-xs font-black uppercase tracking-wide whitespace-nowrap min-h-[42px]"
@@ -1247,6 +1334,47 @@ export const MainMenu: React.FC<MainMenuProps> = ({
             })
           }
           onClose={() => setShowLayoutModal(false)}
+        />
+      )}
+
+      {showKeybindsModal && (
+        <KeybindsModal
+          keybinds={playerInfo.customKeybinds || DEFAULT_CUSTOM_KEYBINDS}
+          haptics={playerInfo.haptics}
+          onChange={(nextBinds: string[]) =>
+            setPlayerInfo((prev) => {
+              const next = { ...prev, customKeybinds: nextBinds };
+              safeSetStorage('rhythmCanvasSave', JSON.stringify(next));
+              return next;
+            })
+          }
+          onClose={() => setShowKeybindsModal(false)}
+        />
+      )}
+
+      {showProfileModal && (
+        <ProfileModal
+          playerInfo={playerInfo}
+          user={user}
+          customAdmins={customAdmins}
+          knownProfiles={[]}
+          haptics={playerInfo.haptics}
+          onUpdateProfile={(nextProfile: PlayerProfile) =>
+            setPlayerInfo((prev) => {
+              const next = { ...prev, profile: nextProfile };
+              safeSetStorage('rhythmCanvasSave', JSON.stringify(next));
+              return next;
+            })
+          }
+          onSend1v1Invite={(invite: MatchInviteConfig) => {
+            setShowProfileModal(false);
+            if (onLaunch1v1Invite) {
+              onLaunch1v1Invite(invite);
+            } else {
+              setScreen('lobby');
+            }
+          }}
+          onClose={() => setShowProfileModal(false)}
         />
       )}
     </div>
