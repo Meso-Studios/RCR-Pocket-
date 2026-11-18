@@ -1,16 +1,36 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Move, Smartphone, Trophy, Vibrate, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Disc3, Layers, Move, Smartphone, Trophy, Vibrate, X, Zap } from 'lucide-react';
 import { AudioEngine, MenuMusicEngine, WaveformPulse } from '../game/audio';
-import { HIT_WINDOWS, KEY_CODE_MAP, KEY_MAP, SCROLL_SPEEDS, SKINS } from '../game/constants';
+import {
+  EXPANSION_TRANSITIONS,
+  EXTRA_NOTES_PRESETS,
+  HIT_WINDOWS,
+  KEY_CODE_MAP,
+  KEY_MAP,
+  SCROLL_SPEEDS,
+  SKINS,
+  SPEED_TRIGGER_PRESETS,
+} from '../game/constants';
 import { pollActiveGamepadLanes, type LaneTuple } from '../game/gamepad';
 import { normalizeHapticsSettings, triggerHaptic } from '../game/haptics';
 import { normalizeControlLayout } from '../game/layoutConfig';
-import { drawHoldTail, drawNote, getHeroHighway, prewarmNoteSprites } from '../game/renderer';
+import {
+  drawExpansionTransitionOverlay,
+  drawHoldTail,
+  drawNote,
+  getHeroHighway,
+  prewarmNoteSprites,
+} from '../game/renderer';
 import {
   applyNerfChart,
   createAltChart,
   evaluateHitTiming,
   generateBeatmap,
+  getActiveLaneExpansionState,
+  getActiveSpeedMultiplierAtTime,
+  getEffectiveScrollSpeed,
+  getEffectiveTrackRating,
+  getExpandedLaneColors,
   getGrade,
   getLaneFromPlayfieldPoint,
   getPlayfieldLayout,
@@ -21,6 +41,8 @@ import type {
   ChartNote,
   ControlLayoutSettings,
   Difficulty,
+  ExpansionTransitionType,
+  ExtraNotesCount,
   GameMode,
   HapticsSettings,
   MenuGenre,
@@ -29,6 +51,7 @@ import type {
   PlayerInfo,
   ScreenId,
   Song,
+  SpeedTriggerPreset,
 } from '../game/types';
 import { useIsCompactLandscape } from '../game/useViewport';
 import { ControlLayoutModal } from './ControlLayoutModal';
@@ -42,13 +65,17 @@ interface GameEngineProps {
   setScreen: (s: ScreenId) => void;
   customBeatmap: ChartNote[] | null;
   playerInfo: PlayerInfo;
+  setPlayerInfo?: React.Dispatch<React.SetStateAction<PlayerInfo>>;
   onUpdateHaptics?: (next: HapticsSettings) => void;
   onUpdateControlLayout?: (next: ControlLayoutSettings) => void;
   addRewards: (xp: number, coins: number) => void;
-  networkConnection: PeerConnectionLike | null;
+  networkConnection?: PeerConnectionLike | null;
   modifiers: Modifiers;
   recordGrade?: (songId: string | number, percent: number) => void;
+  onGradeUpdate?: (grade: string) => void;
   interruptionActive?: boolean;
+  initialStartTimeMs?: number;
+  onExitPlaytest?: () => void;
 }
 
 interface BRBot {
@@ -90,10 +117,13 @@ export const GameEngine: React.FC<GameEngineProps> = ({
   onUpdateHaptics,
   onUpdateControlLayout,
   addRewards,
-  networkConnection,
+  networkConnection = null,
   modifiers,
   recordGrade,
+  onGradeUpdate,
   interruptionActive = false,
+  initialStartTimeMs = 0,
+  onExitPlaytest,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const bgmRef = useRef<HTMLAudioElement | null>(null);
@@ -103,6 +133,49 @@ export const GameEngine: React.FC<GameEngineProps> = ({
   const [maxCombo, setMaxCombo] = useState(0);
   const [health, setHealth] = useState(50);
   const [accuracy, setAccuracy] = useState(100);
+  const [songProgressPct, setSongProgressPct] = useState(0);
+  const lastProgressSyncRef = useRef(0);
+
+  // Live Gameplay Mechanics: Speed Trigger (6 presets), Extra Notes (4/6/8), 7 Transitions, Transition Speed (0.1s-2.0s), DJ Stop
+  const [liveSpeedTrigger, setLiveSpeedTrigger] = useState<SpeedTriggerPreset>(
+    () => (modifiers?.speedTrigger as SpeedTriggerPreset) || 1.0
+  );
+  const [liveExtraNotes, setLiveExtraNotes] = useState<ExtraNotesCount>(
+    () => (modifiers?.extraNotes as ExtraNotesCount) || 4
+  );
+  const [liveTransitionType, setLiveTransitionType] = useState<ExpansionTransitionType>(
+    () => modifiers?.expansionTransition || 'split_out'
+  );
+  const [liveTransitionSpeed, setLiveTransitionSpeed] = useState<number>(
+    () => Number(modifiers?.transitionSpeed ?? 0.6)
+  );
+  const [djStopActive, setDjStopActive] = useState(false);
+  const [showTriggersBar, setShowTriggersBar] = useState(false);
+
+  const liveSpeedTriggerRef = useRef<SpeedTriggerPreset>(liveSpeedTrigger);
+  liveSpeedTriggerRef.current = liveSpeedTrigger;
+  const liveExtraNotesRef = useRef<ExtraNotesCount>(liveExtraNotes);
+  liveExtraNotesRef.current = liveExtraNotes;
+  const liveTransitionTypeRef = useRef<ExpansionTransitionType>(liveTransitionType);
+  liveTransitionTypeRef.current = liveTransitionType;
+  const liveTransitionSpeedRef = useRef<number>(liveTransitionSpeed);
+  liveTransitionSpeedRef.current = liveTransitionSpeed;
+
+  const manualExpansionRef = useRef<{
+    fromLanes: ExtraNotesCount;
+    toLanes: ExtraNotesCount;
+    startedAtMs: number;
+    durationMs: number;
+    transitionType: ExpansionTransitionType;
+  } | null>(null);
+
+  const djBrakeRef = useRef<{
+    active: boolean;
+    startedAtMs: number;
+    durationMs: number;
+  }>({ active: false, startedAtMs: 0, durationMs: 1400 });
+  const firedDjTriggerIdsRef = useRef<Set<string>>(new Set());
+
   const synthGenre: MenuGenre | null = song.audioUrl?.startsWith('synth:')
     ? ((song.audioUrl.replace('synth:', '') as MenuGenre) || 'rave')
     : null;
@@ -153,8 +226,8 @@ export const GameEngine: React.FC<GameEngineProps> = ({
 
   const loopCountRef = useRef(0);
   const hitBursts = useRef<Array<{ lane: number; time: number; color: string }>>([]);
-  const lanePressAtRef = useRef<number[]>([0, 0, 0, 0]);
-  const laneHitAtRef = useRef<number[]>([0, 0, 0, 0]);
+  const lanePressAtRef = useRef<number[]>([0, 0, 0, 0, 0, 0, 0, 0]);
+  const laneHitAtRef = useRef<number[]>([0, 0, 0, 0, 0, 0, 0, 0]);
 
   const [opponentScore, setOpponentScore] = useState(0);
   const [shake, setShake] = useState(false);
@@ -163,7 +236,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
   const stats = useRef({ hits: 0, total: 0, sick: 0, good: 0, bad: 0, miss: 0 });
   const mapRef = useRef<ChartNote[]>([]);
   const startTime = useRef(0);
-  const keysPressed = useRef<boolean[]>([false, false, false, false]);
+  const keysPressed = useRef<boolean[]>([false, false, false, false, false, false, false, false]);
   const prevGamepadLanesRef = useRef<LaneTuple>([false, false, false, false]);
   const prevGamepadStartRef = useRef(false);
   const lastHoldHapticAtRef = useRef(0);
@@ -374,6 +447,9 @@ export const GameEngine: React.FC<GameEngineProps> = ({
 
   const heroMode = !isVS && (playerInfo.activeGameMods || []).includes('rhythm_hero');
   const activeCustomLanes = !isVS && !heroMode ? effectiveControlLayout.landscapeLanes : null;
+  const activeCustomLanesRef = useRef(activeCustomLanes);
+  activeCustomLanesRef.current = activeCustomLanes;
+
   const playfieldLayout = useMemo(
     () =>
       getPlayfieldLayout({
@@ -382,8 +458,12 @@ export const GameEngine: React.FC<GameEngineProps> = ({
         downscroll: playerInfo.downscroll,
         heroMode,
         customLanes: activeCustomLanes,
+        laneCount: isVS ? 4 : liveExtraNotes,
+        fromLaneCount: isVS ? 4 : liveExtraNotes,
+        transitionProgress: 1,
+        transitionType: liveTransitionType,
       }),
-    [isVS, playerInfo.downscroll, heroMode, activeCustomLanes]
+    [isVS, playerInfo.downscroll, heroMode, activeCustomLanes, liveExtraNotes, liveTransitionType]
   );
   const playfieldLayoutRef = useRef(playfieldLayout);
   playfieldLayoutRef.current = playfieldLayout;
@@ -393,7 +473,12 @@ export const GameEngine: React.FC<GameEngineProps> = ({
       ? playerInfo.customColors
       : SKINS[playerInfo.equippedSkin]?.colors || SKINS.default.colors;
   const currentSkinShape = playerInfo.equippedShape || 'arrow';
-  const gameplaySkinColors = isBattleRoyale ? SKINS.default.colors : currentSkinColors;
+  const baseGameplaySkinColors = isBattleRoyale ? SKINS.default.colors : currentSkinColors;
+  // Expanded 8-lane colors where lanes 4..7 are the exact opposite RGB color of their predecessor 0..3
+  const gameplaySkinColors = useMemo(
+    () => getExpandedLaneColors(baseGameplaySkinColors, 8),
+    [baseGameplaySkinColors]
+  );
   const gameplaySkinShape = isBattleRoyale ? 'arrow' : currentSkinShape;
   const gameplayNoteProduct = isBattleRoyale ? null : playerInfo.equippedNoteProduct;
 
@@ -405,6 +490,37 @@ export const GameEngine: React.FC<GameEngineProps> = ({
       gameplayNoteProduct
     );
   }, [playfieldLayout.noteSize, gameplaySkinColors, gameplaySkinShape, gameplayNoteProduct]);
+
+  const handleSelectExtraNotes = useCallback(
+    (nextLanes: ExtraNotesCount) => {
+      const prevLanes = liveExtraNotesRef.current;
+      if (prevLanes !== nextLanes) {
+        manualExpansionRef.current = {
+          fromLanes: prevLanes,
+          toLanes: nextLanes,
+          startedAtMs: performance.now(),
+          durationMs: Math.max(100, Math.round(liveTransitionSpeedRef.current * 1000)),
+          transitionType: liveTransitionTypeRef.current,
+        };
+      }
+      setLiveExtraNotes(nextLanes);
+    },
+    []
+  );
+
+  const triggerDjRecordStop = useCallback((durationSec = 1.4) => {
+    const durMs = Math.max(400, Math.round(durationSec * 1000));
+    djBrakeRef.current = {
+      active: true,
+      startedAtMs: performance.now(),
+      durationMs: durMs,
+    };
+    setDjStopActive(true);
+    AudioEngine.playVinylStopSound(durationSec);
+    setTimeout(() => {
+      setDjStopActive(false);
+    }, durMs + 150);
+  }, []);
 
   const updateAccuracySafe = useCallback(() => {
     const nextAcc = Math.floor((stats.current.hits / Math.max(1, stats.current.total)) * 100);
@@ -762,7 +878,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
   const handleLaneInput = useCallback(
     (laneIdx: number, isDown: boolean) => {
       if (isBattleRoyale && playerEliminatedRef.current) return;
-      if (laneIdx < 0 || laneIdx > 3) return;
+      if (laneIdx < 0 || laneIdx > 7) return;
       if (isDown && keysPressed.current[laneIdx]) return;
       keysPressed.current[laneIdx] = isDown;
       if (isDown) {
@@ -831,10 +947,11 @@ export const GameEngine: React.FC<GameEngineProps> = ({
             triggerHaptic('press', hapticsRef.current);
             return;
           }
-          setHealth(1);
+          // Never kill or drop below 10 HP in No Fail mode when hitting a demon note
+          setHealth((h) => (modifiers?.noFail ? Math.max(10, h - 25) : 1));
           setCombo(0);
           demonEndTime.current = performance.now() + 5000;
-          spawnJudgment('DEMON!', '#ef4444', true);
+          spawnJudgment(modifiers?.noFail ? 'DEMON (NO FAIL)' : 'DEMON!', '#ef4444', true);
           AudioEngine.playDemonSound();
           triggerShake();
           triggerHaptic('demon', hapticsRef.current);
@@ -914,7 +1031,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
   const handleLaneDown = useCallback((lane: number) => handleLaneInput(lane, true), [handleLaneInput]);
   const handleLaneUp = useCallback((lane: number) => handleLaneInput(lane, false), [handleLaneInput]);
 
-  // Wireless / Bluetooth / Hardware Keyboard listener (Arrow, WASD, IJKL via e.code & e.key)
+  // Wireless / Bluetooth / Hardware Keyboard listener (Arrow, WASD, IJKL, ZXCV via e.code & e.key for up to 8 lanes)
   useEffect(() => {
     const resolveKeyLane = (e: KeyboardEvent): number | undefined => {
       const byCode = KEY_CODE_MAP[e.code];
@@ -938,7 +1055,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
       if (laneIdx !== undefined) handleLaneInput(laneIdx, false);
     };
     const releaseAll = () => {
-      for (let i = 0; i < 4; i++) {
+      for (let i = 0; i < 8; i++) {
         if (keysPressed.current[i]) handleLaneInput(i, false);
       }
     };
@@ -1008,11 +1125,11 @@ export const GameEngine: React.FC<GameEngineProps> = ({
   }, [gameState, handleLaneInput, isVS]);
 
   useEffect(() => {
-    if (health <= 0 && gameState === 'playing') {
+    if (health <= 0 && gameState === 'playing' && !modifiers?.noFail) {
       if (isBattleRoyale) {
         activeJudgments.current = [];
         hitBursts.current = [];
-        keysPressed.current = [false, false, false, false];
+        keysPressed.current = [false, false, false, false, false, false, false, false];
         setPlayerEliminated(true);
         const first = brBots.current.find((b) => b.alive);
         setSpectateBotId(first?.id || null);
@@ -1020,27 +1137,35 @@ export const GameEngine: React.FC<GameEngineProps> = ({
         setGameState('finished');
       }
     }
-  }, [health, gameState, isBattleRoyale]);
+  }, [health, gameState, isBattleRoyale, modifiers?.noFail]);
 
   useEffect(() => {
     if (gameState === 'countdown') {
+      const delayMs = initialStartTimeMs > 0 || onExitPlaytest ? 450 : 3000;
       const timer = setTimeout(() => {
         setGameState('playing');
         const now = performance.now();
         startTime.current = now;
         lastTimeRef.current = now;
-        smoothAudioTimeRef.current = 0;
-        lastRawAudioTimeRef.current = -1;
+        const startOffsetMs = Math.max(0, Number(initialStartTimeMs) || 0);
+        smoothAudioTimeRef.current = startOffsetMs;
+        lastRawAudioTimeRef.current = startOffsetMs > 0 ? startOffsetMs : -1;
         filteredDriftRef.current = 0;
-        audioClockInitializedRef.current = false;
-        virtualTimeRef.current = 0;
+        audioClockInitializedRef.current = startOffsetMs > 0;
+        virtualTimeRef.current = startOffsetMs;
         lastStepClickRef.current = -1;
+        firedDjTriggerIdsRef.current.clear();
         AudioEngine.init();
         if (synthGenre) {
           MenuMusicEngine.start(synthGenre, modifiers?.speed || 1);
         } else if (bgmRef.current && song.audioUrl) {
           bgmRef.current.volume = 0.5;
           bgmRef.current.playbackRate = modifiers?.speed || 1;
+          if (startOffsetMs > 0) {
+            try {
+              bgmRef.current.currentTime = startOffsetMs / 1000;
+            } catch {}
+          }
           (bgmRef.current as any).preservesPitch = false;
           bgmRef.current.play().catch(() => {});
         }
@@ -1048,7 +1173,11 @@ export const GameEngine: React.FC<GameEngineProps> = ({
         const hasAuthoredChart = Array.isArray(song?.customMap) || Array.isArray(customBeatmap);
         const authoredSource = Array.isArray(song?.customMap) ? song.customMap : customBeatmap;
         if (hasAuthoredChart) {
-          let map: ChartNote[] = normalizeChart(authoredSource).map((n) => ({ ...n, hit: false, missed: false }));
+          let map: ChartNote[] = normalizeChart(authoredSource).map((n) => ({
+            ...n,
+            hit: startOffsetMs > 0 && n.time < startOffsetMs - 80,
+            missed: false,
+          }));
           if (map.length === 0) {
             console.error('Authored chart contains no valid notes', authoredSource);
             spawnJudgment('EMPTY CHART', '#ef4444', true);
@@ -1056,21 +1185,37 @@ export const GameEngine: React.FC<GameEngineProps> = ({
           if (isVS) {
             const vsMap: ChartNote[] = [];
             map.forEach((n) => {
-              vsMap.push({ ...n, lane: n.lane, isBot: true });
-              vsMap.push({ ...n, lane: n.lane + 4, isBot: false });
+              vsMap.push({ ...n, lane: n.lane % 4, isBot: true });
+              vsMap.push({ ...n, lane: (n.lane % 4) + 4, isBot: false });
             });
             map = vsMap;
           }
           mapRef.current = map;
         } else {
-          mapRef.current = generateBeatmap(Number(song.bpm) || 120, 0, 180, difficulty, gameMode);
+          const generated = generateBeatmap(Number(song.bpm) || 120, 0, 180, difficulty, gameMode);
+          mapRef.current = generated.map((n) => ({
+            ...n,
+            hit: startOffsetMs > 0 && n.time < startOffsetMs - 80,
+          }));
         }
         if (modifiers?.altChart) mapRef.current = createAltChart(mapRef.current);
         if (modifiers?.nerf) mapRef.current = applyNerfChart(mapRef.current, modifiers.nerf, song.id || song.title);
-      }, 3000);
+      }, delayMs);
       return () => clearTimeout(timer);
     }
-  }, [gameState, customBeatmap, difficulty, gameMode, isVS, song, modifiers, spawnJudgment, synthGenre]);
+  }, [
+    gameState,
+    customBeatmap,
+    difficulty,
+    gameMode,
+    isVS,
+    song,
+    modifiers,
+    spawnJudgment,
+    synthGenre,
+    initialStartTimeMs,
+    onExitPlaytest,
+  ]);
 
   useEffect(() => {
     if (gameState === 'finished') {
@@ -1078,6 +1223,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
         rewardsProcessed.current = true;
         addRewards(Math.floor(score / 200), Math.floor(score / 500));
         recordGrade?.(song.id, accuracy);
+        onGradeUpdate?.(getGrade(accuracy));
       }
       if (synthGenre) {
         MenuMusicEngine.stop();
@@ -1090,7 +1236,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
         if (bgmRef.current) bgmRef.current.playbackRate = 1;
       };
     }
-  }, [gameState, accuracy, addRewards, recordGrade, score, song.id, synthGenre]);
+  }, [gameState, accuracy, addRewards, recordGrade, onGradeUpdate, score, song.id, synthGenre]);
 
   useEffect(() => {
     if (gameState !== 'finished') return;
@@ -1155,7 +1301,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
     }
     if (bgmRef.current) {
       bgmRef.current.pause();
-      bgmRef.current.currentTime = 0;
+      bgmRef.current.currentTime = Math.max(0, Number(initialStartTimeMs) || 0) / 1000;
       bgmRef.current.volume = 0.5;
     }
     stats.current = { hits: 0, total: 0, sick: 0, good: 0, bad: 0, miss: 0 };
@@ -1163,12 +1309,14 @@ export const GameEngine: React.FC<GameEngineProps> = ({
     lastPulseIdx.current = 0;
     lastStepClickRef.current = -1;
     lastAccuracyRef.current = 100;
-    virtualTimeRef.current = 0;
-    smoothAudioTimeRef.current = 0;
+    virtualTimeRef.current = Math.max(0, Number(initialStartTimeMs) || 0);
+    smoothAudioTimeRef.current = Math.max(0, Number(initialStartTimeMs) || 0);
     lastRawAudioTimeRef.current = -1;
     filteredDriftRef.current = 0;
     audioClockInitializedRef.current = false;
     loopCountRef.current = 0;
+    djBrakeRef.current = { active: false, startedAtMs: 0, durationMs: 1400 };
+    firedDjTriggerIdsRef.current.clear();
     brBots.current = [];
     setBrBoard([]);
     setPlayerEliminated(false);
@@ -1180,6 +1328,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
     setMaxCombo(0);
     setHealth(50);
     setAccuracy(100);
+    setSongProgressPct(0);
     setLoopCount(0);
     setIsNewHigh(false);
     setGameState('countdown');
@@ -1219,6 +1368,8 @@ export const GameEngine: React.FC<GameEngineProps> = ({
   setScreenRef.current = setScreen;
   const spectateBotIdRef = useRef(spectateBotId);
   spectateBotIdRef.current = spectateBotId;
+  const triggerDjRecordStopRef = useRef(triggerDjRecordStop);
+  triggerDjRecordStopRef.current = triggerDjRecordStop;
 
   useEffect(() => {
     if (gameState !== 'playing') return;
@@ -1274,15 +1425,36 @@ export const GameEngine: React.FC<GameEngineProps> = ({
       const curEliminated = playerEliminatedRef.current;
       const curSpectateBotId = spectateBotIdRef.current;
 
+      // DJ Record Stopping brake factor (decelerates both audio playback AND chart scroll speed in sync)
+      let vinylBrakeFactor = 1;
+      if (djBrakeRef.current.active) {
+        const brakeElapsed = now - djBrakeRef.current.startedAtMs;
+        const brakeDur = djBrakeRef.current.durationMs;
+        if (brakeElapsed < brakeDur) {
+          const p = brakeElapsed / brakeDur;
+          // Smooth vinyl brake curve down to 0.06x then spin-back recovery in final 20%
+          if (p < 0.78) {
+            const k = p / 0.78;
+            vinylBrakeFactor = Math.max(0.06, Math.pow(1 - k, 2.2));
+          } else {
+            const k = (p - 0.78) / 0.22;
+            vinylBrakeFactor = 0.06 + 0.94 * (k * k);
+          }
+        } else {
+          djBrakeRef.current.active = false;
+          vinylBrakeFactor = 1;
+        }
+      }
+
       const inDemonMode = now < demonEndTime.current;
       const loopBoost = gameMode === 'endless' || isBattleRoyale ? Math.pow(1.15, loopCountRef.current) : 1;
       const targetRate = Math.min(4, (curMods?.speed || 1) * loopBoost);
-      const effectiveRate = targetRate * (inDemonMode ? 0.5 : 1);
+      const effectiveRate = Math.max(0.06, targetRate * (inDemonMode ? 0.5 : 1) * vinylBrakeFactor);
 
       let currentAudioTime = 0;
       const bgm = bgmRef.current;
       if (!synthGenre && bgm && curSong.audioUrl && bgm.readyState >= 2 && !bgm.paused) {
-        if (Math.abs(bgm.playbackRate - effectiveRate) > 0.001) {
+        if (Math.abs(bgm.playbackRate - effectiveRate) > 0.002) {
           (bgm as any).preservesPitch = false;
           (bgm as any).mozPreservesPitch = false;
           (bgm as any).webkitPreservesPitch = false;
@@ -1320,6 +1492,33 @@ export const GameEngine: React.FC<GameEngineProps> = ({
         currentAudioTime = virtualTimeRef.current;
       }
 
+      // Check chart-authored DJ Record Stop triggers
+      if (Array.isArray(curSong.triggers)) {
+        for (const trig of curSong.triggers) {
+          if (
+            trig.type === 'dj_stop' &&
+            currentAudioTime >= trig.time &&
+            currentAudioTime <= trig.time + 250 &&
+            !firedDjTriggerIdsRef.current.has(trig.id)
+          ) {
+            firedDjTriggerIdsRef.current.add(trig.id);
+            triggerDjRecordStopRef.current(trig.djStopDuration || 1.4);
+            spawnJudgmentRef.current('DJ RECORD STOP!', '#f43f5e', true);
+          }
+        }
+      }
+
+      // Update Song Completion Percentage Bar (0% -> 100%)
+      const lastChartNoteTime = mapRef.current.length > 0 ? mapRef.current[mapRef.current.length - 1].time : 60000;
+      const audioDurMs =
+        bgm && Number.isFinite(bgm.duration) && bgm.duration > 1 ? bgm.duration * 1000 : lastChartNoteTime + 2000;
+      const totalTrackMs = Math.max(1000, Math.min(audioDurMs, lastChartNoteTime + 2500));
+      const rawPct = Math.max(0, Math.min(100, (currentAudioTime / totalTrackMs) * 100));
+      if (now - lastProgressSyncRef.current > 90 || rawPct >= 99.9) {
+        lastProgressSyncRef.current = now;
+        setSongProgressPct(Number(rawPct.toFixed(1)));
+      }
+
       if (curSong.stepClick) {
         const subdiv = Math.max(1, Number(curSong.stepSubdivision) || 4);
         const stepMs = 60000 / (Math.max(1, Number(curSong.bpm) || 120) * subdiv);
@@ -1339,7 +1538,52 @@ export const GameEngine: React.FC<GameEngineProps> = ({
         }
       }
 
-      const layout = playfieldLayoutRef.current;
+      // Compute active Extra Notes expansion state (4, 6, or 8 lanes) + PowerPoint transition progress
+      let expansionState = getActiveLaneExpansionState(
+        curSong.triggers,
+        currentAudioTime,
+        liveExtraNotesRef.current,
+        liveTransitionTypeRef.current,
+        liveTransitionSpeedRef.current
+      );
+      if (manualExpansionRef.current) {
+        const man = manualExpansionRef.current;
+        const elapsed = now - man.startedAtMs;
+        if (elapsed < man.durationMs) {
+          expansionState = {
+            laneCount: man.toLanes,
+            fromLaneCount: man.fromLanes,
+            transitionProgress: Math.max(0, Math.min(1, elapsed / man.durationMs)),
+            transitionType: man.transitionType,
+            transitionSpeedSec: man.durationMs / 1000,
+          };
+        } else {
+          manualExpansionRef.current = null;
+        }
+      }
+
+      const activePlayerLaneCount: ExtraNotesCount = isVS ? 4 : expansionState.laneCount;
+
+      // Dynamically widen playscreen while keeping noteSize = 74 identical to 4-note default and preserving player's lane spacing ratio
+      const dynamicLayout = getPlayfieldLayout({
+        isLandscape: true,
+        isVS,
+        downscroll: curDownscroll,
+        heroMode,
+        customLanes: activeCustomLanesRef.current,
+        laneCount: activePlayerLaneCount,
+        fromLaneCount: isVS ? 4 : expansionState.fromLaneCount,
+        transitionProgress: expansionState.transitionProgress,
+        transitionType: expansionState.transitionType,
+      });
+      playfieldLayoutRef.current = dynamicLayout;
+      if (activeCanvas && (activeCanvas.width !== dynamicLayout.width || activeCanvas.height !== dynamicLayout.height)) {
+        activeCanvas.width = dynamicLayout.width;
+        activeCanvas.height = dynamicLayout.height;
+        activeCanvas.style.aspectRatio = `${dynamicLayout.width} / ${dynamicLayout.height}`;
+      }
+
+      const layout = dynamicLayout;
       const songBpm = Math.max(60, Number(curSong.bpm) || 120);
       const beatMs = 60000 / songBpm;
       const beatPhase = ((currentAudioTime % beatMs) + beatMs) % beatMs / beatMs;
@@ -1376,16 +1620,48 @@ export const GameEngine: React.FC<GameEngineProps> = ({
         ctx.drawImage(getHeroHighway(layout.width, layout.height), 0, 0);
       }
 
-      const visualSpeed = SCROLL_SPEEDS[curDifficulty] || 0.6;
+      // Draw PowerPoint-style lane expansion transition overlay on playscreen widening
+      if (!heroMode && expansionState.transitionProgress < 1) {
+        drawExpansionTransitionOverlay(
+          ctx,
+          layout.width,
+          layout.height,
+          expansionState.transitionType,
+          expansionState.transitionProgress,
+          curSong.color || '#36e2ff'
+        );
+      }
+
+      // Speed Trigger multiplier preserves exact difficulty speed ratio AND syncs with DJ Record Stop brake
+      const activeSpeedMultiplier = getActiveSpeedMultiplierAtTime(
+        curSong.triggers,
+        currentAudioTime,
+        liveSpeedTriggerRef.current
+      );
+      const visualSpeed = getEffectiveScrollSpeed(curDifficulty, activeSpeedMultiplier) * vinylBrakeFactor;
 
       let activeNotesRemaining = false;
       let anyHolding = false;
-      const laneHolding = [false, false, false, false];
+      const laneHolding = [false, false, false, false, false, false, false, false];
       if (!(curEliminated && isBattleRoyale)) {
-        mapRef.current.forEach((note) => {
+        mapRef.current.forEach((note, noteIndex) => {
+          // If Extra Notes (6 or 8 lanes) is active on a 4-lane chart, deterministically expand select notes into lanes 4..7
+          if (!isVS && activePlayerLaneCount > 4 && note.lane < 4 && (note as any)._baseLane === undefined) {
+            (note as any)._baseLane = note.lane;
+          }
+          if (!isVS && (note as any)._baseLane !== undefined) {
+            const baseL = (note as any)._baseLane as number;
+            if (activePlayerLaneCount > 4 && noteIndex % 3 === 1) {
+              note.lane = (baseL + 4) % activePlayerLaneCount;
+            } else {
+              note.lane = baseL;
+            }
+          }
+
           if (!note.hit && !note.missed) {
             activeNotesRemaining = true;
-            if (note.holding && note.lane < 4) {
+            const isPlayerNote = isVS ? note.lane < 4 : note.lane < activePlayerLaneCount;
+            if (note.holding && isPlayerNote) {
               anyHolding = true;
               laneHolding[note.lane] = true;
             }
@@ -1393,7 +1669,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
             if (
               note.type === 'hold' &&
               note.holding &&
-              note.lane < 4 &&
+              isPlayerNote &&
               currentAudioTime >= note.time + (note.duration || 500) - HIT_WINDOWS.sick
             ) {
               note.holding = false;
@@ -1420,7 +1696,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
             if (
               curBotplay &&
               note.type === 'hold' &&
-              note.lane < 4 &&
+              isPlayerNote &&
               currentAudioTime >= note.time &&
               !note.holding
             ) {
@@ -1434,7 +1710,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
               curBotplay &&
               note.type !== 'hold' &&
               note.type !== 'demon' &&
-              note.lane < 4 &&
+              isPlayerNote &&
               currentAudioTime >= note.time
             ) {
               note.hit = true;
@@ -1474,13 +1750,15 @@ export const GameEngine: React.FC<GameEngineProps> = ({
             if (note.hit) return;
 
             const noteDeadline = note.time + (note.type === 'hold' ? note.duration || 500 : 0) + HIT_WINDOWS.miss;
-            if (note.lane < 4 && !note.holding && currentAudioTime > noteDeadline) {
+            if (isPlayerNote && !note.holding && currentAudioTime > noteDeadline) {
               note.missed = true;
               if (note.type === 'demon') {
                 spawnJudgmentRef.current('DODGED', '#a855f7', true);
               } else {
-                if (inDemonMode) setHealth(0);
-                else {
+                // Demon mode never kills the player when No Fail mode is active!
+                if (inDemonMode) {
+                  setHealth((h) => (curMods?.noFail ? Math.max(1, h - 10) : 0));
+                } else {
                   const reduction = Math.min(
                     0.9,
                     productEffectRef.current('shield') * 0.65 + productEffectRef.current('accuracy_save') * 0.35
@@ -1516,6 +1794,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
 
       const lastNoteTime = mapRef.current.length > 0 ? mapRef.current[mapRef.current.length - 1].time : 0;
       if (gameMode !== 'endless' && !isBattleRoyale && !activeNotesRemaining && currentAudioTime > lastNoteTime + 2500) {
+        setSongProgressPct(100);
         setGameState('finished');
         return;
       }
@@ -1523,28 +1802,30 @@ export const GameEngine: React.FC<GameEngineProps> = ({
       const watchedBot =
         curEliminated && isBattleRoyale ? brBots.current.find((b) => b.id === curSpectateBotId) : null;
 
-      // FNF lane tracks + pressed receptor laser beams + hit-pop flash
+      // FNF lane tracks + pressed receptor laser beams + hit-pop flash (supports 4, 6, or 8 lanes)
       if (!heroMode) {
-        for (let i = 0; i < 4; i++) {
+        for (let i = 0; i < activePlayerLaneCount; i++) {
           const lx = layout.playerLaneXs[i];
           const ly = layout.playerLaneYs[i] ?? layout.receptorY;
+          if (lx === undefined) continue;
           const isPressed =
-            curEliminated && isBattleRoyale ? (watchedBot?.pressed?.[i] || 0) > now : keysPressed.current[i];
+            curEliminated && isBattleRoyale ? (watchedBot?.pressed?.[i % 4] || 0) > now : keysPressed.current[i];
           const hitAge = now - (laneHitAtRef.current[i] || 0);
           const hitGlow = hitAge >= 0 && hitAge < 180 ? 1 - hitAge / 180 : 0;
+          const laneCol = curSkinColors[i % curSkinColors.length] || '#ffffff';
 
           if (layout.isLandscape) {
-            ctx.fillStyle = isPressed || hitGlow > 0 ? curSkinColors[i] : '#ffffff';
+            ctx.fillStyle = isPressed || hitGlow > 0 ? laneCol : '#ffffff';
             ctx.globalAlpha = isPressed ? 0.18 + hitGlow * 0.14 : 0.035 + beatPulse * 0.015;
             ctx.fillRect(lx - 6, 0, layout.noteSize + 12, layout.height);
           } else if (isPressed || hitGlow > 0) {
-            ctx.fillStyle = curSkinColors[i];
+            ctx.fillStyle = laneCol;
             ctx.globalAlpha = 0.16 + hitGlow * 0.12;
             ctx.fillRect(lx - 4, 0, layout.noteSize + 8, layout.height);
           }
           if (isPressed || hitGlow > 0) {
             ctx.globalAlpha = Math.max(isPressed ? 0.55 : 0, hitGlow * 0.85);
-            ctx.strokeStyle = curSkinColors[i];
+            ctx.strokeStyle = laneCol;
             ctx.lineWidth = 3.5;
             ctx.beginPath();
             ctx.arc(
@@ -1570,26 +1851,26 @@ export const GameEngine: React.FC<GameEngineProps> = ({
         ctx.globalAlpha = 1;
       }
 
-      // Draw Receptors with elastic press-squash & hit-pop spring animation
-      const numLanes = isVS ? 8 : 4;
+      // Draw Receptors with elastic press-squash, hit-pop spring animation & PowerPoint expansion transforms
+      const numLanes = isVS ? 8 : activePlayerLaneCount;
       for (let i = 0; i < numLanes; i++) {
-        const x = i < 4 ? layout.playerLaneXs[i] : layout.opponentLaneXs[i - 4];
-        const y = i < 4 ? layout.playerLaneYs[i] ?? layout.receptorY : layout.receptorY;
-        const laneIdx = i % 4;
-        const isPressed =
-          isVS && i >= 4
-            ? false
-            : curEliminated && isBattleRoyale
-            ? (watchedBot?.pressed?.[laneIdx] || 0) > now
-            : keysPressed.current[laneIdx];
+        const isOpponentLane = isVS && i >= 4;
+        const x = isOpponentLane ? layout.opponentLaneXs[i - 4] : layout.playerLaneXs[i];
+        const y = isOpponentLane ? layout.receptorY : layout.playerLaneYs[i] ?? layout.receptorY;
+        if (x === undefined) continue;
+        const laneIdx = isOpponentLane ? i - 4 : i;
+        const isPressed = isOpponentLane
+          ? false
+          : curEliminated && isBattleRoyale
+          ? (watchedBot?.pressed?.[laneIdx % 4] || 0) > now
+          : keysPressed.current[laneIdx];
 
         let receptorScale = 1 + beatPulse * 0.03;
-        if (i < 4) {
+        if (!isOpponentLane) {
           const hitAge = now - (laneHitAtRef.current[laneIdx] || 0);
           const pressAge = now - (lanePressAtRef.current[laneIdx] || 0);
           if (hitAge >= 0 && hitAge < 190) {
             const p = hitAge / 190;
-            // Elastic overshoot pop (1.34 -> 1.0)
             receptorScale = 1 + Math.sin(p * Math.PI) * 0.34 * (1 - p * 0.4);
           } else if (pressAge >= 0 && pressAge < 130) {
             const p = pressAge / 130;
@@ -1597,19 +1878,23 @@ export const GameEngine: React.FC<GameEngineProps> = ({
           }
         }
 
-        const hitColorActive = i < 4 && (now - (laneHitAtRef.current[laneIdx] || 0) < 95 || laneHolding[laneIdx]);
+        const hitColorActive =
+          !isOpponentLane && (now - (laneHitAtRef.current[laneIdx] || 0) < 95 || laneHolding[laneIdx]);
+        const laneColor = curSkinColors[laneIdx % curSkinColors.length];
+        const laneTransform = !isOpponentLane ? layout.laneTransforms?.[laneIdx] : undefined;
         drawNote(
           ctx,
           x,
           y,
           layout.noteSize,
           laneIdx,
-          hitColorActive ? curSkinColors[laneIdx] : null,
+          hitColorActive ? laneColor : null,
           isPressed,
           curSkinShape,
           'normal',
           curNoteProduct,
-          receptorScale
+          receptorScale,
+          laneTransform
         );
       }
 
@@ -1633,8 +1918,9 @@ export const GameEngine: React.FC<GameEngineProps> = ({
         ctx.restore();
       }
 
-      const renderLeadMs = heroMode ? 1450 : (layout.height + 160) / visualSpeed;
+      const renderLeadMs = heroMode ? 1450 : (layout.height + 160) / Math.max(0.15, visualSpeed);
       mapRef.current.forEach((note, noteIndex) => {
+        if (!isVS && note.lane >= activePlayerLaneCount) return;
         if (
           (watchedBot?.resolved?.[noteIndex] &&
             !(watchedBot.resolved[noteIndex] === 1 && now - (watchedBot.resolvedAt?.[noteIndex] || 0) < 180)) ||
@@ -1645,7 +1931,8 @@ export const GameEngine: React.FC<GameEngineProps> = ({
         ) {
           return;
         }
-        const laneY = note.lane < 4 ? layout.playerLaneYs[note.lane] ?? layout.receptorY : layout.receptorY;
+        const isOppNote = isVS && note.lane >= 4;
+        const laneY = isOppNote ? layout.receptorY : layout.playerLaneYs[note.lane] ?? layout.receptorY;
         let y =
           watchedBot?.resolved?.[noteIndex] === 1 && now - (watchedBot.resolvedAt?.[noteIndex] || 0) < 180
             ? laneY
@@ -1663,20 +1950,21 @@ export const GameEngine: React.FC<GameEngineProps> = ({
           heroScale = 0.38 + 0.62 * travel;
         }
         if (y > -100 && y < layout.height + 100) {
-          let x =
-            note.lane < 4
-              ? layout.playerLaneXs[note.lane] ?? 20
-              : layout.opponentLaneXs[note.lane - 4] ?? 400;
+          let x = isOppNote
+            ? layout.opponentLaneXs[note.lane - 4] ?? 400
+            : layout.playerLaneXs[note.lane] ?? 20;
           if (heroMode) {
             const cx = layout.width / 2;
             const farHalf = layout.width * 0.14;
             const nearHalf = layout.width * 0.47;
             const q = Math.max(0, Math.min(1, (y - 55) / (layout.height - 160)));
             const half = farHalf + (nearHalf - farHalf) * q;
-            const laneW = (half * 2) / 4;
+            const laneW = (half * 2) / activePlayerLaneCount;
             const size = layout.noteSize * heroScale;
-            x = cx - half + (note.lane % 4) * laneW + (laneW - size) / 2;
+            x = cx - half + (note.lane % activePlayerLaneCount) * laneW + (laneW - size) / 2;
           }
+          const colorIdx = isOppNote ? (note.lane - 4) % 4 : note.lane % curSkinColors.length;
+          const noteColor = curSkinColors[colorIdx];
           if (note.type === 'hold') {
             const remain = note.holding
               ? Math.max(0, note.time + (note.duration || 500) - currentAudioTime)
@@ -1688,7 +1976,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
               y,
               layout.noteSize,
               tail,
-              curSkinColors[note.lane % 4],
+              noteColor,
               Boolean(note.holding),
               currentAudioTime
             );
@@ -1700,19 +1988,21 @@ export const GameEngine: React.FC<GameEngineProps> = ({
           const noteAnimScale = note.holding
             ? 1.1 + 0.06 * Math.sin(currentAudioTime * 0.03)
             : 1 + beatPulse * 0.045 + approachPop;
+          const laneTransform = !isOppNote ? layout.laneTransforms?.[note.lane] : undefined;
 
           drawNote(
             ctx,
             x,
             y,
             heroMode ? layout.noteSize * heroScale : layout.noteSize,
-            note.lane % 4,
-            curSkinColors[note.lane % 4],
+            isOppNote ? note.lane - 4 : note.lane,
+            noteColor,
             false,
             curSkinShape,
             note.type,
             curNoteProduct,
-            noteAnimScale
+            noteAnimScale,
+            laneTransform
           );
         }
       });
@@ -1724,8 +2014,9 @@ export const GameEngine: React.FC<GameEngineProps> = ({
         hitBursts.current.forEach((b) => {
           const life = (now - b.time) / 440;
           const easeOut = 1 - Math.pow(1 - life, 2.4);
-          const x = (layout.playerLaneXs[b.lane % 4] ?? 20) + layout.noteSize / 2;
-          const y = (layout.playerLaneYs[b.lane % 4] ?? layout.receptorY) + layout.noteSize / 2;
+          const laneIdx = b.lane % activePlayerLaneCount;
+          const x = (layout.playerLaneXs[laneIdx] ?? 20) + layout.noteSize / 2;
+          const y = (layout.playerLaneYs[laneIdx] ?? layout.receptorY) + layout.noteSize / 2;
           ctx.save();
           // Outer neon shockwave ring
           ctx.strokeStyle = b.color;
@@ -1939,118 +2230,244 @@ export const GameEngine: React.FC<GameEngineProps> = ({
 
       {/* Top Console HUD Bar (respects top-right fullscreen button) */}
       <div
-        className={`relative z-20 w-full flex items-center justify-between gap-2 shrink-0 ${
-          isLandscapeCompact ? 'pl-2.5 pr-12 pt-1 pb-0.5' : 'pl-4 sm:pl-6 pr-16 md:pr-20 pt-2.5 sm:pt-3'
+        className={`relative z-20 w-full flex flex-col gap-1 shrink-0 ${
+          isLandscapeCompact ? 'pl-2.5 pr-12 pt-1 pb-0.5' : 'pl-4 sm:pl-6 pr-16 md:pr-20 pt-2 sm:pt-2.5'
         }`}
       >
-        <div className="rc-dock-rail flex items-center gap-1.5 p-1 shrink-0">
-          <button
-            data-testid="game-exit-btn"
-            onClick={() => setScreen('freeplay')}
-            className={`rc-bevel-btn rc-tile-slate text-white flex items-center justify-center gap-1 font-black whitespace-nowrap ${
-              isLandscapeCompact ? 'px-2 py-1 text-[10px]' : 'px-3 py-1.5 text-xs'
-            }`}
-            aria-label="Exit track"
-          >
-            <X className={isLandscapeCompact ? 'w-3.5 h-3.5' : 'w-4 h-4'} />
-            <span className="hidden md:inline">EXIT</span>
-          </button>
-        </div>
-
-        <div
-          className={`rc-dock-rail flex items-center justify-center gap-2 min-w-0 max-w-[48vw] ${
-            isLandscapeCompact ? 'px-2.5 py-1' : 'px-4 py-1.5'
-          }`}
-        >
-          <div className="rc-dock-well px-3 py-0.5 flex items-center gap-2.5 min-w-0">
-            <h3
-              className={`font-black italic text-white uppercase truncate ${
-                isLandscapeCompact ? 'text-xs' : 'text-sm sm:text-base'
+        <div className="w-full flex items-center justify-between gap-2">
+          <div className="rc-dock-rail flex items-center gap-1.5 p-1 shrink-0">
+            <button
+              data-testid="game-exit-btn"
+              onClick={() => {
+                if (onExitPlaytest) onExitPlaytest();
+                else setScreen('freeplay');
+              }}
+              className={`rc-bevel-btn rc-tile-slate text-white flex items-center justify-center gap-1 font-black whitespace-nowrap ${
+                isLandscapeCompact ? 'px-2 py-1 text-[10px]' : 'px-3 py-1.5 text-xs'
               }`}
+              aria-label="Exit track"
             >
-              {song.title}
-            </h3>
-            <span className="text-[10px] sm:text-xs text-pink-400 font-black uppercase tracking-wider shrink-0 whitespace-nowrap">
-              {gameMode} • {difficulty}
-            </span>
-            {gameMode === 'endless' && (
-              <span className="text-cyan-300 font-black text-[10px] sm:text-xs shrink-0 whitespace-nowrap tabular-nums">
-                L{loopCount + 1} ({Math.round(Math.pow(1.15, loopCount) * 100)}%)
-              </span>
+              <X className={isLandscapeCompact ? 'w-3.5 h-3.5' : 'w-4 h-4'} />
+              <span className="hidden md:inline">{onExitPlaytest ? 'RETURN TO EDITOR' : 'EXIT'}</span>
+            </button>
+
+            <button
+              data-testid="game-dj-stop-btn"
+              onClick={() => triggerDjRecordStop(1.4)}
+              title="Trigger DJ Record Stop Effect (Synced with Scroll Speed)"
+              className={`rc-bevel-btn font-black flex items-center gap-1 whitespace-nowrap ${
+                isLandscapeCompact ? 'px-2 py-1 text-[10px]' : 'px-2.5 py-1.5 text-xs'
+              } ${djStopActive ? 'rc-tile-red text-white animate-pulse' : 'rc-tile-violet text-white'}`}
+            >
+              <Disc3 className={`w-3.5 h-3.5 ${djStopActive ? 'animate-spin' : ''}`} />
+              <span>DJ STOP</span>
+            </button>
+
+            {!isVS && (
+              <button
+                data-testid="game-triggers-hud-btn"
+                onClick={() => setShowTriggersBar((v) => !v)}
+                title="Toggle Live Speed & Extra Notes Triggers Deck"
+                className={`rc-bevel-btn font-black flex items-center gap-1 whitespace-nowrap ${
+                  isLandscapeCompact ? 'px-2 py-1 text-[10px]' : 'px-2.5 py-1.5 text-xs'
+                } ${showTriggersBar ? 'rc-tile-cyan text-black' : 'rc-tile-slate text-cyan-200'}`}
+              >
+                <Zap className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">
+                  {liveSpeedTrigger.toFixed(2)}x · {liveExtraNotes}L
+                </span>
+              </button>
             )}
+          </div>
+
+          {/* Center Track Info + Live Percentage Progress Bar (0% -> 100%) */}
+          <div
+            className={`rc-dock-rail flex flex-col justify-center gap-1 min-w-0 flex-1 max-w-[46vw] ${
+              isLandscapeCompact ? 'px-2.5 py-1' : 'px-3.5 py-1.5'
+            }`}
+          >
+            <div className="flex items-center justify-between gap-2 min-w-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <h3
+                  className={`font-black italic text-white uppercase truncate ${
+                    isLandscapeCompact ? 'text-xs' : 'text-sm sm:text-base'
+                  }`}
+                >
+                  {song.title}
+                </h3>
+                <span className="text-[10px] sm:text-xs text-pink-400 font-black uppercase tracking-wider shrink-0 whitespace-nowrap">
+                  {gameMode} • {difficulty}
+                </span>
+              </div>
+              <span
+                data-testid="game-progress-pct"
+                className="text-[11px] sm:text-xs font-black text-cyan-300 tabular-nums shrink-0"
+              >
+                {songProgressPct.toFixed(1)}%
+              </span>
+            </div>
+
+            {/* Percentage Bar Tracking Position Throughout Gameplay (0% -> 100%) */}
+            <div
+              data-testid="game-progress-bar"
+              className="w-full h-2 bg-[#07090f] border border-cyan-400/60 rounded-full overflow-hidden shadow-inner"
+            >
+              <div
+                className="h-full bg-gradient-to-r from-cyan-400 via-fuchsia-400 to-yellow-300 transition-all duration-100 rounded-full"
+                style={{ width: `${Math.max(0, Math.min(100, songProgressPct))}%` }}
+              />
+            </div>
+          </div>
+
+          <div className="rc-dock-rail flex items-center gap-1.5 p-1 shrink-0">
+            {isBattleRoyale && (
+              <button
+                onClick={() => setShowBrDrawer((v) => !v)}
+                className={`lg:hidden rc-bevel-btn rc-tile-gold text-black font-black flex items-center gap-1 whitespace-nowrap ${
+                  isLandscapeCompact ? 'px-2 py-1 text-[10px]' : 'px-2.5 py-1.5 text-xs'
+                }`}
+              >
+                <Trophy className="w-3.5 h-3.5" /> {brAlive}/50
+              </button>
+            )}
+            {!isVS && !heroMode && (
+              <button
+                data-testid="game-layout-btn"
+                onClick={() => {
+                  triggerHaptic('menuTap', effectiveHaptics);
+                  setShowLayoutModal(true);
+                }}
+                title="Arrange Note Lanes & Note Buttons"
+                aria-label="Arrange Note Lanes and Buttons"
+                className={`rc-bevel-btn rc-tile-pink text-white font-black flex items-center gap-1 whitespace-nowrap ${
+                  isLandscapeCompact ? 'px-2 py-1 text-[10px]' : 'px-2.5 py-1.5 text-xs'
+                }`}
+              >
+                <Move className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">LAYOUT</span>
+              </button>
+            )}
+            <button
+              data-testid="game-haptics-btn"
+              onClick={() => {
+                triggerHaptic('menuTap', effectiveHaptics);
+                setShowHapticsModal(true);
+              }}
+              title="Haptics Settings"
+              aria-label="Haptics Settings"
+              className={`rc-bevel-btn font-black flex items-center gap-1 whitespace-nowrap ${
+                isLandscapeCompact ? 'px-2 py-1 text-[10px]' : 'px-2.5 py-1.5 text-xs'
+              } ${effectiveHaptics.enabled ? 'rc-tile-gold text-black' : 'rc-tile-slate text-slate-300'}`}
+            >
+              <Vibrate className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline tabular-nums">
+                {effectiveHaptics.enabled ? `${effectiveHaptics.intensity}%` : 'OFF'}
+              </span>
+            </button>
+            <button
+              data-testid="toggle-pads-btn"
+              onClick={() => {
+                triggerHaptic('menuTap', effectiveHaptics);
+                setShowTouchPads((v) => !v);
+              }}
+              title="Toggle Extra On-Screen Touch Pads"
+              aria-label="Toggle On-Screen Touch Pads"
+              className={`rc-bevel-btn font-black flex items-center gap-1 whitespace-nowrap ${
+                isLandscapeCompact ? 'px-2 py-1 text-[10px]' : 'px-2.5 py-1.5 text-xs'
+              } ${showTouchPads ? 'rc-tile-cyan text-black' : 'rc-tile-slate text-slate-200'}`}
+            >
+              <Smartphone className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">{showTouchPads ? 'PADS' : 'NO PADS'}</span>
+            </button>
           </div>
         </div>
 
-        <div className="rc-dock-rail flex items-center gap-1.5 p-1 shrink-0">
-          {isBattleRoyale && (
-            <button
-              onClick={() => setShowBrDrawer((v) => !v)}
-              className={`lg:hidden rc-bevel-btn rc-tile-gold text-black font-black flex items-center gap-1 whitespace-nowrap ${
-                isLandscapeCompact ? 'px-2 py-1 text-[10px]' : 'px-2.5 py-1.5 text-xs'
-              }`}
-            >
-              <Trophy className="w-3.5 h-3.5" /> {brAlive}/50
-            </button>
-          )}
-          {!isVS && !heroMode && (
-            <button
-              data-testid="game-layout-btn"
-              onClick={() => {
-                triggerHaptic('menuTap', effectiveHaptics);
-                setShowLayoutModal(true);
-              }}
-              title="Arrange Note Lanes & Note Buttons"
-              aria-label="Arrange Note Lanes and Buttons"
-              className={`rc-bevel-btn rc-tile-pink text-white font-black flex items-center gap-1 whitespace-nowrap ${
-                isLandscapeCompact ? 'px-2 py-1 text-[10px]' : 'px-2.5 py-1.5 text-xs'
-              }`}
-            >
-              <Move className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">LAYOUT</span>
-            </button>
-          )}
-          <button
-            data-testid="game-haptics-btn"
-            onClick={() => {
-              triggerHaptic('menuTap', effectiveHaptics);
-              setShowHapticsModal(true);
-            }}
-            title="Haptics Settings"
-            aria-label="Haptics Settings"
-            className={`rc-bevel-btn font-black flex items-center gap-1 whitespace-nowrap ${
-              isLandscapeCompact ? 'px-2 py-1 text-[10px]' : 'px-2.5 py-1.5 text-xs'
-            } ${effectiveHaptics.enabled ? 'rc-tile-gold text-black' : 'rc-tile-slate text-slate-300'}`}
+        {/* Live Gameplay Triggers Strip: 6 Speed Presets + Extra Notes (4/6/8) + 7 PowerPoint Transitions + Transition Speed (0.1s-2.0s) */}
+        {showTriggersBar && !isVS && (
+          <div
+            data-testid="live-triggers-bar"
+            className="rc-dock-rail w-full px-3 py-1.5 flex flex-wrap items-center justify-between gap-2 text-[10px] font-black"
           >
-            <Vibrate className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline tabular-nums">
-              {effectiveHaptics.enabled ? `${effectiveHaptics.intensity}%` : 'OFF'}
-            </span>
-          </button>
-          <button
-            data-testid="toggle-pads-btn"
-            onClick={() => {
-              triggerHaptic('menuTap', effectiveHaptics);
-              setShowTouchPads((v) => !v);
-            }}
-            title="Toggle Extra On-Screen Touch Pads"
-            aria-label="Toggle On-Screen Touch Pads"
-            className={`rc-bevel-btn font-black flex items-center gap-1 whitespace-nowrap ${
-              isLandscapeCompact ? 'px-2 py-1 text-[10px]' : 'px-2.5 py-1.5 text-xs'
-            } ${showTouchPads ? 'rc-tile-cyan text-black' : 'rc-tile-slate text-slate-200'}`}
-          >
-            <Smartphone className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">{showTouchPads ? 'PADS' : 'NO PADS'}</span>
-          </button>
-        </div>
+            <div className="flex items-center gap-1 flex-wrap">
+              <span className="text-amber-300 uppercase mr-1 flex items-center gap-1">
+                <Zap className="w-3 h-3" /> SPEED TRIGGER:
+              </span>
+              {SPEED_TRIGGER_PRESETS.map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  data-testid={`hud-speed-${preset}`}
+                  onClick={() => setLiveSpeedTrigger(preset)}
+                  className={`px-2 py-0.5 rounded border transition-all ${
+                    liveSpeedTrigger === preset
+                      ? 'bg-amber-400 text-black border-white font-black'
+                      : 'bg-black/60 text-white/75 border-white/20 hover:bg-white/10'
+                  }`}
+                >
+                  {preset.toFixed(2)}x
+                </button>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-fuchsia-300 uppercase flex items-center gap-1">
+                <Layers className="w-3 h-3" /> EXTRA NOTES:
+              </span>
+              {EXTRA_NOTES_PRESETS.map((cnt) => (
+                <button
+                  key={cnt}
+                  type="button"
+                  data-testid={`hud-lanes-${cnt}`}
+                  onClick={() => handleSelectExtraNotes(cnt)}
+                  className={`px-2 py-0.5 rounded border transition-all ${
+                    liveExtraNotes === cnt
+                      ? 'bg-fuchsia-500 text-white border-white font-black'
+                      : 'bg-black/60 text-white/75 border-white/20 hover:bg-white/10'
+                  }`}
+                >
+                  {cnt} LANES
+                </button>
+              ))}
+
+              <select
+                aria-label="Note Expansion Transition"
+                value={liveTransitionType}
+                onChange={(e) => setLiveTransitionType(e.target.value as ExpansionTransitionType)}
+                className="bg-[#0b0e17] border border-fuchsia-400/50 rounded px-2 py-0.5 text-[10px] font-black text-fuchsia-200"
+              >
+                {EXPANSION_TRANSITIONS.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+
+              <label className="flex items-center gap-1 text-cyan-200">
+                <span>{liveTransitionSpeed.toFixed(1)}s</span>
+                <input
+                  type="range"
+                  min={0.1}
+                  max={2.0}
+                  step={0.1}
+                  value={liveTransitionSpeed}
+                  onChange={(e) => setLiveTransitionSpeed(Number(parseFloat(e.target.value).toFixed(1)))}
+                  className="w-16 accent-fuchsia-400"
+                />
+              </label>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Desktop Left Active Mods Well (sits cleanly beside 860x440 playfield) */}
-      <div className="hidden lg:block absolute left-4 top-20 z-30 rc-panel p-3 text-xs font-black space-y-1">
+      {/* Desktop Left Active Mods Well */}
+      <div className="hidden lg:block absolute left-4 top-24 z-30 rc-panel p-3 text-xs font-black space-y-1">
         <div className="text-cyan-300 tracking-widest">ACTIVE MODS</div>
-        <div className="tabular-nums">×{modifiers?.speed?.toFixed(2) || '1.00'} SPEED</div>
+        <div className="tabular-nums">×{modifiers?.speed?.toFixed(2) || '1.00'} AUDIO</div>
+        <div className="text-amber-300 tabular-nums">×{liveSpeedTrigger.toFixed(2)} SCROLL</div>
+        <div className="text-fuchsia-300 tabular-nums">{liveExtraNotes} LANES</div>
         {modifiers?.altChart && <div>ALT CHART</div>}
         {modifiers?.nerf > 0 && <div className="text-orange-300 tabular-nums">NERF −{modifiers.nerf}% NOTES</div>}
-        {modifiers?.noFail && <div className="text-emerald-400">NO FAIL</div>}
+        {modifiers?.noFail && <div className="text-emerald-400">NO FAIL (DEMON SAFE)</div>}
         {modifiers?.extreme && <div className="text-red-400">EXTREME</div>}
       </div>
 
@@ -2151,11 +2568,11 @@ export const GameEngine: React.FC<GameEngineProps> = ({
 
       {inDemonModeNow && (
         <div className="hidden lg:block mx-auto z-20 text-red-400 font-black text-lg animate-[shake_0.2s_ease-in-out_infinite] rounded-lg border-2 border-red-500 bg-[#0d1018]/95 px-4 py-0.5 shrink-0">
-          DEMON MODE: ONE MISS = DEATH
+          {modifiers?.noFail ? 'DEMON MODE (NO FAIL PROTECTED)' : 'DEMON MODE: ONE MISS = DEATH'}
         </div>
       )}
 
-      {/* Landscape-Only FNF Playfield Container (all landscape viewports) */}
+      {/* Landscape-Only FNF Playfield Container (widens proportionally for 4, 6, or 8 lanes while keeping noteSize identical) */}
       <div
         data-testid="landscape-playfield"
         className={`relative z-10 flex-1 min-h-0 w-full flex flex-col items-center justify-between px-2 sm:px-4 pb-[max(0.35rem,env(safe-area-inset-bottom))] gap-1.5 ${
@@ -2167,10 +2584,11 @@ export const GameEngine: React.FC<GameEngineProps> = ({
             ref={canvasRef}
             data-testid="game-canvas"
             data-playfield-mode="fnf-landscape"
+            data-active-lanes={liveExtraNotes}
             width={playfieldLayout.width}
             height={playfieldLayout.height}
             style={{ aspectRatio: `${playfieldLayout.width} / ${playfieldLayout.height}`, willChange: 'transform' }}
-            className={`touch-surface bg-[#060811] border-4 shadow-[0_10px_28px_rgba(0,0,0,0.7)] rounded-2xl h-full max-h-full max-w-full w-auto object-contain ${
+            className={`touch-surface bg-[#060811] border-4 shadow-[0_10px_28px_rgba(0,0,0,0.7)] rounded-2xl h-full max-h-full max-w-full w-auto object-contain transition-[aspect-ratio] duration-150 ${
               inDemonModeNow ? 'border-red-500' : 'border-white/90'
             } ${isPulsing ? 'pulse-border-active' : ''}`}
           />
@@ -2201,7 +2619,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
         </div>
 
         {/* Bottom Console Telemetry Strip */}
-        <div className="w-full max-w-[860px] flex flex-col gap-1 shrink-0">
+        <div className="w-full max-w-[980px] flex flex-col gap-1 shrink-0">
           <div className="rc-dock-rail w-full flex items-center justify-between gap-2 sm:gap-3 px-2.5 py-1.5">
             <div className="rc-dock-well flex items-center gap-2 px-2.5 py-0.5 font-black text-xs sm:text-sm text-white shrink-0 tabular-nums">
               <span data-testid="game-score">SCORE: {spectatedBot ? spectatedBot.score : score}</span>
@@ -2243,6 +2661,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
           {showTouchPads && (
             <div className="w-full flex justify-center">
               <TouchLanePads
+                laneCount={isVS ? 4 : liveExtraNotes}
                 colors={gameplaySkinColors}
                 shape={gameplaySkinShape}
                 onLaneDown={handleLaneDown}
@@ -2271,6 +2690,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
         </div>
       )}
 
+      {/* Revamped Neon Console Endscreen UI */}
       {gameState === 'finished' && (
         <div data-testid="game-results" className="results-shell rc-stage absolute inset-0 z-50 overflow-hidden">
           <div className="rc-stage-dots absolute inset-0 pointer-events-none" />
@@ -2282,110 +2702,171 @@ export const GameEngine: React.FC<GameEngineProps> = ({
               style={{ transformOrigin: 'center' }}
             />
           )}
-          <div className="absolute inset-0 bg-gradient-to-r from-[#090714]/95 via-[#090714]/75 to-[#090714]/65" />
+          <div className="absolute inset-0 bg-gradient-to-r from-[#090714]/95 via-[#090714]/80 to-[#090714]/70" />
           <div
             className={`relative z-10 w-full h-full flex flex-col overflow-y-auto custom-scrollbar max-w-6xl mx-auto ${
-              isLandscapeCompact ? 'p-3 gap-2' : 'p-5 md:p-7 gap-4'
+              isLandscapeCompact ? 'p-2.5 gap-2' : 'p-4 md:p-6 gap-3.5'
             }`}
           >
+            {/* Results Top Dock Header */}
             <div className="rc-dock-rail flex items-center justify-between gap-4 px-4 py-2.5 pr-14 shrink-0">
               <div className="min-w-0">
-                <div className="text-[11px] text-cyan-300 font-black uppercase tracking-widest truncate">
-                  {song.artist} • {difficulty} • {gameMode}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[11px] text-cyan-300 font-black uppercase tracking-widest truncate">
+                    {song.artist} • {difficulty} • {gameMode}
+                  </span>
+                  <span className="px-2 py-0.5 rounded bg-amber-500/20 border border-amber-400/50 text-[10px] font-black text-amber-300">
+                    ★ {getEffectiveTrackRating(song).toFixed(1)} DIFFICULTY
+                  </span>
+                  <span className="px-2 py-0.5 rounded bg-fuchsia-500/20 border border-fuchsia-400/50 text-[10px] font-black text-fuchsia-200">
+                    {liveExtraNotes} LANES • {liveSpeedTrigger.toFixed(2)}x SCROLL
+                  </span>
                 </div>
-                <h2 className={`${isLandscapeCompact ? 'text-xl' : 'text-2xl md:text-3xl'} font-black italic uppercase text-white truncate`}>
+                <h2
+                  className={`${
+                    isLandscapeCompact ? 'text-xl' : 'text-2xl md:text-3xl'
+                  } font-black italic uppercase text-white truncate`}
+                >
                   {song.title}
                 </h2>
               </div>
-              <div className={`text-right font-black uppercase shrink-0 ${health <= 0 ? 'text-red-400' : 'text-white'}`}>
-                <div className={`${isLandscapeCompact ? 'text-xl' : 'text-3xl md:text-4xl'} italic`}>
-                  {health <= 0 ? 'GAME OVER' : 'RANKING'}
+              <div
+                className={`text-right font-black uppercase shrink-0 ${
+                  health <= 0 && !modifiers?.noFail ? 'text-red-400' : 'text-emerald-300'
+                }`}
+              >
+                <div className={`${isLandscapeCompact ? 'text-xl' : 'text-2xl md:text-3xl'} italic`}>
+                  {health <= 0 && !modifiers?.noFail ? 'TRACK FAILED' : 'STAGE CLEARED!'}
                 </div>
-                {isNewHigh && <div className="text-yellow-300 animate-pulse text-xs sm:text-sm">★ NEW HIGH SCORE ★</div>}
+                {isNewHigh && (
+                  <div className="text-yellow-300 animate-pulse text-xs sm:text-sm">★ NEW PERSONAL RECORD ★</div>
+                )}
               </div>
             </div>
 
             <div className={`flex-1 grid grid-cols-2 items-stretch min-h-0 ${isLandscapeCompact ? 'gap-2.5' : 'gap-4'}`}>
-              <section className={`rc-console-tray flex flex-col justify-between ${isLandscapeCompact ? 'p-3' : 'p-5'}`}>
-                <div
-                  className={`rc-console-inset text-yellow-300 text-right font-black tracking-wider tabular-nums ${
-                    isLandscapeCompact ? 'px-3 py-1.5 text-2xl' : 'px-4 py-2.5 text-4xl md:text-5xl'
-                  }`}
-                >
-                  {String(displayScore).padStart(7, '0')}
+              {/* Left Telemetry & Judgment Breakdown Tray */}
+              <section className={`rc-console-tray flex flex-col justify-between ${isLandscapeCompact ? 'p-3' : 'p-4 sm:p-5'}`}>
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between text-[10px] font-black text-cyan-300 uppercase tracking-wider">
+                    <span>FINAL SCORE</span>
+                    <span>COMPLETION: {Math.round(songProgressPct)}%</span>
+                  </div>
+                  <div
+                    className={`rc-console-inset text-yellow-300 text-right font-black tracking-wider tabular-nums ${
+                      isLandscapeCompact ? 'px-3 py-1 text-2xl' : 'px-4 py-2 text-4xl md:text-5xl'
+                    }`}
+                  >
+                    {String(displayScore).padStart(7, '0')}
+                  </div>
                 </div>
-                <div
-                  className={`grid grid-cols-[auto_1fr_auto] gap-x-3 gap-y-1 font-black relative z-10 tabular-nums ${
-                    isLandscapeCompact ? 'text-xs mt-2' : 'text-base md:text-xl mt-4'
-                  }`}
-                >
-                  <div className="text-xs text-cyan-300 self-center">350</div>
-                  <div className="text-cyan-100">SICK!!</div>
-                  <div className="text-right text-white">{stats.current.sick}x</div>
-                  <div className="text-xs text-emerald-300 self-center">200</div>
-                  <div className="text-emerald-200">GOOD</div>
-                  <div className="text-right text-white">{stats.current.good}x</div>
-                  <div className="text-xs text-yellow-300 self-center">50</div>
-                  <div className="text-yellow-200">BAD</div>
-                  <div className="text-right text-white">{stats.current.bad}x</div>
-                  <div className="text-xs text-red-400 self-center">×</div>
-                  <div className="text-red-300">MISS</div>
-                  <div className="text-right text-white">{stats.current.miss}x</div>
+
+                {/* Visual Judgment Breakdown Bars */}
+                <div className={`flex flex-col ${isLandscapeCompact ? 'gap-1.5 my-1.5' : 'gap-2.5 my-3'}`}>
+                  {(
+                    [
+                      { label: 'SICK!!', pts: '350', count: stats.current.sick, color: 'bg-cyan-400', text: 'text-cyan-300' },
+                      { label: 'GOOD', pts: '200', count: stats.current.good, color: 'bg-emerald-400', text: 'text-emerald-300' },
+                      { label: 'BAD', pts: '50', count: stats.current.bad, color: 'bg-yellow-400', text: 'text-yellow-300' },
+                      { label: 'MISS', pts: '0', count: stats.current.miss, color: 'bg-rose-500', text: 'text-rose-400' },
+                    ] as const
+                  ).map((row) => {
+                    const pct = Math.min(100, Math.round((row.count / Math.max(1, stats.current.total)) * 100));
+                    return (
+                      <div key={row.label} className="rc-console-inset px-3 py-1.5 flex flex-col gap-1">
+                        <div className="flex items-center justify-between text-xs sm:text-sm font-black tabular-nums">
+                          <span className={row.text}>
+                            {row.label} <em className="text-[10px] text-white/50 not-italic">({row.pts})</em>
+                          </span>
+                          <span className="text-white">
+                            {row.count}x <span className="text-white/50 text-[10px]">({pct}%)</span>
+                          </span>
+                        </div>
+                        <div className="w-full h-1.5 bg-black/70 rounded-full overflow-hidden">
+                          <div className={`h-full ${row.color} rounded-full`} style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-                <div
-                  className={`rc-console-inset grid grid-cols-2 px-3 py-2 tabular-nums ${
-                    isLandscapeCompact ? 'mt-2' : 'mt-4'
-                  }`}
-                >
+
+                <div className="rc-console-inset grid grid-cols-3 gap-2 px-3 py-2 tabular-nums text-center">
                   <div>
-                    <div className="text-[10px] sm:text-xs text-cyan-300 font-black">MAX COMBO</div>
-                    <div className={`${isLandscapeCompact ? 'text-lg' : 'text-2xl'} font-black text-white`}>
+                    <div className="text-[10px] text-cyan-300 font-black">MAX COMBO</div>
+                    <div className={`${isLandscapeCompact ? 'text-base' : 'text-xl'} font-black text-white`}>
                       {maxCombo}x
                     </div>
                   </div>
-                  <div className="text-right">
-                    <div className="text-[10px] sm:text-xs text-cyan-300 font-black">ACCURACY</div>
-                    <div className={`${isLandscapeCompact ? 'text-lg' : 'text-2xl'} font-black text-white`}>
+                  <div>
+                    <div className="text-[10px] text-cyan-300 font-black">ACCURACY</div>
+                    <div className={`${isLandscapeCompact ? 'text-base' : 'text-xl'} font-black text-emerald-300`}>
                       {accuracy}%
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-cyan-300 font-black">PERSONAL BEST</div>
+                    <div className={`${isLandscapeCompact ? 'text-base' : 'text-xl'} font-black text-yellow-300`}>
+                      {Math.max(previousHigh, score)}
                     </div>
                   </div>
                 </div>
               </section>
 
-              <section className={`rc-panel flex flex-col items-center justify-between ${isLandscapeCompact ? 'p-3 gap-2' : 'p-5 gap-3'}`}>
-                <div className="flex-1 flex flex-col items-center justify-center">
+              {/* Right Rank Emblem & Action Console */}
+              <section
+                className={`rc-console-tray flex flex-col items-center justify-between ${
+                  isLandscapeCompact ? 'p-3 gap-2' : 'p-5 gap-3'
+                }`}
+              >
+                <div className="flex-1 flex flex-col items-center justify-center relative">
+                  <div className="text-[11px] font-black text-pink-300 uppercase tracking-widest mb-1">
+                    PERFORMANCE GRADE
+                  </div>
                   <div
-                    className={`leading-none font-black italic drop-shadow-[0_6px_0_#080a0f] ${
-                      isLandscapeCompact ? 'text-6xl' : 'text-[7rem] md:text-[10rem]'
-                    } ${health <= 0 ? 'text-red-500' : 'text-emerald-400'}`}
+                    className={`leading-none font-black italic drop-shadow-[0_8px_0_#05070e] ${
+                      isLandscapeCompact ? 'text-6xl' : 'text-[6.5rem] md:text-[9rem]'
+                    } ${
+                      health <= 0 && !modifiers?.noFail
+                        ? 'text-red-500'
+                        : accuracy >= 95
+                        ? 'text-cyan-300'
+                        : accuracy >= 85
+                        ? 'text-emerald-400'
+                        : 'text-yellow-300'
+                    }`}
                   >
                     {getGrade(accuracy)}
                   </div>
                   <div
                     className={`rc-dock-well font-black text-white tabular-nums mt-2 ${
-                      isLandscapeCompact ? 'px-3 py-1 text-xs' : 'px-5 py-2 text-sm sm:text-base'
+                      isLandscapeCompact ? 'px-3 py-1 text-xs' : 'px-4 py-1.5 text-sm'
                     }`}
                   >
-                    BEST: {Math.max(previousHigh, score)} • SCORE: {score}
+                    +{Math.floor(score / 200)} XP • +{Math.floor(score / 500)} COINS
                   </div>
                 </div>
 
-                <div className="w-full max-w-md flex gap-3 shrink-0">
+                <div className="w-full flex gap-2.5 shrink-0">
                   <button
+                    data-testid="results-retry-btn"
                     onClick={retryTrack}
                     className={`rc-bevel-btn rc-tile-gold flex-1 text-black font-black whitespace-nowrap ${
-                      isLandscapeCompact ? 'py-2 text-sm' : 'py-3 text-lg md:text-xl'
+                      isLandscapeCompact ? 'py-2 text-sm' : 'py-3 text-base md:text-lg'
                     }`}
                   >
-                    RETRY
+                    RETRY TRACK
                   </button>
                   <button
-                    onClick={() => setScreen('freeplay')}
+                    data-testid="results-back-btn"
+                    onClick={() => {
+                      if (onExitPlaytest) onExitPlaytest();
+                      else setScreen('freeplay');
+                    }}
                     className={`rc-bevel-btn rc-tile-cyan flex-1 text-black font-black whitespace-nowrap ${
-                      isLandscapeCompact ? 'py-2 text-sm' : 'py-3 text-lg md:text-xl'
+                      isLandscapeCompact ? 'py-2 text-sm' : 'py-3 text-base md:text-lg'
                     }`}
                   >
-                    BACK
+                    {onExitPlaytest ? 'BACK TO EDITOR' : 'TRACK SELECT'}
                   </button>
                 </div>
               </section>

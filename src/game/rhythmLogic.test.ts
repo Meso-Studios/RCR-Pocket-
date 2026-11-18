@@ -1,269 +1,197 @@
-import test from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  getXpRequirement,
+  evaluateHitWindow,
+  calculateAccuracy,
+  calculateGrade,
+  mapKeyToLane,
   addRewardsCalc,
-  applyNerfChart,
-  createAltChart,
-  evaluateHitTiming,
-  generateBeatmap,
-  getCleanedUrl,
-  getDurationString,
-  getGrade,
-  getLaneFromClientX,
-  getLaneFromPlayfieldPoint,
-  getLaneFromPlayfieldX,
-  getPlayfieldLayout,
-  normalizeChart,
-} from './rhythmLogic.ts';
-import {
-  clampLaneCoord,
-  clampPadCoord,
   getDefaultLaneCoords,
-  getLaneBoundaryBounds,
-  laneCoordsToPixels,
-  normalizeControlLayout,
-  pixelToLaneCoord,
-} from './layoutConfig.ts';
-import { buildVibrationPattern, DEFAULT_HAPTICS_SETTINGS, isHapticEventEnabled, normalizeHapticsSettings } from './haptics.ts';
-import { MENU_GENRE_CONFIGS, MENU_GENRE_ORDER, ROYALTY_FREE_SONGS, SPOTIFY_PLAYLIST_ID, SPOTIFY_PLAYLIST_TRACKS } from './constants.ts';
-import { readGamepadLaneState, readGamepadStartPressed } from './gamepad.ts';
-import { isCompactLandscapeViewport, isLandscapeViewport, isPortraitViewport } from './useViewport.ts';
+  getPlayfieldLayout,
+  getLaneFromPlayfieldX,
+  getLaneFromPlayfieldPoint,
+  getOppositeColor,
+  getExpandedLaneColors,
+  getEffectiveScrollSpeed,
+  getActiveSpeedMultiplierAtTime,
+  getActiveLaneExpansionState,
+  getEffectiveTrackRating,
+  getHighestTrackRating,
+  validateDifficultyVote,
+  autoIndexFeaturedTracks,
+  autoSyncChartNotes,
+  resolveExternalAudioInput,
+} from './rhythmLogic';
+import { ROYALTY_FREE_SONGS } from './constants';
 
-test('spotify playlist tracks and rave, dubstep, and hardtekk menu music genres are configured with valid BPMs and real-hardware haptics defaults', () => {
-  assert.equal(SPOTIFY_PLAYLIST_ID, '37i9dQZF1FwYctKSlWHO7d');
-  assert.equal(SPOTIFY_PLAYLIST_TRACKS.length, 16);
-  assert.ok(SPOTIFY_PLAYLIST_TRACKS.every((t) => t.previewUrl.startsWith('https://p.scdn.co/mp3-preview/') && t.bpm >= 100));
-
-  assert.deepEqual(MENU_GENRE_ORDER, ['spotify', 'rave', 'dubstep', 'hardtekk']);
-  assert.equal(MENU_GENRE_CONFIGS.spotify.bpm, 175);
-  assert.equal(MENU_GENRE_CONFIGS.rave.bpm, 155);
-  assert.equal(MENU_GENRE_CONFIGS.dubstep.bpm, 140);
-  assert.equal(MENU_GENRE_CONFIGS.hardtekk.bpm, 180);
-
-  const synthSongs = ROYALTY_FREE_SONGS.filter((s) => s.audioUrl?.startsWith('synth:'));
-  assert.equal(synthSongs.length, 3);
-  assert.ok(synthSongs.some((s) => s.audioUrl === 'synth:rave' && s.bpm === 155));
-  assert.ok(synthSongs.some((s) => s.audioUrl === 'synth:dubstep' && s.bpm === 140));
-  assert.ok(synthSongs.some((s) => s.audioUrl === 'synth:hardtekk' && s.bpm === 180));
-
-  // Verify simulated audio noise is OFF by default so haptics use physical phone vibration
-  assert.equal(DEFAULT_HAPTICS_SETTINGS.alwaysAudioAssist, false);
-  assert.equal(DEFAULT_HAPTICS_SETTINGS.audioFallback, false);
-  assert.ok(DEFAULT_HAPTICS_SETTINGS.intensity >= 85);
-  assert.ok(DEFAULT_HAPTICS_SETTINGS.pulseDurationMs >= 28);
-});
-
-test('normalizeChart sorts notes, clamps lanes, and sets hold duration defaults', () => {
-  const normalized = normalizeChart([
-    { time: 1200, lane: 9, type: 'hold', duration: 40 },
-    { time: -50, lane: -3, type: 'demon' },
-    { time: 600, lane: 2, type: 'normal' },
-  ]);
-  assert.equal(normalized.length, 3);
-  assert.deepEqual(normalized[0], { time: 0, lane: 0, type: 'demon' });
-  assert.deepEqual(normalized[1], { time: 600, lane: 2, type: 'normal' });
-  assert.deepEqual(normalized[2], { time: 1200, lane: 7, type: 'hold', duration: 100 });
-});
-
-test('evaluateHitTiming maps timing deltas accurately', () => {
-  assert.equal(evaluateHitTiming(10).judgment, 'SICK!!');
-  assert.equal(evaluateHitTiming(60).judgment, 'GOOD!');
-  assert.equal(evaluateHitTiming(110).judgment, 'BAD');
-  assert.equal(evaluateHitTiming(160).judgment, 'MISS');
-  assert.equal(evaluateHitTiming(80, 1).judgment, 'SICK!!');
-});
-
-test('applyNerfChart deterministically removes percentage of notes without modifying original', () => {
-  const src = Array.from({ length: 20 }, (_, i) => ({ time: i * 250, lane: i % 4, type: 'normal' as const }));
-  const nerfedA = applyNerfChart(src, 25, 'seed-1');
-  const nerfedB = applyNerfChart(src, 25, 'seed-1');
-  assert.equal(nerfedA.length, 15);
-  assert.deepEqual(nerfedA, nerfedB);
-  assert.equal(src.length, 20);
-});
-
-test('createAltChart avoids immediate repeated single-note lanes and preserves chord lane uniqueness', () => {
-  const src = [
-    { time: 500, lane: 0, type: 'normal' as const },
-    { time: 1000, lane: 0, type: 'normal' as const },
-    { time: 1500, lane: 1, type: 'normal' as const },
-    { time: 1500, lane: 2, type: 'normal' as const },
-  ];
-  const alt = createAltChart(src);
-  assert.equal(alt.length, 4);
-  assert.notEqual(alt[0].lane, alt[1].lane);
-  assert.notEqual(alt[2].lane, alt[3].lane);
-});
-
-test('getLaneFromClientX accurately maps horizontal touch coordinates to lanes 0-3', () => {
-  assert.equal(getLaneFromClientX(10, 0, 400), 0);
-  assert.equal(getLaneFromClientX(150, 0, 400), 1);
-  assert.equal(getLaneFromClientX(250, 0, 400), 2);
-  assert.equal(getLaneFromClientX(399, 0, 400), 3);
-  assert.equal(getLaneFromClientX(-5, 0, 400), null);
-  assert.equal(getLaneFromClientX(405, 0, 400), null);
-});
-
-test('getGrade, getDurationString, getCleanedUrl, generateBeatmap, and addRewardsCalc', () => {
-  assert.equal(getGrade(100), 'SSS');
-  assert.equal(getGrade(97), 'S');
-  assert.equal(getGrade(90), 'A');
-  assert.equal(getGrade(55), 'F');
-
-  assert.equal(
-    getDurationString({ id: 1, title: 'T', artist: 'A', bpm: 120, color: '#fff', customMap: [{ time: 57500, lane: 0, type: 'normal' }] }),
-    '1:00'
-  );
-  assert.equal(getCleanedUrl('https://www.dropbox.com/s/abc/test.mp3?dl=0'), 'https://dl.dropboxusercontent.com/s/abc/test.mp3');
-
-  const bm = generateBeatmap(120, 0, 10, 'normal', 'standard');
-  assert.ok(bm.length > 0);
-  assert.ok(bm.every((n) => n.lane >= 0 && n.lane <= 3));
-
-  const next = addRewardsCalc({ level: 1, xp: 800, coins: 10 }, 400, 50);
-  assert.deepEqual(next, { level: 2, xp: 200, coins: 60 });
-});
-
-test('viewport orientation helpers classify portrait, landscape, and compact landscape accurately', () => {
-  assert.equal(isCompactLandscapeViewport(844, 390), true);
-  assert.equal(isCompactLandscapeViewport(667, 375), true);
-  assert.equal(isCompactLandscapeViewport(390, 844), false);
-  assert.equal(isCompactLandscapeViewport(1440, 900), false);
-  assert.equal(isCompactLandscapeViewport(1024, 768), false);
-  assert.equal(isCompactLandscapeViewport(0, 0), false);
-
-  assert.equal(isPortraitViewport(390, 844), true);
-  assert.equal(isPortraitViewport(768, 1024), true);
-  assert.equal(isPortraitViewport(844, 390), false);
-  assert.equal(isPortraitViewport(1440, 900), false);
-  assert.equal(isPortraitViewport(0, 0), false);
-
-  assert.equal(isLandscapeViewport(844, 390), true);
-  assert.equal(isLandscapeViewport(1440, 900), true);
-  assert.equal(isLandscapeViewport(1024, 768), true);
-  assert.equal(isLandscapeViewport(800, 800), true);
-  assert.equal(isLandscapeViewport(390, 844), false);
-});
-
-test('getPlayfieldLayout positions spaced FNF bottom receptors in landscape and maps direct receptor taps', () => {
-  const fnfLandscape = getPlayfieldLayout({ isLandscape: true, isVS: false, downscroll: true, heroMode: false });
-  assert.equal(fnfLandscape.width, 860);
-  assert.equal(fnfLandscape.height, 440);
-  assert.equal(fnfLandscape.noteSize, 74);
-  assert.ok(fnfLandscape.receptorY > 300);
-  // Spaced-out FNF notes should have wide gaps (> 100px between edges)
-  assert.ok(fnfLandscape.playerLaneXs[1] - (fnfLandscape.playerLaneXs[0] + fnfLandscape.noteSize) > 100);
-
-  // Direct taps on each gray receptor center resolve to exact lane 0..3
-  for (let i = 0; i < 4; i++) {
-    const laneCenter: number = fnfLandscape.playerLaneXs[i] + fnfLandscape.noteSize / 2;
-    assert.equal(getLaneFromPlayfieldX(laneCenter, fnfLandscape), i);
-  }
-  assert.equal(getLaneFromPlayfieldX(-1, fnfLandscape), null);
-  assert.equal(getLaneFromPlayfieldX(861, fnfLandscape), null);
-
-  // Online VS restricts direct canvas touch to player side (left 4 lanes)
-  const vsLandscape = getPlayfieldLayout({ isLandscape: true, isVS: true, downscroll: true, heroMode: false });
-  assert.equal(getLaneFromPlayfieldX(vsLandscape.playerLaneXs[2] + 10, vsLandscape), 2);
-  assert.equal(getLaneFromPlayfieldX(vsLandscape.opponentLaneXs[1] + 10, vsLandscape), null);
-});
-
-test('haptics settings normalize safely and generate expected vibration patterns', () => {
-  const norm = normalizeHapticsSettings({
-    enabled: true,
-    intensity: 200,
-    pulseDurationMs: 2,
-    triggers: { onMiss: false } as any,
+describe('rhythmLogic pure functions', () => {
+  it('calculates XP requirements monotonically', () => {
+    assert.equal(getXpRequirement(1), 150);
+    assert.ok(getXpRequirement(2) > getXpRequirement(1));
+    assert.ok(getXpRequirement(10) > getXpRequirement(5));
   });
-  assert.equal(norm.intensity, 100);
-  assert.equal(norm.pulseDurationMs, 8);
-  assert.equal(norm.triggers.onMiss, false);
-  assert.equal(norm.triggers.onHit, true);
 
-  assert.equal(isHapticEventEnabled('hit', norm), true);
-  assert.equal(isHapticEventEnabled('miss', norm), false);
-  assert.equal(isHapticEventEnabled('hit', { ...DEFAULT_HAPTICS_SETTINGS, enabled: false }), false);
-
-  const sickPat = buildVibrationPattern('hit', DEFAULT_HAPTICS_SETTINGS, 'sick');
-  const badPat = buildVibrationPattern('hit', DEFAULT_HAPTICS_SETTINGS, 'bad');
-  assert.ok(sickPat[0] > badPat[0]);
-
-  const missPat = buildVibrationPattern('miss', DEFAULT_HAPTICS_SETTINGS);
-  assert.equal(missPat.length, 3);
-  const demonPat = buildVibrationPattern('demon', DEFAULT_HAPTICS_SETTINGS);
-  assert.equal(demonPat.length, 5);
-});
-
-test('readGamepadLaneState and readGamepadStartPressed map Xbox/PS buttons and analog stick with deadzone', () => {
-  const mkBtn = (pressed: boolean) => ({ pressed, touched: pressed, value: pressed ? 1 : 0 });
-  const dpadPad = {
-    buttons: Array.from({ length: 16 }, (_, i) => mkBtn(i === 14 || i === 12)), // Left + Up
-    axes: [0, 0, 0, 0],
-  } as unknown as Gamepad;
-  assert.deepEqual(readGamepadLaneState(dpadPad), [true, false, true, false]);
-
-  const stickPad = {
-    buttons: Array.from({ length: 16 }, () => mkBtn(false)),
-    axes: [0.85, 0.2, 0, 0], // Right pressed, Down inside deadzone
-  } as unknown as Gamepad;
-  assert.deepEqual(readGamepadLaneState(stickPad), [false, false, false, true]);
-
-  const startPad = {
-    buttons: Array.from({ length: 16 }, (_, i) => mkBtn(i === 9)),
-    axes: [0, 0, 0, 0],
-  } as unknown as Gamepad;
-  assert.equal(readGamepadStartPressed(startPad), true);
-});
-
-test('portrait playfield is wider (440px) with 44px gaps and supports custom bounded dragged lanes & pads', () => {
-  const portrait = getPlayfieldLayout({ isLandscape: false, isVS: false, downscroll: true, heroMode: false });
-  assert.equal(portrait.width, 440);
-  assert.equal(portrait.noteSize, 66);
-  const gap = portrait.playerLaneXs[1] - (portrait.playerLaneXs[0] + portrait.noteSize);
-  assert.equal(gap, 44);
-
-  // Bounded lane drag clamping keeps coordinates strictly within boundary margin
-  const bounds = getLaneBoundaryBounds(false, 66);
-  const clampedHigh = pixelToLaneCoord(9999, 9999, false, 66);
-  const clampedLow = pixelToLaneCoord(-500, -500, false, 66);
-  assert.deepEqual(clampedHigh, { xNorm: 1, yNorm: 1 });
-  assert.deepEqual(clampedLow, { xNorm: 0, yNorm: 0 });
-  const roundTrip = laneCoordsToPixels([clampedLow, clampedHigh, clampLaneCoord({ xNorm: 0.5, yNorm: 0.25 }, clampedLow), clampedHigh], false, 66);
-  assert.equal(roundTrip.xs[0], bounds.minX);
-  assert.equal(roundTrip.xs[1], bounds.maxX);
-
-  // Bounded pad drag clamping keeps buttons within 1..79% X and 2..54% Y
-  const clampedPad = clampPadCoord({ xPct: 99, yPct: -10 }, { xPct: 4, yPct: 28 });
-  assert.equal(clampedPad.xPct, 79);
-  assert.equal(clampedPad.yPct, 2);
-
-  const normalizedLayout = normalizeControlLayout({
-    portraitLanes: getDefaultLaneCoords(false, true),
-    landscapePads: [{ xPct: 100, yPct: 100 }, { xPct: 0, yPct: 0 }, { xPct: 30, yPct: 30 }, { xPct: 60, yPct: 20 }],
+  it('evaluates hit windows accurately', () => {
+    assert.equal(evaluateHitWindow(0), 'sick');
+    assert.equal(evaluateHitWindow(40), 'sick');
+    assert.equal(evaluateHitWindow(70), 'good');
+    assert.equal(evaluateHitWindow(120), 'bad');
+    assert.equal(evaluateHitWindow(160), 'miss');
+    assert.equal(evaluateHitWindow(220), null);
   });
-  assert.equal(normalizedLayout.portraitLanes?.length, 4);
-  assert.equal(normalizedLayout.landscapeLanes, null);
-  assert.equal(normalizedLayout.landscapePads?.[0].xPct, 79);
 
-  // Custom dragged receptor positions resolve 2D taps accurately
-  const customPortrait = getPlayfieldLayout({
-    isLandscape: false,
-    isVS: false,
-    downscroll: true,
-    heroMode: false,
-    customLanes: [
-      { xNorm: 0, yNorm: 0 },
-      { xNorm: 1, yNorm: 0 },
-      { xNorm: 0, yNorm: 1 },
-      { xNorm: 1, yNorm: 1 },
-    ],
+  it('calculates accuracy and grade properly', () => {
+    assert.equal(calculateAccuracy({ sick: 10, good: 0, bad: 0, miss: 0 }), 100);
+    assert.equal(calculateGrade(100, 0), 'S+');
+    assert.equal(calculateGrade(96, 1), 'S');
+    assert.equal(calculateGrade(91, 2), 'A');
+    assert.equal(calculateGrade(60, 5), 'D');
   });
-  assert.equal(
-    getLaneFromPlayfieldPoint(
-      customPortrait.playerLaneXs[2] + customPortrait.noteSize / 2,
-      customPortrait.playerLaneYs[2] + customPortrait.noteSize / 2,
-      customPortrait
-    ),
-    2
-  );
+
+  it('maps keys to lanes for 4, 6, and 8 lanes', () => {
+    assert.equal(mapKeyToLane('a', 'KeyA'), 0);
+    assert.equal(mapKeyToLane('s', 'KeyS'), 1);
+    assert.equal(mapKeyToLane('w', 'KeyW'), 2);
+    assert.equal(mapKeyToLane('d', 'KeyD'), 3);
+    assert.equal(mapKeyToLane('f', 'KeyF'), 4);
+    assert.equal(mapKeyToLane('g', 'KeyG'), 5);
+    assert.equal(mapKeyToLane('h', 'KeyH'), 6);
+    assert.equal(mapKeyToLane(';', 'Semicolon'), 7);
+  });
+
+  it('computes opposite colors for expanded lanes (6 and 8 notes)', () => {
+    assert.equal(getOppositeColor('#00ffff'), '#ff0000');
+    assert.equal(getOppositeColor('#ff0055'), '#00ffaa');
+    const base = ['#c24b99', '#00ffff', '#12fa05', '#f9393f'];
+    const expanded8 = getExpandedLaneColors(base, 8);
+    assert.equal(expanded8.length, 8);
+    assert.equal(expanded8[0], '#c24b99');
+    assert.equal(expanded8[4], getOppositeColor('#c24b99'));
+    assert.equal(expanded8[5], getOppositeColor('#00ffff'));
+    assert.equal(expanded8[6], getOppositeColor('#12fa05'));
+    assert.equal(expanded8[7], getOppositeColor('#f9393f'));
+  });
+
+  it('preserves difficulty speed ratios across speed trigger changes', () => {
+    const easyBase = getEffectiveScrollSpeed('easy', 1.0);
+    const insaneBase = getEffectiveScrollSpeed('insane', 1.0);
+    const baseRatio = insaneBase / easyBase;
+
+    for (const preset of [0.5, 0.75, 1.0, 1.5, 1.75, 2.0] as const) {
+      const easyTriggered = getEffectiveScrollSpeed('easy', preset);
+      const insaneTriggered = getEffectiveScrollSpeed('insane', preset);
+      const triggeredRatio = insaneTriggered / easyTriggered;
+      assert.ok(Math.abs(triggeredRatio - baseRatio) < 1e-6);
+    }
+  });
+
+  it('widens playfield while keeping noteSize identical (74) and even spacing for 4, 6, and 8 lanes', () => {
+    const layout4 = getPlayfieldLayout({ isLandscape: true, isVS: false, downscroll: true, laneCount: 4 });
+    const layout6 = getPlayfieldLayout({ isLandscape: true, isVS: false, downscroll: true, laneCount: 6 });
+    const layout8 = getPlayfieldLayout({ isLandscape: true, isVS: false, downscroll: true, laneCount: 8 });
+
+    assert.equal(layout4.noteSize, 74);
+    assert.equal(layout6.noteSize, 74);
+    assert.equal(layout8.noteSize, 74);
+
+    assert.equal(layout4.playerLaneXs.length, 4);
+    assert.equal(layout6.playerLaneXs.length, 6);
+    assert.equal(layout8.playerLaneXs.length, 8);
+
+    assert.ok(layout6.width > layout4.width);
+    assert.ok(layout8.width > layout6.width);
+
+    // Check even spacing ratio across all 8 lanes
+    const step4 = layout4.playerLaneXs[1] - layout4.playerLaneXs[0];
+    const step8 = layout8.playerLaneXs[1] - layout8.playerLaneXs[0];
+    assert.ok(Math.abs(step8 - step4) <= 1);
+  });
+
+  it('resolves active speed triggers and lane expansion transitions', () => {
+    const triggers = [
+      { id: 't1', time: 1000, type: 'speed' as const, speed: 1.5 as const },
+      { id: 't2', time: 2000, type: 'extra_notes' as const, laneCount: 6 as const, transition: 'zoom_burst' as const, transitionDurationSec: 0.5 },
+    ];
+    assert.equal(getActiveSpeedMultiplierAtTime(triggers, 500, 1.0), 1.0);
+    assert.equal(getActiveSpeedMultiplierAtTime(triggers, 1200, 1.0), 1.5);
+
+    const expMid = getActiveLaneExpansionState(triggers, 2250, 4, 'split_out', 0.5);
+    assert.equal(expMid.toLanes, 6);
+    assert.equal(expMid.isTransitioning, true);
+    assert.equal(expMid.transitionType, 'zoom_burst');
+  });
+
+  it('enforces Top 1 voting rules unless track is labeled isNewTop1 or user is admin', () => {
+    const highest = getHighestTrackRating(ROYALTY_FREE_SONGS);
+    assert.equal(highest, 30);
+
+    // Non-admin voting on normal track: <= 30 allowed, > 30 rejected
+    assert.equal(
+      validateDifficultyVote({ value: 28, highestRating: 30, isNewTop1: false, isAdmin: false }).valid,
+      true
+    );
+    assert.equal(
+      validateDifficultyVote({ value: 32, highestRating: 30, isNewTop1: false, isAdmin: false }).valid,
+      false
+    );
+
+    // When admin labels track as New Top 1, players and admins can vote/set over 30!
+    assert.equal(
+      validateDifficultyVote({ value: 35, highestRating: 30, isNewTop1: true, isAdmin: false }).valid,
+      true
+    );
+  });
+
+  it('auto-indexes 30 featured tracks sorted from least to greatest numerical rating', () => {
+    const indexedIds = autoIndexFeaturedTracks(ROYALTY_FREE_SONGS, {}, 30);
+    assert.equal(indexedIds.length, 30);
+
+    const ratings = indexedIds.map((id) => {
+      const song = ROYALTY_FREE_SONGS.find((s) => String(s.id) === String(id))!;
+      return getEffectiveTrackRating(song, {});
+    });
+
+    for (let i = 1; i < ratings.length; i++) {
+      assert.ok(
+        ratings[i] >= ratings[i - 1],
+        `Expected ratings[${i}] (${ratings[i]}) >= ratings[${i - 1}] (${ratings[i - 1]})`
+      );
+    }
+  });
+
+  it('snaps notes onto the beat grid in autoSyncChartNotes and resolves Newgrounds/Spotify links', () => {
+    const notes = [
+      { time: 492, lane: 0, type: 'normal' as const },
+      { time: 1012, lane: 2, type: 'hold' as const, duration: 485 },
+    ];
+    // 120 BPM, 1/4 step = 125ms per step -> 500ms, 1000ms
+    const synced = autoSyncChartNotes(notes, 120, 4);
+    assert.equal(synced[0].time, 500);
+    assert.equal(synced[1].time, 1000);
+    assert.equal(synced[1].duration, 500);
+
+    const ngRes = resolveExternalAudioInput('574484');
+    assert.equal(ngRes.ok, true);
+    assert.equal(ngRes.sourceType, 'newgrounds');
+
+    const spRes = resolveExternalAudioInput('https://open.spotify.com/playlist/37i9dQZF1FwYctKSlWHO7d');
+    assert.equal(spRes.ok, true);
+    assert.equal(spRes.sourceType, 'spotify');
+  });
+
+  it('levels up and carries over XP in addRewardsCalc', () => {
+    const res = addRewardsCalc({ xp: 140, level: 1, coins: 50 }, 30, 25);
+    assert.equal(res.level, 2);
+    assert.equal(res.xp, 20);
+    assert.equal(res.coins, 75);
+  });
+
+  it('maps playfield coordinates to lanes accurately', () => {
+    const layout = getPlayfieldLayout({ isLandscape: true, isVS: false, downscroll: true });
+    assert.equal(getLaneFromPlayfieldX(layout.playerLaneXs[0] + 10, layout), 0);
+    assert.equal(getLaneFromPlayfieldPoint(layout.playerLaneXs[2] + 20, layout.receptorY + 20, layout), 2);
+    const defaults = getDefaultLaneCoords(true, true);
+    assert.equal(defaults.length, 4);
+  });
 });

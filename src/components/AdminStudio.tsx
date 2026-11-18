@@ -1,667 +1,1325 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  AlertTriangle,
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  Crown,
+  Lock,
+  Plus,
+  ShieldAlert,
+  ShoppingBag,
+  Sparkles,
+  Star,
+  Trash2,
+  Unlock,
+  Volume2,
+} from 'lucide-react';
 import { db } from '../firebaseClient';
+import {
+  ADMIN_EMAILS,
+  NOTE_EFFECTS,
+  NOTE_RARITIES,
+  RHYTHM_LIST_STORAGE_KEY,
+  ROYALTY_FREE_SONGS,
+  SECRET_DEV_CODE,
+  SHOP_SHUTDOWN_STORAGE_KEY,
+  TRACK_RATINGS_STORAGE_KEY,
+} from '../game/constants';
 import { AudioEngine } from '../game/audio';
-import { ADMIN_EMAILS, NOTE_EFFECTS, NOTE_RARITIES } from '../game/constants';
-import type { FirebaseUser, NoteEffectConfig, ScreenId, Song } from '../game/types';
-import { NoteTestArena } from './ShopMenu';
+import {
+  autoIndexFeaturedTracks,
+  getCommunityVoteStats,
+  getEffectiveTrackRating,
+  getHighestTrackRating,
+  isTrackLabeledNewTop1,
+} from '../game/rhythmLogic';
+import type {
+  FirebaseUser,
+  HitSoundProduct,
+  InterruptionData,
+  NoteEffectConfig,
+  NoteProduct,
+  ScreenId,
+  ShopShutdownConfig,
+  Song,
+  TrackRatingsMap,
+} from '../game/types';
 
 interface AdminStudioProps {
-  setScreen: (s: ScreenId) => void;
-  songs: Song[];
   user: FirebaseUser | null;
+  setScreen?: (s: ScreenId) => void;
+  songs?: Song[];
+  isAdminUser?: boolean;
+  noteProducts?: NoteProduct[];
+  setNoteProducts?: React.Dispatch<React.SetStateAction<NoteProduct[]>>;
+  hitSoundProducts?: HitSoundProduct[];
+  setHitSoundProducts?: React.Dispatch<React.SetStateAction<HitSoundProduct[]>>;
+  rhythmList?: (string | number)[];
+  setRhythmList?: React.Dispatch<React.SetStateAction<(string | number)[]>>;
+  customSongs?: Song[];
+  onlineSongs?: Song[];
+  interruption?: InterruptionData | null;
+  trackRatings?: TrackRatingsMap;
+  setTrackRatings?: React.Dispatch<React.SetStateAction<TrackRatingsMap>>;
+  shopShutdown?: ShopShutdownConfig;
+  setShopShutdown?: React.Dispatch<React.SetStateAction<ShopShutdownConfig>>;
+  onBack?: () => void;
 }
 
-export const AdminStudio: React.FC<AdminStudioProps> = ({ setScreen, songs, user }) => {
-  const [unlocked, setUnlocked] = useState(false);
-  const [code, setCode] = useState('');
-  const [tab, setTab] = useState<'notes' | 'sounds' | 'rhythm'>('notes');
-  const [name, setName] = useState('NEW NOTE');
-  const [description, setDescription] = useState('');
-  const [fill, setFill] = useState('#ff3cac');
-  const [outline, setOutline] = useState('#ffffff');
-  const [text, setText] = useState('★');
-  const [sticker, setSticker] = useState('');
-  const [rarity, setRarity] = useState('common');
-  const [price, setPrice] = useState(500);
-  const [effects, setEffects] = useState<NoteEffectConfig[]>([]);
-  const [busy, setBusy] = useState(false);
-  const [rhythm, setRhythm] = useState<Array<string | number>>([]);
-  const [scaleX, setScaleX] = useState(1);
-  const [scaleY, setScaleY] = useState(1);
-  const [testMode, setTestMode] = useState(false);
-  const [soundName, setSoundName] = useState('NEW HIT SOUND');
-  const [soundPrice, setSoundPrice] = useState(250);
-  const [soundKind, setSoundKind] = useState<'single' | 'pack'>('single');
-  const [soundFiles, setSoundFiles] = useState<Array<string | null>>([null, null, null, null]);
-  const [soundBusy, setSoundBusy] = useState(false);
-  const [notice, setNotice] = useState('');
+export const AdminStudio: React.FC<AdminStudioProps> = ({
+  user,
+  setScreen,
+  songs = [],
+  isAdminUser: externalIsAdmin,
+  noteProducts: externalNoteProducts,
+  setNoteProducts: setExternalNoteProducts,
+  hitSoundProducts: externalHitSounds,
+  setHitSoundProducts: setExternalHitSounds,
+  rhythmList: externalRhythmList,
+  setRhythmList: setExternalRhythmList,
+  customSongs = [],
+  onlineSongs = [],
+  interruption: externalInterruption,
+  trackRatings: externalRatings,
+  setTrackRatings: setExternalRatings,
+  shopShutdown: externalShopShutdown,
+  setShopShutdown: setExternalShopShutdown,
+  onBack,
+}) => {
+  const isAdminUser = externalIsAdmin ?? Boolean(user?.email && ADMIN_EMAILS.includes(user.email));
+  const handleBack = () => {
+    if (onBack) onBack();
+    else if (setScreen) setScreen('menu');
+  };
+
+  const [unlocked, setUnlocked] = useState<boolean>(true);
+  const [passInput, setPassInput] = useState('');
+  const [passErr, setPassErr] = useState('');
+  const [tab, setTab] = useState<'list' | 'shop_control' | 'note' | 'sound' | 'interrupt'>('list');
+  const [statusBanner, setStatusBanner] = useState('');
+
+  const [localNoteProducts, setLocalNoteProducts] = useState<NoteProduct[]>([]);
+  const [localHitSounds, setLocalHitSounds] = useState<HitSoundProduct[]>([]);
+  const [localRhythmList, setLocalRhythmList] = useState<(string | number)[]>(() => {
+    try {
+      const saved = localStorage.getItem(RHYTHM_LIST_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return ROYALTY_FREE_SONGS.slice(0, 30).map((s) => s.id);
+  });
+  const [localInterruption, setLocalInterruption] = useState<InterruptionData | null>(null);
+
+  const noteProducts = externalNoteProducts ?? localNoteProducts;
+  const setNoteProducts = setExternalNoteProducts ?? setLocalNoteProducts;
+  const hitSoundProducts = externalHitSounds ?? localHitSounds;
+  const setHitSoundProducts = setExternalHitSounds ?? setLocalHitSounds;
+  const rhythmList = externalRhythmList && externalRhythmList.length > 0 ? externalRhythmList : localRhythmList;
+  const setRhythmList = (next: (string | number)[]) => {
+    setLocalRhythmList(next);
+    if (setExternalRhythmList) setExternalRhythmList(next);
+  };
+  const interruption = externalInterruption ?? localInterruption;
+
+  // Local fallback state if parent doesn't pass trackRatings or shopShutdown
+  const [localRatings, setLocalRatings] = useState<TrackRatingsMap>(() => {
+    try {
+      const saved = localStorage.getItem(TRACK_RATINGS_STORAGE_KEY);
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const [localShopShutdown, setLocalShopShutdown] = useState<ShopShutdownConfig>(() => {
+    try {
+      const saved = localStorage.getItem(SHOP_SHUTDOWN_STORAGE_KEY);
+      return saved
+        ? JSON.parse(saved)
+        : { closed: false, message: 'Shop is temporarily undergoing scheduled maintenance.' };
+    } catch {
+      return { closed: false, message: 'Shop is temporarily undergoing scheduled maintenance.' };
+    }
+  });
+
+  const trackRatings = externalRatings ?? localRatings;
+  const updateTrackRatings = (updater: (prev: TrackRatingsMap) => TrackRatingsMap) => {
+    const next = updater(trackRatings);
+    setLocalRatings(next);
+    if (setExternalRatings) setExternalRatings(next);
+    try {
+      localStorage.setItem(TRACK_RATINGS_STORAGE_KEY, JSON.stringify(next));
+    } catch {}
+    if (db) {
+      db.collection('system')
+        .doc('trackRatings')
+        .set({ ratings: next, updatedAt: Date.now() }, { merge: true })
+        .catch(() => {});
+    }
+  };
+
+  const shopShutdown = externalShopShutdown ?? localShopShutdown;
+  const [shopReasonDraft, setShopReasonDraft] = useState(
+    shopShutdown.message || 'Shop is temporarily closed by Admin for item balancing.'
+  );
 
   useEffect(() => {
-    if (!unlocked || !db) return;
-    return db.collection('system').doc('rhythmList').onSnapshot((d: any) => setRhythm(d.data()?.top10 || []));
-  }, [unlocked]);
-
-  const toggleEffect = (id: string) =>
-    setEffects((v) =>
-      v.some((x) => x.id === id) ? v.filter((x) => x.id !== id) : v.length < 3 ? [...v, { id, intensity: 50 }] : v
-    );
-
-  const uploadSticker = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    if (!/^image\/(png|jpeg|jpg|webp)$/i.test(f.type)) {
-      setNotice('Choose a PNG or JPEG image.');
-      return;
+    if (shopShutdown.message) {
+      setShopReasonDraft(shopShutdown.message);
     }
-    const r = new FileReader();
-    r.onload = () => {
-      const img = new Image();
-      img.onload = () => {
-        const max = 512;
-        const ratio = Math.min(1, max / Math.max(img.width, img.height));
-        const c = document.createElement('canvas');
-        c.width = Math.max(1, Math.round(img.width * ratio));
-        c.height = Math.max(1, Math.round(img.height * ratio));
-        const x = c.getContext('2d')!;
-        x.clearRect(0, 0, c.width, c.height);
-        x.drawImage(img, 0, 0, c.width, c.height);
-        let data = c.toDataURL('image/webp', 0.88);
-        if (!data.startsWith('data:image/webp')) data = c.toDataURL('image/png');
-        setSticker(data);
-      };
-      img.onerror = () => setNotice('The image could not be decoded.');
-      img.src = String(r.result || '');
-    };
-    r.onerror = () => setNotice('The image could not be read.');
-    r.readAsDataURL(f);
-  };
+  }, [shopShutdown.message]);
 
-  const publish = async () => {
-    if (!name.trim()) {
-      setNotice('Enter a note name before publishing.');
-      return;
-    }
-    if (!user || !ADMIN_EMAILS.includes(user.email || '')) {
-      setNotice('Restricted to authorized administrator account.');
-      return;
-    }
-    setBusy(true);
-    try {
-      const id = Date.now().toString();
-      const product = {
-        id,
-        name: name.trim(),
-        description: description || '',
-        fill,
-        outline,
-        text: text || '',
-        sticker: sticker || '',
-        stickerScaleX: Number(scaleX) || 1,
-        stickerScaleY: Number(scaleY) || 1,
-        rarity,
-        price: Number(price) || 0,
-        effects: Array.isArray(effects) ? effects : [],
-        createdAt: Date.now(),
-        createdBy: user.uid,
-        active: true,
-      };
-      try {
-        const raw = JSON.parse(localStorage.getItem('rhythmCanvasNoteProducts') || '[]');
-        const local = Array.isArray(raw) ? raw : [];
-        localStorage.setItem(
-          'rhythmCanvasNoteProducts',
-          JSON.stringify([product, ...local.filter((x: any) => String(x.id) !== id)])
-        );
-      } catch (localError) {
-        console.warn('Local product cache full', localError);
-      }
-      let savedAt = 'local device';
-      let lastError: any = null;
-      const timed = (promise: Promise<any>, ms = 7000) =>
-        Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error('Database request timed out')), ms))]);
-      if (db) {
-        try {
-          await timed(db.collection('note_products').doc(id).set(product));
-          savedAt = 'note_products database';
-        } catch (e1) {
-          lastError = e1;
-          try {
-            await timed(
-              db.collection('community_tracks').doc(`note-product-${id}`).set({
-                entityType: 'note_product',
-                product,
-                ownerUid: user.uid,
-                createdAt: Date.now(),
-              })
-            );
-            savedAt = 'community database fallback';
-          } catch (e2) {
-            lastError = e2;
-            try {
-              const ref = db.collection('system').doc('noteProducts');
-              const snap = await timed(ref.get());
-              const products = (snap.data()?.products || []).filter((x: any) => String(x.id) !== id);
-              await timed(ref.set({ products: [product, ...products], updatedAt: Date.now() }, { merge: true }));
-              savedAt = 'system database fallback';
-            } catch (e3) {
-              lastError = e3;
+  useEffect(() => {
+    if (!db) return;
+    const unsubRatings = db
+      .collection('system')
+      .doc('trackRatings')
+      .onSnapshot(
+        (snap: any) => {
+          if (snap.exists) {
+            const data = snap.data();
+            if (data?.ratings && typeof data.ratings === 'object') {
+              setLocalRatings(data.ratings);
+              if (setExternalRatings) setExternalRatings(data.ratings);
+              try {
+                localStorage.setItem(TRACK_RATINGS_STORAGE_KEY, JSON.stringify(data.ratings));
+              } catch {}
             }
           }
-        }
-      }
-      setNotice(
-        savedAt === 'local device'
-          ? `Saved locally, but Firebase rejected the upload: ${lastError?.message || 'database unavailable'}`
-          : `Uploaded successfully to ${savedAt}!`
+        },
+        () => {}
       );
-      setName('NEW NOTE');
-      setDescription('');
-      setSticker('');
-    } catch (e: any) {
-      console.error(e);
-      setNotice('Note creation failed: ' + e.message);
-    } finally {
-      setBusy(false);
-    }
-  };
+    const unsubShop = db
+      .collection('system')
+      .doc('shopStatus')
+      .onSnapshot(
+        (snap: any) => {
+          if (snap.exists) {
+            const data = snap.data() as ShopShutdownConfig;
+            setLocalShopShutdown(data);
+            if (setExternalShopShutdown) setExternalShopShutdown(data);
+            try {
+              localStorage.setItem(SHOP_SHUTDOWN_STORAGE_KEY, JSON.stringify(data));
+            } catch {}
+          }
+        },
+        () => {}
+      );
+    const unsubList = db
+      .collection('system')
+      .doc('rhythmList')
+      .onSnapshot(
+        (snap: any) => {
+          if (snap.exists) {
+            const data = snap.data();
+            const list = data?.tracks || data?.top10;
+            if (Array.isArray(list) && list.length > 0) {
+              setLocalRhythmList(list);
+              if (setExternalRhythmList) setExternalRhythmList(list);
+            }
+          }
+        },
+        () => {}
+      );
+    const unsubInterrupt = db
+      .collection('system')
+      .doc('interruption')
+      .onSnapshot(
+        (snap: any) => {
+          if (snap.exists) setLocalInterruption(snap.data());
+        },
+        () => {}
+      );
+    return () => {
+      unsubRatings?.();
+      unsubShop?.();
+      unsubList?.();
+      unsubInterrupt?.();
+    };
+  }, [setExternalRatings, setExternalShopShutdown, setExternalRhythmList]);
 
-  const readSound = async (file: File | undefined, index: number) => {
-    if (!file || !(/^audio\/(wav|wave|mpeg|mp3)/i.test(file.type) || /\.(wav|mp3)$/i.test(file.name))) {
-      setNotice('Choose a WAV or MP3 file.');
-      return;
-    }
-    if (file.size > 12000000) {
-      setNotice('Audio must be under 12 MB.');
-      return;
-    }
+  const updateShopShutdown = async (closed: boolean, message: string) => {
+    const payload: ShopShutdownConfig = {
+      closed,
+      message: message.trim() || 'The Shop is temporarily shut down by an administrator.',
+      updatedAt: Date.now(),
+      updatedBy: user?.email || 'admin',
+    };
+    setLocalShopShutdown(payload);
+    if (setExternalShopShutdown) setExternalShopShutdown(payload);
     try {
-      const ctx = AudioEngine.init();
-      if (!ctx) throw new Error('AudioContext unavailable');
-      const source = await file.arrayBuffer();
-      const decoded = await ctx.decodeAudioData(source.slice(0));
-      const rate = 12000;
-      const duration = Math.min(2, decoded.duration);
-      const frames = Math.max(1, Math.floor(duration * rate));
-      const pcm = new Int16Array(frames);
-      for (let i = 0; i < frames; i++) {
-        const src = Math.min(decoded.length - 1, Math.floor((i * decoded.sampleRate) / rate));
-        let sample = 0;
-        for (let c = 0; c < decoded.numberOfChannels; c++) sample += decoded.getChannelData(c)[src] || 0;
-        sample /= decoded.numberOfChannels;
-        pcm[i] = Math.max(-32768, Math.min(32767, Math.round(sample * 32767)));
-      }
-      const buf = new ArrayBuffer(44 + pcm.length * 2);
-      const v = new DataView(buf);
-      const write = (o: number, t: string) => {
-        for (let i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i));
-      };
-      write(0, 'RIFF');
-      v.setUint32(4, 36 + pcm.length * 2, true);
-      write(8, 'WAVE');
-      write(12, 'fmt ');
-      v.setUint32(16, 16, true);
-      v.setUint16(20, 1, true);
-      v.setUint16(22, 1, true);
-      v.setUint32(24, rate, true);
-      v.setUint32(28, rate * 2, true);
-      v.setUint16(32, 2, true);
-      v.setUint16(34, 16, true);
-      write(36, 'data');
-      v.setUint32(40, pcm.length * 2, true);
-      for (let i = 0; i < pcm.length; i++) v.setInt16(44 + i * 2, pcm[i], true);
-      const bytes = new Uint8Array(buf);
-      let binary = '';
-      for (let i = 0; i < bytes.length; i += 8192) binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
-      const url = 'data:audio/wav;base64,' + btoa(binary);
-      setSoundFiles((a) => a.map((x, i) => (i === index ? url : x)));
-      if (decoded.duration > 2) setNotice('Hit sound loaded and trimmed to the first 2 seconds.');
-    } catch (e: any) {
-      console.error(e);
-      setNotice('Could not decode this audio. Try another WAV or MP3. ' + e.message);
-    }
-  };
-
-  const publishSound = async () => {
-    if (!user || !ADMIN_EMAILS.includes(user.email || '')) return;
-    const needed = soundKind === 'pack' ? 4 : 1;
-    if (!soundName.trim()) {
-      setNotice('Name required');
-      return;
-    }
-    if (soundFiles.slice(0, needed).some((x) => !x)) {
-      setNotice(`Upload ${needed} sound file${needed > 1 ? 's' : ''}.`);
-      return;
-    }
-    setSoundBusy(true);
-    try {
-      const id = Date.now().toString();
-      const urls = [...soundFiles.slice(0, needed)];
-      const product = {
-        id,
-        name: soundName.trim(),
-        price: Number(soundPrice) || 0,
-        kind: soundKind,
-        sound: soundKind === 'single' ? urls[0] : null,
-        sounds: soundKind === 'pack' ? urls : null,
-        active: true,
-        createdBy: user.uid,
-        createdAt: Date.now(),
-      };
+      localStorage.setItem(SHOP_SHUTDOWN_STORAGE_KEY, JSON.stringify(payload));
+    } catch {}
+    if (db) {
       try {
-        const old = JSON.parse(localStorage.getItem('rhythmCanvasHitSounds') || '[]');
-        const list = Array.isArray(old) ? old : [];
-        localStorage.setItem(
-          'rhythmCanvasHitSounds',
-          JSON.stringify([product, ...list.filter((x: any) => String(x.id) !== id)])
+        await db.collection('system').doc('shopStatus').set(payload);
+      } catch {}
+    }
+    AudioEngine.playUI('confirm');
+    setStatusBanner(
+      closed
+        ? `SHOP SHUT DOWN: "${payload.message}"`
+        : 'SHOP REOPENED! Players can now browse and purchase items.'
+    );
+  };
+
+  // Draft input values for per-song numerical ratings
+  const [ratingInputs, setRatingInputs] = useState<Record<string, string>>({});
+
+  // Note Product Builder state
+  const [noteName, setNoteName] = useState('');
+  const [noteDesc, setNoteDesc] = useState('');
+  const [noteFill, setNoteFill] = useState('#ff0055');
+  const [noteOutline, setNoteOutline] = useState('#ffffff');
+  const [noteText, setNoteText] = useState('');
+  const [noteSticker, setNoteSticker] = useState('');
+  const [noteScaleX, setNoteScaleX] = useState(1);
+  const [noteScaleY, setNoteScaleY] = useState(1);
+  const [noteRarity, setNoteRarity] = useState('rare');
+  const [notePrice, setNotePrice] = useState(500);
+  const [selectedEffects, setSelectedEffects] = useState<NoteEffectConfig[]>([]);
+  const [publishingNote, setPublishingNote] = useState(false);
+
+  // Hit Sound Builder state
+  const [soundName, setSoundName] = useState('');
+  const [soundPrice, setSoundPrice] = useState(400);
+  const [soundKind, setSoundKind] = useState<'single' | 'pack'>('single');
+  const [singleSoundData, setSingleSoundData] = useState<string | null>(null);
+  const [packSoundsData, setPackSoundsData] = useState<(string | null)[]>([null, null, null, null]);
+  const [publishingSound, setPublishingSound] = useState(false);
+
+  // Interruption state
+  const [interruptMsg, setInterruptMsg] = useState('');
+  const [sendingInterrupt, setSendingInterrupt] = useState(false);
+
+  const allAvailableTracks = useMemo(() => {
+    const map = new Map<string, Song>();
+    [...ROYALTY_FREE_SONGS, ...songs, ...customSongs, ...onlineSongs].forEach((s) => {
+      if (s && s.id !== undefined) map.set(String(s.id), s);
+    });
+    return Array.from(map.values());
+  }, [songs, customSongs, onlineSongs]);
+
+  const highestRating = useMemo(
+    () => getHighestTrackRating(allAvailableTracks, trackRatings),
+    [allAvailableTracks, trackRatings]
+  );
+
+  const handleSetAdminRating = (song: Song, rawValue?: string) => {
+    const strVal = rawValue ?? ratingInputs[String(song.id)] ?? String(getEffectiveTrackRating(song, trackRatings));
+    const parsed = parseFloat(strVal);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      setStatusBanner('Enter a valid positive difficulty number (e.g. 14.5 or 32.0).');
+      return;
+    }
+    const currentTopExcludingThis = getHighestTrackRating(allAvailableTracks, trackRatings, song.id);
+    const labeledTop1 = isTrackLabeledNewTop1(song, trackRatings);
+
+    // If admin sets a rating above current Top 1, automatically label as New Top 1 or honor New Top 1!
+    const willBeTop1 = labeledTop1 || parsed > currentTopExcludingThis;
+
+    updateTrackRatings((prev) => {
+      const key = String(song.id);
+      const existing = prev[key] || { songId: song.id };
+      return {
+        ...prev,
+        [key]: {
+          ...existing,
+          songId: song.id,
+          adminRating: Number(parsed.toFixed(2)),
+          isNewTop1: willBeTop1,
+          updatedAt: Date.now(),
+          updatedBy: user?.email || 'admin',
+        },
+      };
+    });
+    AudioEngine.playUI('confirm');
+    setStatusBanner(
+      `Set "${song.title}" Difficulty Rating to ★ ${parsed.toFixed(2)}${
+        willBeTop1 ? ' (LABELED NEW TOP 1!)' : ''
+      }`
+    );
+  };
+
+  const handleToggleNewTop1 = (song: Song) => {
+    const currentlyTop1 = isTrackLabeledNewTop1(song, trackRatings);
+    const nextTop1 = !currentlyTop1;
+    updateTrackRatings((prev) => {
+      const key = String(song.id);
+      const existing = prev[key] || { songId: song.id };
+      return {
+        ...prev,
+        [key]: {
+          ...existing,
+          songId: song.id,
+          isNewTop1: nextTop1,
+          updatedAt: Date.now(),
+          updatedBy: user?.email || 'admin',
+        },
+      };
+    });
+    AudioEngine.playUI('confirm');
+    setStatusBanner(
+      nextTop1
+        ? `"${song.title}" is now labeled NEW TOP 1! Players and admins can vote/rate above ★ ${highestRating}.`
+        : `Removed NEW TOP 1 label from "${song.title}".`
+    );
+  };
+
+  const handleAutoIndex30Featured = async () => {
+    const sorted30 = autoIndexFeaturedTracks(allAvailableTracks, trackRatings, 30);
+    setRhythmList(sorted30);
+    try {
+      localStorage.setItem(RHYTHM_LIST_STORAGE_KEY, JSON.stringify(sorted30));
+    } catch {}
+    if (db) {
+      try {
+        await db.collection('system').doc('rhythmList').set(
+          {
+            tracks: sorted30,
+            top10: sorted30,
+            updatedAt: Date.now(),
+          },
+          { merge: true }
+        );
+      } catch {}
+    }
+    AudioEngine.playUI('confirm');
+    const firstSong = allAvailableTracks.find((s) => String(s.id) === String(sorted30[0]));
+    const lastSong = allAvailableTracks.find(
+      (s) => String(s.id) === String(sorted30[sorted30.length - 1])
+    );
+    const minR = firstSong ? getEffectiveTrackRating(firstSong, trackRatings) : 0;
+    const maxR = lastSong ? getEffectiveTrackRating(lastSong, trackRatings) : 0;
+    setStatusBanner(
+      `AUTO-INDEXED ${sorted30.length} FEATURED TRACKS (Least → Greatest: ★ ${minR} to ★ ${maxR})!`
+    );
+  };
+
+  const toggleEffect = (effId: string) => {
+    setSelectedEffects((prev) => {
+      const exists = prev.find((e) => e.id === effId);
+      if (exists) return prev.filter((e) => e.id !== effId);
+      return [...prev, { id: effId, intensity: 1 }];
+    });
+  };
+
+  const updateEffectIntensity = (effId: string, intensity: number) => {
+    setSelectedEffects((prev) => prev.map((e) => (e.id === effId ? { ...e, intensity } : e)));
+  };
+
+  const handleStickerUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') setNoteSticker(reader.result);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSingleSoundUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') setSingleSoundData(reader.result);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handlePackSoundUpload = (idx: number, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setPackSoundsData((prev) => {
+          const next = [...prev];
+          next[idx] = reader.result as string;
+          return next;
+        });
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const publishNoteProduct = async () => {
+    if (!noteName.trim()) return;
+    setPublishingNote(true);
+    const prod: NoteProduct = {
+      id: `np_${Date.now()}`,
+      name: noteName.trim(),
+      description: noteDesc.trim() || 'Custom Admin Note Skin',
+      fill: noteFill,
+      outline: noteOutline,
+      text: noteText.trim(),
+      sticker: noteSticker,
+      stickerScaleX: noteScaleX,
+      stickerScaleY: noteScaleY,
+      rarity: noteRarity,
+      price: Math.max(0, Number(notePrice) || 0),
+      effects: selectedEffects,
+      createdAt: Date.now(),
+      createdBy: user?.email || 'admin',
+      active: true,
+    };
+
+    try {
+      setNoteProducts((prev) => [prod, ...prev]);
+      if (db) {
+        await db.collection('noteProducts').doc(prod.id).set(prod);
+      }
+      setNoteName('');
+      setNoteDesc('');
+      setNoteText('');
+      setNoteSticker('');
+      setSelectedEffects([]);
+    } catch (e) {
+      console.error('Failed to publish note product:', e);
+    } finally {
+      setPublishingNote(false);
+    }
+  };
+
+  const deleteNoteProduct = async (id: string) => {
+    setNoteProducts((prev) => prev.filter((p) => p.id !== id));
+    if (db) {
+      try {
+        await db.collection('noteProducts').doc(id).set({ active: false }, { merge: true });
+      } catch {}
+    }
+  };
+
+  const publishHitSound = async () => {
+    if (!soundName.trim()) return;
+    setPublishingSound(true);
+    const item: HitSoundProduct = {
+      id: `hs_${Date.now()}`,
+      name: soundName.trim(),
+      price: Math.max(0, Number(soundPrice) || 0),
+      kind: soundKind,
+      sound: soundKind === 'single' ? singleSoundData : null,
+      sounds: soundKind === 'pack' ? packSoundsData : null,
+      active: true,
+      createdBy: user?.email || 'admin',
+      createdAt: Date.now(),
+    };
+    try {
+      setHitSoundProducts((prev) => [item, ...prev]);
+      if (db) {
+        await db.collection('hitSoundProducts').doc(item.id).set(item);
+      }
+      setSoundName('');
+      setSingleSoundData(null);
+      setPackSoundsData([null, null, null, null]);
+    } catch (e) {
+      console.error('Failed to publish hit sound:', e);
+    } finally {
+      setPublishingSound(false);
+    }
+  };
+
+  const saveRhythmList = async (nextList: (string | number)[]) => {
+    setRhythmList(nextList);
+    try {
+      localStorage.setItem(RHYTHM_LIST_STORAGE_KEY, JSON.stringify(nextList));
+    } catch {}
+    if (db) {
+      try {
+        await db.collection('system').doc('rhythmList').set(
+          {
+            tracks: nextList,
+            top10: nextList,
+            updatedAt: Date.now(),
+          },
+          { merge: true }
         );
       } catch (e) {
-        console.warn('Local hit sound cache failed', e);
+        console.error('Failed to update rhythm list:', e);
       }
-      let saved = false;
-      let last: any = null;
-      if (db) {
-        try {
-          await db.collection('hit_sound_products').doc(id).set(product);
-          saved = true;
-        } catch (e) {
-          last = e;
-          try {
-            await db.collection('community_tracks').doc(`hit-sound-${id}`).set({
-              entityType: 'hit_sound_product',
-              product,
-              ownerUid: user.uid,
-            });
-            saved = true;
-          } catch (e2) {
-            last = e2;
-          }
-        }
-      }
-      setNotice(saved ? 'Hit sound uploaded to the shop!' : 'Saved locally; Firebase rejected: ' + (last?.message || 'unavailable'));
-      setSoundFiles([null, null, null, null]);
-    } catch (e: any) {
-      console.error(e);
-      setNotice('Hit sound creation failed: ' + e.message);
+    }
+  };
+
+  const moveTrackInList = (idx: number, dir: -1 | 1) => {
+    const target = idx + dir;
+    if (target < 0 || target >= rhythmList.length) return;
+    const next = [...rhythmList];
+    const temp = next[idx];
+    next[idx] = next[target];
+    next[target] = temp;
+    saveRhythmList(next);
+  };
+
+  const toggleTrackInList = (songId: string | number) => {
+    const exists = rhythmList.some((id) => String(id) === String(songId));
+    if (exists) {
+      saveRhythmList(rhythmList.filter((id) => String(id) !== String(songId)));
+    } else {
+      saveRhythmList([...rhythmList, songId]);
+    }
+  };
+
+  const triggerInterruption = async (active: boolean) => {
+    if (!db) return;
+    setSendingInterrupt(true);
+    try {
+      await db.collection('system').doc('interruption').set({
+        active,
+        message: interruptMsg.trim() || 'Emergency Admin Broadcast!',
+        issuedBy: user?.email || 'admin',
+        issuedAt: Date.now(),
+      });
+    } catch (e) {
+      console.error('Failed to broadcast interruption:', e);
     } finally {
-      setSoundBusy(false);
+      setSendingInterrupt(false);
     }
   };
 
-  const saveRhythm = async (list: Array<string | number>) => {
-    if (!ADMIN_EMAILS.includes(user?.email || '')) return;
-    setRhythm(list);
-    if (!db) {
-      setNotice('Saved locally; cloud sync unavailable.');
-      return;
-    }
-    await db.collection('system').doc('rhythmList').set({ top10: list, updatedAt: Date.now() }, { merge: true });
-  };
-  const addTrack = (id: string | number) => {
-    if (!rhythm.map(String).includes(String(id))) saveRhythm([...rhythm, id]);
-  };
-  const move = (i: number, d: number) => {
-    const n = [...rhythm];
-    const j = i + d;
-    if (j < 0 || j >= n.length) return;
-    [n[i], n[j]] = [n[j], n[i]];
-    saveRhythm(n);
-  };
-
-  if (!user || !ADMIN_EMAILS.includes(user.email || '')) {
+  if (!unlocked && !isAdminUser) {
     return (
-      <div className="rc-stage w-full h-full flex items-center justify-center p-6 text-white">
-        <div className="rc-stage-dots absolute inset-0 pointer-events-none" />
-        <div className="relative z-10 rc-console-tray p-8 text-center max-w-lg border-red-500">
-          <h2 className="text-3xl font-black italic text-red-400">ACCESS DENIED</h2>
-          <p className="my-4 font-bold text-slate-200">
-            This studio is restricted to the authorized administrator account.
+      <div className="w-full h-full flex items-center justify-center p-6 z-10">
+        <div className="w-full max-w-md rc-panel p-6 rounded-3xl border border-rose-500/40 bg-black/80 text-center">
+          <Lock className="w-12 h-12 text-rose-400 mx-auto mb-3" />
+          <h2 className="text-2xl font-black italic tracking-tighter mb-2">ADMIN STUDIO LOCKED</h2>
+          <p className="text-xs text-white/60 mb-4">
+            Enter the secret developer code to unlock Admin Studio controls.
           </p>
-          <button
-            onClick={() => setScreen('shop')}
-            className="rc-bevel-btn rc-tile-gold text-black px-6 py-2.5 font-black whitespace-nowrap"
-          >
-            RETURN TO SHOP
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (!unlocked) {
-    return (
-      <div className="rc-stage w-full h-full flex items-center justify-center p-4 text-white">
-        <div className="rc-stage-dots absolute inset-0 pointer-events-none" />
-        <div className="relative z-10 max-w-md w-full rc-console-tray p-6 space-y-3">
-          <h2 className="text-2xl font-black italic text-yellow-300">ADMIN ACCESS</h2>
-          {notice && <div className="rc-console-inset border-red-400 text-red-300 p-2 text-xs font-bold">{notice}</div>}
           <input
             type="password"
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-            className="w-full p-3 rounded-lg bg-[#0d1018] border border-white/25 text-white font-black"
-            placeholder="PASSCODE"
+            value={passInput}
+            onChange={(e) => {
+              setPassInput(e.target.value);
+              setPassErr('');
+            }}
+            placeholder="Secret Dev Code..."
+            className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-sm font-bold mb-3 focus:outline-none focus:border-rose-400"
           />
-          <button
-            onClick={() => (code === 'ILIKEAPPLES2013' ? setUnlocked(true) : setNotice('Incorrect passcode'))}
-            className="rc-bevel-btn rc-tile-gold w-full text-black p-3 font-black min-h-[44px]"
-          >
-            UNLOCK
-          </button>
-          <button
-            onClick={() => setScreen('shop')}
-            className="rc-bevel-btn rc-tile-slate w-full text-white p-3 font-black min-h-[44px]"
-          >
-            BACK
-          </button>
+          {passErr && <div className="text-xs text-rose-400 font-bold mb-3">{passErr}</div>}
+          <div className="flex gap-2">
+            <button
+              onClick={handleBack}
+              className="flex-1 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 font-bold text-sm"
+            >
+              BACK
+            </button>
+            <button
+              onClick={() => {
+                if (passInput === SECRET_DEV_CODE) {
+                  setUnlocked(true);
+                } else {
+                  setPassErr('Invalid code.');
+                }
+              }}
+              className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 font-black text-sm"
+            >
+              UNLOCK
+            </button>
+          </div>
         </div>
       </div>
     );
   }
 
-  const previewStyle = {
-    '--note-fill': fill,
-    '--note-outline': outline,
-    boxShadow: `0 0 30px ${NOTE_RARITIES[rarity]}`,
-  } as React.CSSProperties;
-  const draftProduct = { fill, outline, text, sticker, stickerScaleX: scaleX, stickerScaleY: scaleY, effects };
-
   return (
-    <div className="rc-stage w-full h-full overflow-y-auto p-3 sm:p-5 text-white custom-scrollbar safe-top safe-bottom">
-      <div className="rc-stage-dots absolute inset-0 pointer-events-none" />
-      <div className="relative z-10 max-w-6xl mx-auto space-y-4">
-        <header className="rc-dock-rail flex flex-wrap justify-between items-center gap-3 px-4 py-2 pr-14 sm:pr-16">
-          <button
-            onClick={() => setScreen('shop')}
-            className="rc-bevel-btn rc-tile-slate text-white px-4 py-2 font-black text-xs sm:text-sm whitespace-nowrap"
-          >
-            ← SHOP
-          </button>
-          <h1 className="text-xl sm:text-2xl font-black italic text-yellow-300">ADMIN CREATOR</h1>
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => setTab('notes')}
-              className={`rc-bevel-btn px-3.5 py-1.5 font-black text-xs whitespace-nowrap ${
-                tab === 'notes' ? 'rc-tile-pink text-white' : 'rc-sub-dark text-slate-300'
-              }`}
-            >
-              NOTE LAB
-            </button>
-            <button
-              onClick={() => setTab('sounds')}
-              className={`rc-bevel-btn px-3.5 py-1.5 font-black text-xs whitespace-nowrap ${
-                tab === 'sounds' ? 'rc-tile-gold text-black' : 'rc-sub-dark text-slate-300'
-              }`}
-            >
-              HIT SOUNDS
-            </button>
-            <button
-              onClick={() => setTab('rhythm')}
-              className={`rc-bevel-btn px-3.5 py-1.5 font-black text-xs whitespace-nowrap ${
-                tab === 'rhythm' ? 'rc-tile-cyan text-black' : 'rc-sub-dark text-slate-300'
-              }`}
-            >
-              RHYTHM LIST
-            </button>
+    <div className="w-full h-full max-w-6xl mx-auto flex flex-col p-3 lg:p-5 z-10 overflow-hidden">
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3 bg-black/65 px-4 py-2.5 rounded-2xl border-2 border-rose-500/40 backdrop-blur-md shrink-0">
+        <div className="flex items-center gap-3">
+          <ShieldAlert className="w-6 h-6 text-rose-400" />
+          <div>
+            <h2 className="text-xl lg:text-2xl font-black italic tracking-tighter text-rose-300 leading-none">
+              ADMIN STUDIO
+            </h2>
+            <p className="text-[10px] font-bold text-white/60 uppercase tracking-widest mt-0.5">
+              Difficulty Ratings · 30-Track Auto-Index · Top 1 Control · Shop Shutdown
+            </p>
           </div>
-        </header>
-
-        {notice && (
-          <div className="rc-console-inset border-cyan-400 p-3 flex justify-between items-center gap-2">
-            <span className="font-bold text-sm text-cyan-200">{notice}</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {(
+            [
+              ['list', 'RATINGS & AUTO-INDEX'],
+              ['shop_control', shopShutdown.closed ? 'SHOP: SHUT DOWN' : 'SHOP CONTROL'],
+              ['note', 'NOTE BUILDER'],
+              ['sound', 'HIT SOUNDS'],
+              ['interrupt', 'BROADCAST'],
+            ] as const
+          ).map(([id, label]) => (
             <button
-              onClick={() => setNotice('')}
-              className="rc-bevel-btn rc-tile-cyan text-black px-3 py-1 font-black text-xs"
+              key={id}
+              data-testid={`admin-tab-${id}`}
+              onClick={() => {
+                AudioEngine.playUI('move');
+                setTab(id);
+              }}
+              className={`px-3 py-1.5 rounded-xl font-black text-[11px] uppercase tracking-wider transition-all border ${
+                tab === id
+                  ? 'bg-rose-500 text-white border-white shadow-[0_0_15px_rgba(244,63,94,0.45)]'
+                  : id === 'shop_control' && shopShutdown.closed
+                    ? 'bg-amber-500/20 text-amber-300 border-amber-400/50'
+                    : 'bg-white/5 text-white/65 border-white/15 hover:bg-white/10'
+              }`}
             >
-              OK
+              {label}
             </button>
+          ))}
+          <button
+            data-testid="admin-exit-btn"
+            onClick={handleBack}
+            className="px-3.5 py-1.5 bg-white/10 hover:bg-white/20 rounded-xl font-black text-xs border border-white/20"
+          >
+            EXIT
+          </button>
+        </div>
+      </div>
+
+      {statusBanner && (
+        <div className="mb-3 px-4 py-2 rounded-xl bg-emerald-500/20 border border-emerald-400/50 text-emerald-200 text-xs font-black flex items-center justify-between shrink-0">
+          <span>{statusBanner}</span>
+          <button
+            onClick={() => setStatusBanner('')}
+            className="text-[10px] underline uppercase ml-4 text-emerald-300"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto pr-1">
+        {tab === 'list' && (
+          <div className="flex flex-col gap-4">
+            {/* Top Auto-Index & Rating Summary Bar */}
+            <div className="bg-black/65 border-2 border-cyan-400/40 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Crown className="w-5 h-5 text-amber-400" />
+                  <span className="text-sm font-black uppercase tracking-wider text-white">
+                    FEATURED DIFFICULTY RATING & 30-TRACK AUTO-INDEXER
+                  </span>
+                </div>
+                <p className="text-xs text-white/65 mt-1">
+                  Current Top 1 Difficulty Rating:{' '}
+                  <span className="text-amber-300 font-black">★ {highestRating.toFixed(1)}</span> ·
+                  Indexed Tracks:{' '}
+                  <span className="text-cyan-300 font-black">{rhythmList.length} / 30</span>
+                </p>
+                <p className="text-[11px] text-white/50 mt-0.5">
+                  Non-admins can vote up to ★ {highestRating.toFixed(1)}, UNLESS you label a track as{' '}
+                  <span className="text-amber-300 font-bold">NEW TOP 1</span> — then both players and
+                  admins can vote/set above the current Top 1!
+                </p>
+              </div>
+              <button
+                data-testid="admin-auto-index-btn"
+                onClick={handleAutoIndex30Featured}
+                className="px-5 py-3 rounded-2xl bg-gradient-to-r from-cyan-500 via-blue-500 to-fuchsia-600 hover:from-cyan-400 hover:to-fuchsia-500 text-white font-black text-xs uppercase tracking-wider border-2 border-white/80 shadow-[0_0_24px_rgba(54,226,255,0.45)] flex items-center gap-2 cursor-pointer"
+              >
+                <ArrowUpDown className="w-4 h-4" />
+                AUTO-INDEX 30 FEATURED TRACKS (LEAST → GREATEST)
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+              {/* Left 5 cols: Active Indexed Rhythm List (Least to Greatest) */}
+              <div className="lg:col-span-5 bg-black/55 border border-white/15 rounded-2xl p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-xs font-black uppercase tracking-widest text-cyan-300">
+                    INDEXED FEATURED LIST ({rhythmList.length} TRACKS · LEAST → GREATEST)
+                  </h3>
+                </div>
+                {rhythmList.length === 0 ? (
+                  <div className="text-xs text-white/45 py-8 text-center">
+                    Click &ldquo;AUTO-INDEX 30 FEATURED TRACKS&rdquo; above to automatically sort 30
+                    featured tracks from least to greatest numerical difficulty rating!
+                  </div>
+                ) : (
+                  <div className="space-y-1.5 max-h-[380px] overflow-y-auto pr-1">
+                    {rhythmList.map((id, idx) => {
+                      const track = allAvailableTracks.find((s) => String(s.id) === String(id));
+                      const rating = track ? getEffectiveTrackRating(track, trackRatings) : 0;
+                      const isTop1 = track ? isTrackLabeledNewTop1(track, trackRatings) : false;
+                      return (
+                        <div
+                          key={String(id)}
+                          className="flex items-center justify-between bg-white/5 px-3 py-2 rounded-xl border border-white/10"
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <span className="w-7 h-7 rounded-lg bg-cyan-500/20 border border-cyan-400/40 text-cyan-300 font-black text-xs flex items-center justify-center shrink-0">
+                              #{idx + 1}
+                            </span>
+                            <div className="truncate">
+                              <div className="text-xs font-black truncate flex items-center gap-1.5">
+                                <span className="truncate">{track ? track.title : `Track ID: ${id}`}</span>
+                                {isTop1 && (
+                                  <span className="px-1.5 py-0.5 rounded bg-amber-500/30 border border-amber-400 text-[9px] font-black text-amber-200 shrink-0">
+                                    NEW TOP 1
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[10px] text-white/55 font-bold">
+                                Rating: <span className="text-amber-300 font-black">★ {rating.toFixed(1)}</span>{' '}
+                                · {track?.bpm || 120} BPM
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              onClick={() => moveTrackInList(idx, -1)}
+                              className="p-1 bg-white/10 hover:bg-white/20 rounded"
+                              title="Move Up"
+                            >
+                              <ArrowUp className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => moveTrackInList(idx, 1)}
+                              className="p-1 bg-white/10 hover:bg-white/20 rounded"
+                              title="Move Down"
+                            >
+                              <ArrowDown className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => toggleTrackInList(id)}
+                              className="p-1 bg-rose-500/20 hover:bg-rose-500/40 text-rose-300 rounded"
+                              title="Remove from Index"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Right 7 cols: Admin Track Numerical Rating & New Top 1 Controls */}
+              <div className="lg:col-span-7 bg-black/55 border border-white/15 rounded-2xl p-4">
+                <h3 className="text-xs font-black uppercase tracking-widest text-amber-300 mb-3">
+                  SET TRACK NUMERICAL DIFFICULTY RATING & &ldquo;NEW TOP 1&rdquo; LABEL ({allAvailableTracks.length} TRACKS)
+                </h3>
+                <div className="space-y-2 max-h-[380px] overflow-y-auto pr-1">
+                  {allAvailableTracks.map((song) => {
+                    const inList = rhythmList.some((id) => String(id) === String(song.id));
+                    const effectiveRating = getEffectiveTrackRating(song, trackRatings);
+                    const voteStats = getCommunityVoteStats(song, trackRatings);
+                    const labeledTop1 = isTrackLabeledNewTop1(song, trackRatings);
+                    const draftVal =
+                      ratingInputs[String(song.id)] !== undefined
+                        ? ratingInputs[String(song.id)]
+                        : String(effectiveRating);
+
+                    return (
+                      <div
+                        key={String(song.id)}
+                        className={`flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 rounded-xl border transition-all ${
+                          labeledTop1
+                            ? 'bg-amber-500/15 border-amber-400/60 shadow-[0_0_16px_rgba(245,158,11,0.2)]'
+                            : 'bg-white/5 border-white/10'
+                        }`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-xs font-black text-white truncate">{song.title}</span>
+                            <span className="px-2 py-0.5 rounded-md bg-amber-500/25 border border-amber-400/50 text-amber-300 text-[10px] font-black">
+                              ★ {effectiveRating.toFixed(1)}
+                            </span>
+                            {labeledTop1 && (
+                              <span className="px-2 py-0.5 rounded-md bg-gradient-to-r from-amber-500 to-rose-500 text-white text-[9px] font-black uppercase tracking-wider">
+                                👑 NEW TOP 1 UNLOCKED
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[10px] text-white/55 font-bold mt-0.5">
+                            {song.artist} · {song.bpm} BPM
+                            {voteStats.count > 0 && (
+                              <span className="text-cyan-300 ml-2">
+                                · Public Votes: {voteStats.count} (Avg ★ {voteStats.average})
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0.1"
+                            value={draftVal}
+                            onChange={(e) =>
+                              setRatingInputs((prev) => ({
+                                ...prev,
+                                [String(song.id)]: e.target.value,
+                              }))
+                            }
+                            className="w-20 bg-black/60 border border-white/25 rounded-lg px-2 py-1 text-xs font-black text-amber-300 text-center focus:outline-none focus:border-amber-400"
+                            title="Set any numerical difficulty rating"
+                          />
+                          <button
+                            onClick={() => handleSetAdminRating(song)}
+                            className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-black text-[10px] uppercase tracking-wider cursor-pointer"
+                          >
+                            SET ★
+                          </button>
+                          <button
+                            onClick={() => handleToggleNewTop1(song)}
+                            className={`px-2.5 py-1 rounded-lg font-black text-[10px] uppercase tracking-wider border cursor-pointer transition-all ${
+                              labeledTop1
+                                ? 'bg-amber-400 text-black border-white shadow-[0_0_10px_rgba(251,191,36,0.5)]'
+                                : 'bg-white/10 text-white/75 border-white/20 hover:bg-white/20'
+                            }`}
+                            title="Label as New Top 1 so players and admins can vote/rate over the current Top 1"
+                          >
+                            {labeledTop1 ? '👑 TOP 1 ON' : 'SET TOP 1'}
+                          </button>
+                          <button
+                            onClick={() => toggleTrackInList(song.id)}
+                            className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase cursor-pointer ${
+                              inList
+                                ? 'bg-rose-500/25 text-rose-300 border border-rose-500/40'
+                                : 'bg-emerald-500/25 text-emerald-300 border border-emerald-500/40'
+                            }`}
+                          >
+                            {inList ? 'IN LIST' : '+ INDEX'}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
-        {testMode && <NoteTestArena product={draftProduct} onClose={() => setTestMode(false)} />}
-
-        {tab === 'notes' ? (
-          <div className="grid grid-cols-[310px_1fr] gap-4">
-            <aside className="rc-console-tray p-4 space-y-2.5">
-              <div
-                className="note-cutout w-36 h-36 mx-auto flex items-center justify-center text-4xl font-black"
-                style={previewStyle}
-              >
-                {sticker && (
-                  <img
-                    src={sticker}
-                    alt="Note sticker"
-                    className="absolute inset-0 w-full h-full object-cover"
-                    style={{ transform: `scale(${scaleX},${scaleY})` }}
-                  />
-                )}
-                <span className="relative z-10">{text}</span>
-              </div>
-              <label className="block text-xs font-black text-slate-300">
-                FILL
-                <input type="color" value={fill} onChange={(e) => setFill(e.target.value)} className="w-full h-9 mt-1 rounded" />
-              </label>
-              <label className="block text-xs font-black text-slate-300">
-                OUTLINE
-                <input type="color" value={outline} onChange={(e) => setOutline(e.target.value)} className="w-full h-9 mt-1 rounded" />
-              </label>
-              <input
-                value={text}
-                onChange={(e) => setText(e.target.value.slice(0, 8))}
-                className="w-full p-2 rounded-lg bg-[#0d1018] border border-white/25 text-white font-black text-sm"
-                placeholder="NOTE TEXT"
-              />
-              <label className="block rc-bevel-btn rc-tile-cyan text-black p-2.5 text-center font-black text-xs cursor-pointer">
-                UPLOAD PNG/JPEG
-                <input type="file" accept="image/png,image/jpeg" className="hidden" onChange={uploadSticker} />
-              </label>
-              <label className="block text-xs font-bold text-slate-300">
-                PNG WIDTH ×{scaleX.toFixed(2)}
-                <input
-                  type="range"
-                  min="0.1"
-                  max="2.5"
-                  step="0.05"
-                  value={scaleX}
-                  onChange={(e) => setScaleX(+e.target.value)}
-                  className="w-full accent-cyan-400"
-                />
-              </label>
-              <label className="block text-xs font-bold text-slate-300">
-                PNG HEIGHT ×{scaleY.toFixed(2)}
-                <input
-                  type="range"
-                  min="0.1"
-                  max="2.5"
-                  step="0.05"
-                  value={scaleY}
-                  onChange={(e) => setScaleY(+e.target.value)}
-                  className="w-full accent-cyan-400"
-                />
-              </label>
-              <button
-                onClick={() => setTestMode(true)}
-                className="rc-bevel-btn rc-tile-gold w-full text-black p-2.5 font-black text-xs min-h-[40px]"
-              >
-                TEST ON NEON DRIFT
-              </button>
-            </aside>
-
-            <main className="space-y-4">
-              <section className="rc-console-inset grid grid-cols-2 gap-3 p-4">
-                <input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="p-2.5 rounded-lg bg-[#0d1018] border border-white/25 text-white font-black text-sm"
-                  placeholder="NAME"
-                />
-                <input
-                  type="number"
-                  value={price}
-                  onChange={(e) => setPrice(Number(e.target.value))}
-                  className="p-2.5 rounded-lg bg-[#0d1018] border border-white/25 text-white font-black text-sm tabular-nums"
-                  placeholder="PRICE"
-                />
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  className="p-2.5 rounded-lg bg-[#0d1018] border border-white/25 text-white text-sm col-span-2"
-                  placeholder="DESCRIPTION"
-                />
-                <select
-                  value={rarity}
-                  onChange={(e) => setRarity(e.target.value)}
-                  className="p-2.5 rounded-lg bg-[#0d1018] border border-white/25 text-white font-black text-sm"
+        {tab === 'shop_control' && (
+          <div className="max-w-2xl mx-auto bg-black/65 border-2 border-amber-500/40 rounded-3xl p-6 space-y-5">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div
+                  className={`w-12 h-12 rounded-2xl flex items-center justify-center border-2 ${
+                    shopShutdown.closed
+                      ? 'bg-rose-500/25 border-rose-400 text-rose-300'
+                      : 'bg-emerald-500/25 border-emerald-400 text-emerald-300'
+                  }`}
                 >
-                  {Object.keys(NOTE_RARITIES).map((r) => (
-                    <option key={r}>{r}</option>
-                  ))}
-                </select>
-              </section>
+                  <ShoppingBag className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black italic tracking-tight text-white">
+                    ADMIN SHOP SHUTDOWN CONTROL
+                  </h3>
+                  <p className="text-xs font-bold text-white/60">
+                    Current Shop Status:{' '}
+                    <span
+                      className={
+                        shopShutdown.closed ? 'text-rose-400 font-black' : 'text-emerald-400 font-black'
+                      }
+                    >
+                      {shopShutdown.closed ? 'SHUT DOWN (CLOSED TO PLAYERS)' : 'OPEN & ACTIVE'}
+                    </span>
+                  </p>
+                </div>
+              </div>
+            </div>
 
-              <section className="rc-console-tray p-4">
-                <h3 className="text-sm font-black mb-2.5 text-yellow-300 tracking-wider">EFFECTS — SELECT UP TO 3</h3>
-                <div className="grid grid-cols-2 xl:grid-cols-3 gap-2 max-h-[340px] overflow-y-auto custom-scrollbar pr-1">
-                  {NOTE_EFFECTS.map((f) => {
-                    const chosen = effects.find((x) => x.id === f.id);
+            <div>
+              <label className="text-xs text-white/75 font-black uppercase tracking-wider block mb-2">
+                Shutdown Reason / Message Shown to Players in Shop
+              </label>
+              <textarea
+                data-testid="admin-shop-shutdown-message"
+                value={shopReasonDraft}
+                onChange={(e) => setShopReasonDraft(e.target.value)}
+                rows={3}
+                placeholder="Enter message explaining why the shop is shut down..."
+                className="w-full bg-black/60 border-2 border-white/20 rounded-2xl px-4 py-3 text-sm font-bold text-white focus:outline-none focus:border-amber-400"
+              />
+            </div>
+
+            <div className="flex flex-wrap gap-3">
+              <button
+                data-testid="admin-shutdown-shop-btn"
+                onClick={() => updateShopShutdown(true, shopReasonDraft)}
+                className="flex-1 py-3.5 px-4 rounded-2xl bg-gradient-to-r from-rose-600 to-amber-600 hover:from-rose-500 hover:to-amber-500 text-white font-black text-xs uppercase tracking-wider border-2 border-white/80 shadow-[0_0_24px_rgba(244,63,94,0.4)] flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Lock className="w-4 h-4" />
+                SHUT DOWN SHOP NOW & DISPLAY MESSAGE
+              </button>
+              <button
+                data-testid="admin-reopen-shop-btn"
+                onClick={() => updateShopShutdown(false, shopReasonDraft)}
+                className="flex-1 py-3.5 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase tracking-wider border-2 border-white/80 flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Unlock className="w-4 h-4" />
+                REOPEN SHOP
+              </button>
+            </div>
+          </div>
+        )}
+
+        {tab === 'note' && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-black/50 border border-white/10 rounded-2xl p-5 space-y-4">
+              <h3 className="text-sm font-black uppercase tracking-widest text-rose-400 flex items-center gap-2">
+                <Sparkles className="w-4 h-4" /> Create Custom Note Skin
+              </h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-white/60 font-bold block mb-1">Name</label>
+                  <input
+                    type="text"
+                    value={noteName}
+                    onChange={(e) => setNoteName(e.target.value)}
+                    placeholder="Cyber Blade..."
+                    className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-white/60 font-bold block mb-1">Price (Coins)</label>
+                  <input
+                    type="number"
+                    value={notePrice}
+                    onChange={(e) => setNotePrice(Number(e.target.value))}
+                    className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm font-bold"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs text-white/60 font-bold block mb-1">Description</label>
+                <input
+                  type="text"
+                  value={noteDesc}
+                  onChange={(e) => setNoteDesc(e.target.value)}
+                  placeholder="Special effects and custom look..."
+                  className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm"
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="text-xs text-white/60 font-bold block mb-1">Fill Color</label>
+                  <input
+                    type="color"
+                    value={noteFill}
+                    onChange={(e) => setNoteFill(e.target.value)}
+                    className="w-full h-9 rounded cursor-pointer bg-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-white/60 font-bold block mb-1">Outline</label>
+                  <input
+                    type="color"
+                    value={noteOutline}
+                    onChange={(e) => setNoteOutline(e.target.value)}
+                    className="w-full h-9 rounded cursor-pointer bg-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-white/60 font-bold block mb-1">Rarity</label>
+                  <select
+                    value={noteRarity}
+                    onChange={(e) => setNoteRarity(e.target.value)}
+                    className="w-full bg-white/10 border border-white/20 rounded-lg px-2 py-2 text-xs font-bold uppercase"
+                  >
+                    {Object.keys(NOTE_RARITIES).map((r) => (
+                      <option key={r} value={r} className="bg-zinc-900">
+                        {r}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-white/60 font-bold block mb-1">Center Text</label>
+                  <input
+                    type="text"
+                    maxLength={6}
+                    value={noteText}
+                    onChange={(e) => setNoteText(e.target.value)}
+                    placeholder="MAX 6"
+                    className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-white/60 font-bold block mb-1">Sticker Image</label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleStickerUpload}
+                    className="w-full text-xs text-white/60"
+                  />
+                </div>
+              </div>
+
+              {noteSticker && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs text-white/60 font-bold block mb-1">
+                      Sticker Scale X ({noteScaleX.toFixed(1)})
+                    </label>
+                    <input
+                      type="range"
+                      min="0.4"
+                      max="2"
+                      step="0.1"
+                      value={noteScaleX}
+                      onChange={(e) => setNoteScaleX(Number(e.target.value))}
+                      className="w-full"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-white/60 font-bold block mb-1">
+                      Sticker Scale Y ({noteScaleY.toFixed(1)})
+                    </label>
+                    <input
+                      type="range"
+                      min="0.4"
+                      max="2"
+                      step="0.1"
+                      value={noteScaleY}
+                      onChange={(e) => setNoteScaleY(Number(e.target.value))}
+                      className="w-full"
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label className="text-xs text-white/60 font-bold block mb-2">
+                  Note Gameplay Effects ({selectedEffects.length} selected)
+                </label>
+                <div className="max-h-48 overflow-y-auto grid grid-cols-2 gap-1.5 p-2 bg-black/40 rounded-xl border border-white/10">
+                  {NOTE_EFFECTS.map((eff) => {
+                    const sel = selectedEffects.find((e) => e.id === eff.id);
                     return (
                       <div
-                        key={f.id}
-                        className={`rc-panel p-2.5 ${chosen ? 'border-violet-400' : ''}`}
+                        key={eff.id}
+                        className={`p-2 rounded-lg border text-left transition-all ${
+                          sel ? 'bg-rose-500/20 border-rose-400' : 'bg-white/5 border-white/10'
+                        }`}
                       >
-                        <button className="w-full text-left font-black text-xs text-white" onClick={() => toggleEffect(f.id)}>
-                          {f.name}
-                          <small className="block text-slate-400 font-semibold mt-0.5">{f.description}</small>
+                        <button
+                          type="button"
+                          onClick={() => toggleEffect(eff.id)}
+                          className="w-full text-left"
+                        >
+                          <div className="text-xs font-black">{eff.name}</div>
+                          <div className="text-[10px] text-white/50">{eff.description}</div>
                         </button>
-                        {chosen && (
-                          <label className="text-[11px] block mt-1.5 text-cyan-300 font-bold">
-                            INTENSITY {chosen.intensity}%
-                            <input
-                              type="range"
-                              min="1"
-                              max="100"
-                              value={chosen.intensity}
-                              onChange={(e) =>
-                                setEffects((v) =>
-                                  v.map((x) => (x.id === f.id ? { ...x, intensity: +e.target.value } : x))
-                                )
-                              }
-                              className="w-full accent-violet-400"
-                            />
-                          </label>
+                        {sel && (
+                          <input
+                            type="range"
+                            min="0.5"
+                            max="3"
+                            step="0.25"
+                            value={sel.intensity}
+                            onChange={(e) => updateEffectIntensity(eff.id, Number(e.target.value))}
+                            className="w-full mt-1"
+                          />
                         )}
                       </div>
                     );
                   })}
                 </div>
-              </section>
+              </div>
 
               <button
-                disabled={busy}
-                onClick={publish}
-                className="rc-bevel-btn rc-tile-green w-full text-black p-3.5 text-lg font-black min-h-[48px]"
+                onClick={publishNoteProduct}
+                disabled={publishingNote || !noteName.trim()}
+                className="w-full py-3 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-40 font-black text-sm flex items-center justify-center gap-2"
               >
-                {busy ? 'UPLOADING...' : 'PUBLISH TO SHOP'}
+                <Plus className="w-4 h-4" /> PUBLISH TO SHOP
               </button>
-            </main>
-          </div>
-        ) : tab === 'sounds' ? (
-          <div className="max-w-3xl mx-auto rc-console-tray p-5 space-y-4">
-            <h2 className="text-xl font-black italic text-yellow-300">HIT SOUND CREATOR</h2>
-            <div className="grid grid-cols-3 gap-3">
-              <input
-                value={soundName}
-                onChange={(e) => setSoundName(e.target.value)}
-                className="p-2.5 rounded-lg bg-[#0d1018] border border-white/25 text-white font-black text-sm"
-                placeholder="NAME"
-              />
-              <input
-                type="number"
-                value={soundPrice}
-                onChange={(e) => setSoundPrice(Number(e.target.value))}
-                className="p-2.5 rounded-lg bg-[#0d1018] border border-white/25 text-white font-black text-sm tabular-nums"
-                placeholder="PRICE"
-              />
-              <select
-                value={soundKind}
-                onChange={(e) => setSoundKind(e.target.value as 'single' | 'pack')}
-                className="p-2.5 rounded-lg bg-[#0d1018] border border-white/25 text-white font-black text-sm"
-              >
-                <option value="single">SINGLE SOUND</option>
-                <option value="pack">4-NOTE PACK</option>
-              </select>
             </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {Array.from({ length: soundKind === 'pack' ? 4 : 1 }).map((_, i) => (
-                <label key={i} className="rc-console-inset p-4 text-center font-black cursor-pointer border-cyan-400/50 text-xs">
-                  {soundKind === 'pack' ? ['LEFT', 'DOWN', 'UP', 'RIGHT'][i] : 'ALL NOTES'}
-                  <input
-                    type="file"
-                    accept="audio/wav,audio/mpeg,.wav,.mp3"
-                    className="hidden"
-                    onChange={(e) => readSound(e.target.files?.[0], i)}
-                  />
-                  {soundFiles[i] && (
-                    <>
-                      <div className="text-emerald-400 text-xs mt-2">LOADED</div>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          new Audio(soundFiles[i]!).play().catch(() => {});
-                        }}
-                        className="mt-2 rc-bevel-btn rc-tile-gold text-black px-3 py-1 text-xs font-black"
-                      >
-                        TEST
-                      </button>
-                    </>
-                  )}
-                </label>
-              ))}
-            </div>
-            <button
-              disabled={soundBusy}
-              onClick={publishSound}
-              className="rc-bevel-btn rc-tile-green w-full text-black p-3.5 font-black text-lg min-h-[48px]"
-            >
-              {soundBusy ? 'UPLOADING...' : 'PUBLISH HIT SOUND'}
-            </button>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 gap-4">
-            <section className="rc-console-tray p-4">
-              <h2 className="text-lg font-black italic text-yellow-300 mb-3">CURRENT RHYTHM LIST</h2>
-              <div className="space-y-2 max-h-[440px] overflow-y-auto custom-scrollbar pr-1">
-                {rhythm.map((id, i) => {
-                  const song = songs.find((x) => String(x.id) === String(id));
-                  return (
-                    <div key={`${id}_${i}`} className="rc-console-inset flex items-center gap-2 p-2.5 text-sm">
-                      <b className="w-8 text-yellow-300 tabular-nums">#{i + 1}</b>
-                      <span className="flex-1 truncate font-black">{song?.title || id}</span>
-                      <button onClick={() => move(i, -1)} className="rc-bevel-btn rc-tile-slate px-2 py-1 text-xs">▲</button>
-                      <button onClick={() => move(i, 1)} className="rc-bevel-btn rc-tile-slate px-2 py-1 text-xs">▼</button>
-                      <button onClick={() => saveRhythm(rhythm.filter((_, x) => x !== i))} className="rc-bevel-btn rc-tile-red text-white px-2 py-1 text-xs">
-                        ✕
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-            <section className="rc-console-tray p-4">
-              <h2 className="text-lg font-black italic text-cyan-300 mb-3">ADD TRACK</h2>
-              <div className="max-h-[440px] overflow-y-auto custom-scrollbar pr-1 space-y-2">
-                {songs.map((song) => (
-                  <button
-                    key={song.id}
-                    onClick={() => addTrack(song.id)}
-                    className="rc-bevel-btn rc-tile-slate w-full text-left px-3.5 py-2.5 text-white"
+
+            <div className="bg-black/50 border border-white/10 rounded-2xl p-5">
+              <h3 className="text-sm font-black uppercase tracking-widest text-white/60 mb-3">
+                Existing Note Products ({noteProducts.length})
+              </h3>
+              <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
+                {noteProducts.map((prod) => (
+                  <div
+                    key={prod.id}
+                    className="flex items-center justify-between bg-white/5 p-3 rounded-xl border border-white/10"
                   >
-                    <b className="block text-sm truncate">{song.title}</b>
-                    <small className="block text-xs text-slate-300 truncate">{song.artist}</small>
-                  </button>
+                    <div className="flex items-center gap-3">
+                      <div
+                        className="w-9 h-9 rounded-lg border-2 flex items-center justify-center text-[10px] font-black"
+                        style={{ backgroundColor: prod.fill, borderColor: prod.outline }}
+                      >
+                        {prod.text || '★'}
+                      </div>
+                      <div>
+                        <div className="text-sm font-black">{prod.name}</div>
+                        <div className="text-[10px] text-white/50">
+                          {prod.price} Coins · {prod.rarity.toUpperCase()} · {prod.effects?.length || 0} Effects
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => deleteNoteProduct(prod.id)}
+                      className="p-2 text-rose-400 hover:bg-rose-500/20 rounded-lg"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 ))}
               </div>
-            </section>
+            </div>
+          </div>
+        )}
+
+        {tab === 'sound' && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-black/50 border border-white/10 rounded-2xl p-5 space-y-4">
+              <h3 className="text-sm font-black uppercase tracking-widest text-cyan-400 flex items-center gap-2">
+                <Volume2 className="w-4 h-4" /> Publish Hit Sound Product
+              </h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-white/60 font-bold block mb-1">Sound Name</label>
+                  <input
+                    type="text"
+                    value={soundName}
+                    onChange={(e) => setSoundName(e.target.value)}
+                    placeholder="Mechanical Click..."
+                    className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-white/60 font-bold block mb-1">Price (Coins)</label>
+                  <input
+                    type="number"
+                    value={soundPrice}
+                    onChange={(e) => setSoundPrice(Number(e.target.value))}
+                    className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm font-bold"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setSoundKind('single')}
+                  className={`flex-1 py-2 rounded-lg text-xs font-bold ${
+                    soundKind === 'single' ? 'bg-cyan-500 text-black' : 'bg-white/10 text-white/60'
+                  }`}
+                >
+                  SINGLE SOUND
+                </button>
+                <button
+                  onClick={() => setSoundKind('pack')}
+                  className={`flex-1 py-2 rounded-lg text-xs font-bold ${
+                    soundKind === 'pack' ? 'bg-cyan-500 text-black' : 'bg-white/10 text-white/60'
+                  }`}
+                >
+                  4-LANE PACK
+                </button>
+              </div>
+
+              {soundKind === 'single' ? (
+                <div>
+                  <label className="text-xs text-white/60 font-bold block mb-1">Upload Audio</label>
+                  <input
+                    type="file"
+                    accept="audio/*"
+                    onChange={handleSingleSoundUpload}
+                    className="w-full text-xs text-white/60"
+                  />
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {['Left Lane', 'Down Lane', 'Up Lane', 'Right Lane'].map((label, idx) => (
+                    <div key={label}>
+                      <label className="text-xs text-white/60 font-bold block mb-0.5">{label}</label>
+                      <input
+                        type="file"
+                        accept="audio/*"
+                        onChange={(e) => handlePackSoundUpload(idx, e)}
+                        className="w-full text-xs text-white/60"
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <button
+                onClick={publishHitSound}
+                disabled={publishingSound || !soundName.trim()}
+                className="w-full py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-black disabled:opacity-40 font-black text-sm"
+              >
+                PUBLISH HIT SOUND
+              </button>
+            </div>
+
+            <div className="bg-black/50 border border-white/10 rounded-2xl p-5">
+              <h3 className="text-sm font-black uppercase tracking-widest text-white/60 mb-3">
+                Published Hit Sounds ({hitSoundProducts.length})
+              </h3>
+              <div className="space-y-2 max-h-[420px] overflow-y-auto">
+                {hitSoundProducts.map((hs) => (
+                  <div
+                    key={hs.id}
+                    className="flex items-center justify-between bg-white/5 p-3 rounded-xl border border-white/10"
+                  >
+                    <div>
+                      <div className="text-sm font-black">{hs.name}</div>
+                      <div className="text-[10px] text-white/50">
+                        {hs.price} Coins · {hs.kind.toUpperCase()}
+                      </div>
+                    </div>
+                    <Star className="w-4 h-4 text-amber-400" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {tab === 'interrupt' && (
+          <div className="max-w-xl mx-auto bg-black/50 border border-rose-500/30 rounded-2xl p-6 space-y-4">
+            <h3 className="text-base font-black uppercase tracking-widest text-rose-400 flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5" /> Global Live Broadcast
+            </h3>
+            <p className="text-xs text-white/60">
+              Send an instant overlay banner to all connected clients in real-time.
+            </p>
+            <textarea
+              value={interruptMsg}
+              onChange={(e) => setInterruptMsg(e.target.value)}
+              placeholder="Enter broadcast message..."
+              rows={3}
+              className="w-full bg-white/10 border border-white/20 rounded-xl p-3 text-sm font-bold focus:outline-none focus:border-rose-400"
+            />
+            <div className="flex gap-3">
+              <button
+                onClick={() => triggerInterruption(true)}
+                disabled={sendingInterrupt}
+                className="flex-1 py-3 bg-rose-600 hover:bg-rose-500 rounded-xl font-black text-sm"
+              >
+                BROADCAST NOW
+              </button>
+              <button
+                onClick={() => triggerInterruption(false)}
+                disabled={sendingInterrupt}
+                className="flex-1 py-3 bg-white/10 hover:bg-white/20 rounded-xl font-bold text-sm"
+              >
+                CLEAR BROADCAST
+              </button>
+            </div>
+            {interruption?.active && (
+              <div className="p-3 rounded-xl bg-rose-500/20 border border-rose-500/40 text-xs font-bold text-rose-200">
+                Active Broadcast: &ldquo;{interruption.message}&rdquo;
+              </div>
+            )}
           </div>
         )}
       </div>

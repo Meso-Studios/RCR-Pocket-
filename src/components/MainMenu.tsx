@@ -532,17 +532,19 @@ export const MainMenu: React.FC<MainMenuProps> = ({
               </button>
             )}
 
-            {isAdminUser && (
-              <button
-                type="button"
-                onClick={() => setShowAdminDrawer(true)}
-                className={`rc-bevel-btn rc-tile-red rounded-lg text-[10px] sm:text-xs font-black text-white tracking-wider whitespace-nowrap ${
-                  isCompact ? 'px-2 py-0.5 min-h-[26px]' : 'px-2.5 py-1 min-h-[32px]'
-                }`}
-              >
-                ADMIN
-              </button>
-            )}
+            <button
+              type="button"
+              data-testid="menu-admin-btn"
+              onClick={() => {
+                triggerHaptic('menuTap', hapticsConfig);
+                setScreen('admin_studio');
+              }}
+              className={`rc-bevel-btn rc-tile-red rounded-lg text-[10px] sm:text-xs font-black text-white tracking-wider whitespace-nowrap ${
+                isCompact ? 'px-2 py-0.5 min-h-[26px]' : 'px-2.5 py-1 min-h-[32px]'
+              }`}
+            >
+              ADMIN
+            </button>
 
             <button
               type="button"

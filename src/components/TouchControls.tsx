@@ -31,11 +31,12 @@ export const TouchLanePads: React.FC<TouchLanePadsProps> = ({
   pressedRef,
   disabled = false,
   compact = false,
-  lanes = [0, 1, 2, 3],
+  lanes,
   variant = 'bar',
   customPads = null,
   className = '',
 }) => {
+  const effectiveLanes = lanes && lanes.length > 0 ? lanes : Array.from({ length: Math.max(4, colors.length) }, (_, i) => i);
   const containerRef = useRef<HTMLDivElement>(null);
   const padRefs = useRef<Record<number, HTMLDivElement | null>>({});
   const onDownRef = useRef(onLaneDown);
@@ -43,7 +44,7 @@ export const TouchLanePads: React.FC<TouchLanePadsProps> = ({
   onDownRef.current = onLaneDown;
   onUpRef.current = onLaneUp;
 
-  const lanesKey = lanes.join(',');
+  const lanesKey = effectiveLanes.join(',');
 
   useEffect(() => {
     const el = containerRef.current;
@@ -51,7 +52,7 @@ export const TouchLanePads: React.FC<TouchLanePadsProps> = ({
 
     const activeLanes = lanesKey.split(',').map(Number);
     const activePointers = new Map<number, number>();
-    const lanePointerCounts = [0, 0, 0, 0];
+    const lanePointerCounts = new Array(8).fill(0);
 
     const syncVisual = (lane: number, pressed: boolean) => {
       const pad = padRefs.current[lane];
@@ -172,9 +173,9 @@ export const TouchLanePads: React.FC<TouchLanePadsProps> = ({
     };
   }, [disabled, pressedRef, lanesKey]);
 
-  const hasCustomPads = Array.isArray(customPads) && customPads.length === 4 && variant === 'bar';
+  const hasCustomPads =
+    Array.isArray(customPads) && customPads.length === 4 && variant === 'bar' && effectiveLanes.length === 4;
   const isSplit = variant === 'split';
-  const gridColsClass = lanes.length === 2 ? 'grid-cols-2' : 'grid-cols-4';
   const heightClass = isSplit
     ? 'h-[clamp(76px,30dvh,128px)]'
     : compact
@@ -191,7 +192,7 @@ export const TouchLanePads: React.FC<TouchLanePadsProps> = ({
           compact ? 'h-[clamp(96px,20dvh,132px)]' : 'h-[clamp(124px,22dvh,172px)]'
         } select-none ${disabled ? 'opacity-40 pointer-events-none' : ''} ${className}`}
       >
-        {lanes.map((lane) => {
+        {effectiveLanes.map((lane) => {
           const pos = customPads[lane] || { xPct: 4 + lane * 24, yPct: 28 };
           const color = colors[lane] || '#ffffff';
           const rotation = lane === 0 ? -90 : lane === 1 ? 180 : lane === 2 ? 0 : 90;
@@ -250,14 +251,30 @@ export const TouchLanePads: React.FC<TouchLanePadsProps> = ({
   return (
     <div
       ref={containerRef}
-      data-testid={isSplit ? `touch-lane-split-${lanes.join('')}` : 'touch-lane-pads'}
-      className={`touch-surface w-full ${isSplit ? 'max-w-none px-1' : 'max-w-[560px] px-2'} grid ${gridColsClass} gap-3 sm:gap-4 select-none ${
+      data-testid={isSplit ? `touch-lane-split-${effectiveLanes.join('')}` : 'touch-lane-pads'}
+      style={{ gridTemplateColumns: `repeat(${effectiveLanes.length}, minmax(0, 1fr))` }}
+      className={`touch-surface w-full ${isSplit ? 'max-w-none px-1' : 'max-w-[760px] px-2'} grid gap-2 sm:gap-3 select-none ${
         disabled ? 'opacity-40 pointer-events-none' : ''
       } ${className}`}
     >
-      {lanes.map((lane) => {
+      {effectiveLanes.map((lane) => {
         const color = colors[lane] || '#ffffff';
-        const rotation = lane === 0 ? -90 : lane === 1 ? 180 : lane === 2 ? 0 : 90;
+        const rotation =
+          lane === 0
+            ? -90
+            : lane === 1
+              ? 180
+              : lane === 2
+                ? 0
+                : lane === 3
+                  ? 90
+                  : lane === 4
+                    ? -45
+                    : lane === 5
+                      ? -135
+                      : lane === 6
+                        ? 45
+                        : 135;
         return (
           <div
             key={lane}

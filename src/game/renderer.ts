@@ -52,10 +52,15 @@ const getOrCreateNoteSprite = (
 
   ctx.save();
   ctx.translate(total / 2, total / 2);
-  if (direction === 0) ctx.rotate(-Math.PI / 2);
-  if (direction === 1) ctx.rotate(Math.PI);
-  if (direction === 2) ctx.rotate(0);
-  if (direction === 3) ctx.rotate(Math.PI / 2);
+  const dirMod = ((direction % 8) + 8) % 8;
+  if (dirMod === 0) ctx.rotate(-Math.PI / 2);
+  else if (dirMod === 1) ctx.rotate(Math.PI);
+  else if (dirMod === 2) ctx.rotate(0);
+  else if (dirMod === 3) ctx.rotate(Math.PI / 2);
+  else if (dirMod === 4) ctx.rotate(-Math.PI * 0.25);
+  else if (dirMod === 5) ctx.rotate(-Math.PI * 0.75);
+  else if (dirMod === 6) ctx.rotate(Math.PI * 0.25);
+  else if (dirMod === 7) ctx.rotate(Math.PI * 0.75);
   const scale = isPressed ? 0.88 : 1;
   ctx.scale(scale, scale);
 
@@ -258,18 +263,32 @@ export const drawNote = (
   shape: SkinShape = 'arrow',
   type: NoteType = 'normal',
   product: NoteProduct | null = null,
-  scaleAnim = 1
+  scaleAnim = 1,
+  laneTransform?: { scaleX: number; scaleY: number; alpha: number; slatClip?: number }
 ) => {
   const sprite = getOrCreateNoteSprite(size, direction, color, isPressed, shape, type, product);
   if (!sprite) return;
-  if (Math.abs(scaleAnim - 1) < 0.005) {
-    ctx.drawImage(sprite.canvas, x - sprite.pad, y - sprite.pad, sprite.size, sprite.size);
-  } else {
-    const cx = x + size / 2;
-    const cy = y + size / 2;
-    const scaledTotal = sprite.size * scaleAnim;
-    ctx.drawImage(sprite.canvas, cx - scaledTotal / 2, cy - scaledTotal / 2, scaledTotal, scaledTotal);
+
+  if (!laneTransform || (Math.abs(laneTransform.scaleX - 1) < 0.01 && Math.abs(laneTransform.scaleY - 1) < 0.01 && laneTransform.alpha > 0.99)) {
+    if (Math.abs(scaleAnim - 1) < 0.005) {
+      ctx.drawImage(sprite.canvas, x - sprite.pad, y - sprite.pad, sprite.size, sprite.size);
+    } else {
+      const cx = x + size / 2;
+      const cy = y + size / 2;
+      const scaledTotal = sprite.size * scaleAnim;
+      ctx.drawImage(sprite.canvas, cx - scaledTotal / 2, cy - scaledTotal / 2, scaledTotal, scaledTotal);
+    }
+    return;
   }
+
+  ctx.save();
+  ctx.globalAlpha = Math.max(0, Math.min(1, laneTransform.alpha));
+  const cx = x + size / 2;
+  const cy = y + size / 2;
+  ctx.translate(cx, cy);
+  ctx.scale(laneTransform.scaleX * scaleAnim, laneTransform.scaleY * scaleAnim);
+  ctx.drawImage(sprite.canvas, -sprite.size / 2, -sprite.size / 2, sprite.size, sprite.size);
+  ctx.restore();
 };
 
 export const drawHoldTail = (
@@ -348,12 +367,90 @@ export const prewarmNoteSprites = (
   shape: SkinShape = 'arrow',
   product: NoteProduct | null = null
 ) => {
-  for (let i = 0; i < 4; i++) {
+  const count = Math.min(8, Math.max(4, colors.length));
+  for (let i = 0; i < count; i++) {
     getOrCreateNoteSprite(size, i, null, false, shape, 'normal', product);
     getOrCreateNoteSprite(size, i, null, true, shape, 'normal', product);
     getOrCreateNoteSprite(size, i, colors[i] || '#fff', false, shape, 'normal', product);
     getOrCreateNoteSprite(size, i, colors[i] || '#fff', false, shape, 'demon', product);
   }
+};
+
+export const drawExpansionTransitionOverlay = (
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  type: string,
+  progress: number,
+  toLanes: number
+) => {
+  if (progress >= 0.995) return;
+  const p = Math.max(0, Math.min(1, progress));
+  const fade = 1 - p;
+
+  ctx.save();
+  if (type === 'split_out') {
+    const splitW = (width * 0.5) * (1 - p);
+    ctx.fillStyle = `rgba(255, 46, 136, ${0.22 * fade})`;
+    ctx.fillRect(width / 2 - splitW, 0, splitW * 2, height);
+    ctx.strokeStyle = `rgba(54, 226, 255, ${0.85 * fade})`;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(width / 2 - splitW, 0);
+    ctx.lineTo(width / 2 - splitW, height);
+    ctx.moveTo(width / 2 + splitW, 0);
+    ctx.lineTo(width / 2 + splitW, height);
+    ctx.stroke();
+  } else if (type === 'wipe_reveal') {
+    const wipeX = width * p;
+    const grad = ctx.createLinearGradient(wipeX - 60, 0, wipeX + 20, 0);
+    grad.addColorStop(0, 'rgba(54, 226, 255, 0)');
+    grad.addColorStop(0.7, `rgba(54, 226, 255, ${0.55 * fade})`);
+    grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, width, height);
+  } else if (type === 'zoom_burst') {
+    const r = Math.hypot(width, height) * 0.55 * p;
+    ctx.strokeStyle = `rgba(250, 204, 21, ${0.75 * fade})`;
+    ctx.lineWidth = 6 * fade;
+    ctx.beginPath();
+    ctx.arc(width / 2, height / 2, r, 0, Math.PI * 2);
+    ctx.stroke();
+  } else if (type === 'blinds_snap') {
+    const slats = 8;
+    const slatH = height / slats;
+    ctx.fillStyle = `rgba(168, 85, 247, ${0.24 * fade})`;
+    for (let i = 0; i < slats; i++) {
+      ctx.fillRect(0, i * slatH, width, slatH * (1 - p) * 0.65);
+    }
+  } else if (type === 'flip_3d') {
+    ctx.strokeStyle = `rgba(54, 226, 255, ${0.7 * fade})`;
+    ctx.lineWidth = 4;
+    const inset = (1 - p) * 45;
+    ctx.strokeRect(inset, inset * 0.4, width - inset * 2, height - inset * 0.8);
+  } else {
+    ctx.strokeStyle = `rgba(255, 46, 136, ${0.65 * fade})`;
+    ctx.lineWidth = 4;
+    ctx.strokeRect(4, 4, width - 8, height - 8);
+  }
+
+  // Banner badge at top center announcing expansion
+  ctx.fillStyle = `rgba(9, 6, 22, ${0.85 * fade})`;
+  ctx.strokeStyle = `rgba(54, 226, 255, ${0.9 * fade})`;
+  ctx.lineWidth = 2;
+  const bw = 240;
+  const bh = 28;
+  ctx.beginPath();
+  ctx.roundRect(width / 2 - bw / 2, 10, bw, bh, 8);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = `rgba(255, 255, 255, ${0.95 * fade})`;
+  ctx.font = '900 12px "Aller", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(`EXPANDING PLAYFIELD → ${toLanes} NOTES`, width / 2, 24);
+  ctx.restore();
 };
 
 const HERO_HIGHWAY_CACHE = new Map<string, HTMLCanvasElement>();

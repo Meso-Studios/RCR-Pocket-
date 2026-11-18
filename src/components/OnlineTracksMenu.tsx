@@ -3,6 +3,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Cloud,
+  Crown,
   Globe,
   Infinity as InfinityIcon,
   Play,
@@ -13,10 +14,19 @@ import {
   X,
 } from 'lucide-react';
 import { db, storage } from '../firebaseClient';
-import { WaveformPulse } from '../game/audio';
-import { ADMIN_EMAILS } from '../game/constants';
-import { getDurationString, getGrade, normalizeChart } from '../game/rhythmLogic';
-import { safeSetStorage } from '../game/storage';
+import { AudioEngine, WaveformPulse } from '../game/audio';
+import { ADMIN_EMAILS, TRACK_RATINGS_STORAGE_KEY } from '../game/constants';
+import {
+  getCommunityVoteStats,
+  getDurationString,
+  getEffectiveTrackRating,
+  getGrade,
+  getHighestTrackRating,
+  isTrackLabeledNewTop1,
+  normalizeChart,
+  validateDifficultyVote,
+} from '../game/rhythmLogic';
+import { safeGetStorage, safeSetStorage } from '../game/storage';
 import { useIsCompactLandscape } from '../game/useViewport';
 import type {
   ChartNote,
@@ -27,6 +37,7 @@ import type {
   PlayerInfo,
   ScreenId,
   Song,
+  TrackRatingsMap,
 } from '../game/types';
 
 interface OnlineTracksMenuProps {
@@ -99,6 +110,84 @@ export const OnlineTracksMenu: React.FC<OnlineTracksMenuProps> = ({
 
   const [searchTerm, setSearchTerm] = useState('');
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  const [trackRatings, setTrackRatings] = useState<TrackRatingsMap>(() => {
+    try {
+      const raw = safeGetStorage(TRACK_RATINGS_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
+  const [voteInput, setVoteInput] = useState('');
+  const [voteFeedback, setVoteFeedback] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  useEffect(() => {
+    if (!db) return;
+    const unsub = db.collection('system').doc('trackRatings').onSnapshot(
+      (snap: any) => {
+        if (snap && snap.exists) {
+          const data = snap.data();
+          if (data?.ratings && typeof data.ratings === 'object') {
+            setTrackRatings(data.ratings);
+            safeSetStorage(TRACK_RATINGS_STORAGE_KEY, JSON.stringify(data.ratings));
+          }
+        }
+      },
+      () => {}
+    );
+    return () => unsub();
+  }, []);
+
+  const highestRating = useMemo(
+    () => getHighestTrackRating(songs, trackRatings, selectedSong?.id),
+    [songs, trackRatings, selectedSong?.id]
+  );
+
+  useEffect(() => {
+    setVoteFeedback(null);
+    if (selectedSong) {
+      setVoteInput(String(getEffectiveTrackRating(selectedSong, trackRatings)));
+    }
+  }, [selectedSong, trackRatings]);
+
+  const handleVoteSubmit = () => {
+    if (!selectedSong) return;
+    const val = parseFloat(voteInput);
+    const isTop1 = isTrackLabeledNewTop1(selectedSong, trackRatings);
+    const check = validateDifficultyVote({
+      value: val,
+      highestRating,
+      isNewTop1: isTop1,
+    });
+    if (!check.valid) {
+      setVoteFeedback({ ok: false, msg: check.reason || 'Invalid rating vote.' });
+      return;
+    }
+    const key = String(selectedSong.id);
+    const nextRatings: TrackRatingsMap = {
+      ...trackRatings,
+      [key]: {
+        ...(trackRatings[key] || { songId: selectedSong.id }),
+        songId: selectedSong.id,
+        votes: [...(trackRatings[key]?.votes || []), Number(val.toFixed(2))],
+        updatedAt: Date.now(),
+      },
+    };
+    setTrackRatings(nextRatings);
+    safeSetStorage(TRACK_RATINGS_STORAGE_KEY, JSON.stringify(nextRatings));
+    if (db) {
+      db.collection('system')
+        .doc('trackRatings')
+        .set({ ratings: nextRatings, updatedAt: Date.now() }, { merge: true })
+        .catch(() => {});
+    }
+    AudioEngine.playUI('confirm');
+    setVoteFeedback({
+      ok: true,
+      msg: `Submitted difficulty vote ★ ${val.toFixed(1)}!`,
+    });
+  };
 
   const onlineSongs = useMemo(
     () => songs.filter((s) => s.artist !== 'Royalty Free' && s.artist !== 'USER'),
@@ -516,15 +605,77 @@ export const OnlineTracksMenu: React.FC<OnlineTracksMenuProps> = ({
                 {selectedSong && <Cloud className="w-4 h-4 text-cyan-400 shrink-0" />}
               </p>
               {selectedSong && (
-                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs sm:text-sm font-black text-slate-200 tabular-nums">
-                  <span className="text-cyan-300">{selectedSong.bpm} BPM</span>
-                  <span aria-hidden="true" className="text-slate-500">·</span>
-                  <span className="text-pink-300">DURATION {getDurationString(selectedSong)}</span>
-                  <span aria-hidden="true" className="text-slate-500">·</span>
-                  <span className="text-emerald-300">
-                    BEST GRADE {getGrade(bestGrades[String(selectedSong.id)] || 0)}
-                  </span>
-                </div>
+                <>
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs sm:text-sm font-black text-slate-200 tabular-nums">
+                    <span className="px-2 py-0.5 rounded-lg bg-amber-500/25 border border-amber-400/70 text-amber-300 flex items-center gap-1">
+                      <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                      RATING ★ {getEffectiveTrackRating(selectedSong, trackRatings).toFixed(1)}
+                    </span>
+                    {isTrackLabeledNewTop1(selectedSong, trackRatings) && (
+                      <span className="px-2 py-0.5 rounded-lg bg-gradient-to-r from-amber-500 to-rose-500 text-white text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
+                        <Crown className="w-3 h-3" /> NEW TOP 1
+                      </span>
+                    )}
+                    <span className="text-cyan-300">{selectedSong.bpm} BPM</span>
+                    <span aria-hidden="true" className="text-slate-500">·</span>
+                    <span className="text-pink-300">DURATION {getDurationString(selectedSong)}</span>
+                    <span aria-hidden="true" className="text-slate-500">·</span>
+                    <span className="text-emerald-300">
+                      BEST GRADE {getGrade(bestGrades[String(selectedSong.id)] || 0)}
+                    </span>
+                  </div>
+
+                  <div className="mt-1.5 rc-dock-well p-2 rounded-xl flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-[11px] font-bold text-slate-300">
+                      <span className="text-cyan-300 font-black uppercase">PUBLIC DIFFICULTY VOTE</span>
+                      <span className="text-white/60 ml-1.5">
+                        {isTrackLabeledNewTop1(selectedSong, trackRatings)
+                          ? '(NEW TOP 1 — Vote Any Rating Above Top 1!)'
+                          : `(Max Allowed: ★ ${highestRating.toFixed(1)})`}
+                      </span>
+                      {getCommunityVoteStats(selectedSong, trackRatings).count > 0 && (
+                        <span className="text-amber-300 ml-1.5 font-black">
+                          · Avg ★ {getCommunityVoteStats(selectedSong, trackRatings).average} (
+                          {getCommunityVoteStats(selectedSong, trackRatings).count} votes)
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="number"
+                        step="0.1"
+                        min="0.1"
+                        max={isTrackLabeledNewTop1(selectedSong, trackRatings) ? undefined : highestRating}
+                        value={voteInput}
+                        onChange={(e) => setVoteInput(e.target.value)}
+                        className="w-16 bg-black/70 border border-cyan-400/50 rounded-lg px-2 py-1 text-xs font-black text-amber-300 text-center"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleVoteSubmit}
+                        className="rc-bevel-btn rc-tile-cyan text-black px-2.5 py-1 rounded-lg text-[10px] font-black uppercase"
+                      >
+                        VOTE ★
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setScreen('admin_studio')}
+                        className="rc-bevel-btn rc-tile-red text-white px-2.5 py-1 rounded-lg text-[10px] font-black uppercase"
+                      >
+                        ADMIN ★
+                      </button>
+                    </div>
+                  </div>
+                  {voteFeedback && (
+                    <div
+                      className={`text-[11px] font-black ${
+                        voteFeedback.ok ? 'text-emerald-300' : 'text-rose-400'
+                      }`}
+                    >
+                      {voteFeedback.msg}
+                    </div>
+                  )}
+                </>
               )}
               {isOwner && (
                 <div className="mt-2 flex flex-wrap items-center gap-2">

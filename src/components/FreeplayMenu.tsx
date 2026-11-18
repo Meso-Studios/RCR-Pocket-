@@ -3,20 +3,48 @@ import {
   Activity,
   ChevronLeft,
   ChevronRight,
+  Crown,
   Globe,
   Infinity as InfinityIcon,
   Play,
   Radio,
   SlidersHorizontal,
+  Star,
   Users,
   X,
 } from 'lucide-react';
-import { MenuMusicEngine, WaveformPulse } from '../game/audio';
+import { db } from '../firebaseClient';
+import { AudioEngine, MenuMusicEngine, WaveformPulse } from '../game/audio';
+import {
+  EXPANSION_TRANSITIONS,
+  EXTRA_NOTES_PRESETS,
+  SPEED_TRIGGER_PRESETS,
+  TRACK_RATINGS_STORAGE_KEY,
+} from '../game/constants';
 import { triggerHaptic } from '../game/haptics';
-import { getDurationString, getGrade, normalizeChart } from '../game/rhythmLogic';
-import { safeSetStorage } from '../game/storage';
+import {
+  getCommunityVoteStats,
+  getDurationString,
+  getEffectiveTrackRating,
+  getGrade,
+  getHighestTrackRating,
+  isTrackLabeledNewTop1,
+  normalizeChart,
+  validateDifficultyVote,
+} from '../game/rhythmLogic';
+import { safeGetStorage, safeSetStorage } from '../game/storage';
 import { useIsCompactLandscape } from '../game/useViewport';
-import type { ChartNote, Difficulty, GameMode, MenuGenre, Modifiers, PlayerInfo, ScreenId, Song } from '../game/types';
+import type {
+  ChartNote,
+  Difficulty,
+  GameMode,
+  MenuGenre,
+  Modifiers,
+  PlayerInfo,
+  ScreenId,
+  Song,
+  TrackRatingsMap,
+} from '../game/types';
 import { RaveStageCanvas } from './RaveStageCanvas';
 
 interface FreeplayMenuProps {
@@ -98,6 +126,84 @@ export const FreeplayMenu: React.FC<FreeplayMenuProps> = ({
   );
 
   const [showRhythmList, setShowRhythmList] = useState(false);
+
+  const [trackRatings, setTrackRatings] = useState<TrackRatingsMap>(() => {
+    try {
+      const raw = safeGetStorage(TRACK_RATINGS_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
+  const [voteInput, setVoteInput] = useState('');
+  const [voteFeedback, setVoteFeedback] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  useEffect(() => {
+    if (!db) return;
+    const unsub = db.collection('system').doc('trackRatings').onSnapshot(
+      (snap: any) => {
+        if (snap && snap.exists) {
+          const data = snap.data();
+          if (data?.ratings && typeof data.ratings === 'object') {
+            setTrackRatings(data.ratings);
+            safeSetStorage(TRACK_RATINGS_STORAGE_KEY, JSON.stringify(data.ratings));
+          }
+        }
+      },
+      () => {}
+    );
+    return () => unsub();
+  }, []);
+
+  const highestRating = useMemo(
+    () => getHighestTrackRating(songs, trackRatings, selectedSong?.id),
+    [songs, trackRatings, selectedSong?.id]
+  );
+
+  useEffect(() => {
+    setVoteFeedback(null);
+    if (selectedSong) {
+      setVoteInput(String(getEffectiveTrackRating(selectedSong, trackRatings)));
+    }
+  }, [selectedSong, trackRatings]);
+
+  const handleVoteSubmit = () => {
+    if (!selectedSong) return;
+    const val = parseFloat(voteInput);
+    const isTop1 = isTrackLabeledNewTop1(selectedSong, trackRatings);
+    const check = validateDifficultyVote({
+      value: val,
+      highestRating,
+      isNewTop1: isTop1,
+    });
+    if (!check.valid) {
+      setVoteFeedback({ ok: false, msg: check.reason || 'Invalid rating vote.' });
+      return;
+    }
+    const key = String(selectedSong.id);
+    const nextRatings: TrackRatingsMap = {
+      ...trackRatings,
+      [key]: {
+        ...(trackRatings[key] || { songId: selectedSong.id }),
+        songId: selectedSong.id,
+        votes: [...(trackRatings[key]?.votes || []), Number(val.toFixed(2))],
+        updatedAt: Date.now(),
+      },
+    };
+    setTrackRatings(nextRatings);
+    safeSetStorage(TRACK_RATINGS_STORAGE_KEY, JSON.stringify(nextRatings));
+    if (db) {
+      db.collection('system')
+        .doc('trackRatings')
+        .set({ ratings: nextRatings, updatedAt: Date.now() }, { merge: true })
+        .catch(() => {});
+    }
+    AudioEngine.playUI('confirm');
+    setVoteFeedback({
+      ok: true,
+      msg: `Submitted difficulty vote ★ ${val.toFixed(1)}!`,
+    });
+  };
 
   const displayedSongs = useMemo(() => {
     if (!showRhythmList) return localSongs;
@@ -325,6 +431,8 @@ export const FreeplayMenu: React.FC<FreeplayMenuProps> = ({
               const rank = rhythmList.findIndex((id) => String(id) === String(song.id)) + 1;
               const isRanked = rank > 0;
               const isSel = String(selectedSong?.id) === String(song.id);
+              const numRating = getEffectiveTrackRating(song, trackRatings);
+              const isTop1 = isTrackLabeledNewTop1(song, trackRatings);
               return (
                 <button
                   key={song.id}
@@ -337,11 +445,12 @@ export const FreeplayMenu: React.FC<FreeplayMenuProps> = ({
                   }`}
                 >
                   <span
-                    className={`text-[11px] font-black shrink-0 tabular-nums ${
-                      isRanked ? 'text-red-500' : isSel ? 'text-slate-600' : 'text-cyan-300/80'
+                    className={`text-[11px] font-black shrink-0 tabular-nums flex items-center gap-1 ${
+                      isRanked ? 'text-red-500' : isSel ? 'text-slate-700' : 'text-amber-300'
                     }`}
                   >
-                    {isRanked ? `#${rank}` : `${song.bpm} BPM`}
+                    {isRanked ? `#${rank}` : ''} ★{numRating.toFixed(1)}
+                    {isTop1 && <Crown className="w-3 h-3 text-amber-400 inline" />}
                   </span>
                   <span className="font-black text-xs sm:text-sm uppercase italic truncate text-right">
                     {song.title}
@@ -469,15 +578,84 @@ export const FreeplayMenu: React.FC<FreeplayMenuProps> = ({
               </p>
 
               {selectedSong && (
-                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs sm:text-sm font-black text-slate-200 tabular-nums">
-                  <span>{selectedSong.bpm} BPM</span>
-                  <span aria-hidden="true" className="text-slate-500">·</span>
-                  <span className="text-yellow-300">DURATION {getDurationString(selectedSong)}</span>
-                  <span aria-hidden="true" className="text-slate-500">·</span>
-                  <span className="text-emerald-300">
-                    BEST GRADE {getGrade(bestGrades[String(selectedSong.id)] || 0)}
-                  </span>
-                </div>
+                <>
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs sm:text-sm font-black text-slate-200 tabular-nums">
+                    <span
+                      data-testid="track-difficulty-rating"
+                      className="px-2 py-0.5 rounded-lg bg-amber-500/25 border border-amber-400/70 text-amber-300 flex items-center gap-1"
+                    >
+                      <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                      RATING ★ {getEffectiveTrackRating(selectedSong, trackRatings).toFixed(1)}
+                    </span>
+                    {isTrackLabeledNewTop1(selectedSong, trackRatings) && (
+                      <span className="px-2 py-0.5 rounded-lg bg-gradient-to-r from-amber-500 to-rose-500 text-white text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
+                        <Crown className="w-3 h-3" /> NEW TOP 1
+                      </span>
+                    )}
+                    <span>{selectedSong.bpm} BPM</span>
+                    <span aria-hidden="true" className="text-slate-500">·</span>
+                    <span className="text-yellow-300">DURATION {getDurationString(selectedSong)}</span>
+                    <span aria-hidden="true" className="text-slate-500">·</span>
+                    <span className="text-emerald-300">
+                      BEST GRADE {getGrade(bestGrades[String(selectedSong.id)] || 0)}
+                    </span>
+                  </div>
+
+                  {/* Public Difficulty Voting Widget */}
+                  <div className="mt-1.5 rc-dock-well p-2 rounded-xl flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-[11px] font-bold text-slate-300">
+                      <span className="text-cyan-300 font-black uppercase">PUBLIC DIFFICULTY VOTE</span>
+                      <span className="text-white/60 ml-1.5">
+                        {isTrackLabeledNewTop1(selectedSong, trackRatings)
+                          ? '(NEW TOP 1 — Vote Any Rating Above Top 1!)'
+                          : `(Max Allowed: ★ ${highestRating.toFixed(1)})`}
+                      </span>
+                      {getCommunityVoteStats(selectedSong, trackRatings).count > 0 && (
+                        <span className="text-amber-300 ml-1.5 font-black">
+                          · Avg ★ {getCommunityVoteStats(selectedSong, trackRatings).average} (
+                          {getCommunityVoteStats(selectedSong, trackRatings).count} votes)
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        data-testid="track-vote-input"
+                        type="number"
+                        step="0.1"
+                        min="0.1"
+                        max={isTrackLabeledNewTop1(selectedSong, trackRatings) ? undefined : highestRating}
+                        value={voteInput}
+                        onChange={(e) => setVoteInput(e.target.value)}
+                        className="w-16 bg-black/70 border border-cyan-400/50 rounded-lg px-2 py-1 text-xs font-black text-amber-300 text-center"
+                      />
+                      <button
+                        type="button"
+                        data-testid="track-vote-submit-btn"
+                        onClick={handleVoteSubmit}
+                        className="rc-bevel-btn rc-tile-cyan text-black px-2.5 py-1 rounded-lg text-[10px] font-black uppercase"
+                      >
+                        VOTE ★
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setScreen('admin_studio')}
+                        className="rc-bevel-btn rc-tile-red text-white px-2.5 py-1 rounded-lg text-[10px] font-black uppercase"
+                        title="Admin Rating & 30-Track Auto-Index"
+                      >
+                        ADMIN ★
+                      </button>
+                    </div>
+                  </div>
+                  {voteFeedback && (
+                    <div
+                      className={`text-[11px] font-black ${
+                        voteFeedback.ok ? 'text-emerald-300' : 'text-rose-400'
+                      }`}
+                    >
+                      {voteFeedback.msg}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -626,6 +804,105 @@ export const FreeplayMenu: React.FC<FreeplayMenuProps> = ({
                   {(bestGrades[String(selectedSong?.id)] || 0) >= 90 ? '1 MISS = DEATH' : 'NEED A GRADE'}
                 </span>
               </button>
+            </div>
+
+            {/* New Speed Trigger Presets & Extra Notes Trigger + 7 PowerPoint Transitions */}
+            <div className="rc-console-inset p-3 space-y-2.5 overflow-y-auto max-h-[42dvh]">
+              <div>
+                <div className="text-[11px] font-black text-cyan-300 uppercase tracking-wider mb-1">
+                  SPEED TRIGGER PRESET (PRESERVES DIFFICULTY RATIO)
+                </div>
+                <div className="grid grid-cols-6 gap-1.5">
+                  {SPEED_TRIGGER_PRESETS.map((preset) => {
+                    const active = (modifiers.speedPreset ?? 1.0) === preset;
+                    return (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() =>
+                          setModifiers((m) => ({ ...m, speedPreset: preset }))
+                        }
+                        className={`rc-bevel-btn py-1.5 rounded-lg text-xs font-black tabular-nums ${
+                          active ? 'rc-tile-cyan text-black' : 'rc-sub-dark text-white/80'
+                        }`}
+                      >
+                        {preset.toFixed(2)}x
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div>
+                  <div className="text-[11px] font-black text-pink-300 uppercase tracking-wider mb-1">
+                    EXTRA NOTES TRIGGER (WIDENS PLAYSCREEN)
+                  </div>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {EXTRA_NOTES_PRESETS.map((cnt) => {
+                      const active = (modifiers.laneCount ?? 4) === cnt;
+                      return (
+                        <button
+                          key={cnt}
+                          type="button"
+                          onClick={() => setModifiers((m) => ({ ...m, laneCount: cnt }))}
+                          className={`rc-bevel-btn py-1.5 rounded-lg text-xs font-black ${
+                            active ? 'rc-tile-pink text-white' : 'rc-sub-dark text-white/80'
+                          }`}
+                        >
+                          {cnt} NOTES
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="text-[11px] font-black text-amber-300 uppercase tracking-wider mb-1">
+                    TRANSITION SPEED: {(modifiers.transitionDurationSec ?? 0.5).toFixed(1)}s (0.1s – 2.0s)
+                  </div>
+                  <input
+                    type="range"
+                    min="0.1"
+                    max="2.0"
+                    step="0.1"
+                    value={modifiers.transitionDurationSec ?? 0.5}
+                    onChange={(e) =>
+                      setModifiers((m) => ({
+                        ...m,
+                        transitionDurationSec: Number(parseFloat(e.target.value).toFixed(1)),
+                      }))
+                    }
+                    className="w-full accent-amber-400"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <div className="text-[11px] font-black text-violet-300 uppercase tracking-wider mb-1">
+                  7 POWERPOINT EXPANSION TRANSITIONS
+                </div>
+                <div className="grid grid-cols-4 sm:grid-cols-7 gap-1">
+                  {EXPANSION_TRANSITIONS.map((tr) => {
+                    const active = (modifiers.expansionTransition ?? 'split_out') === tr.id;
+                    return (
+                      <button
+                        key={tr.id}
+                        type="button"
+                        onClick={() =>
+                          setModifiers((m) => ({ ...m, expansionTransition: tr.id }))
+                        }
+                        className={`rc-bevel-btn px-1.5 py-1.5 rounded-lg text-[10px] font-black uppercase truncate ${
+                          active ? 'rc-tile-purple text-white' : 'rc-sub-dark text-white/75'
+                        }`}
+                        title={tr.description}
+                      >
+                        {tr.shortLabel}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
 
             <button

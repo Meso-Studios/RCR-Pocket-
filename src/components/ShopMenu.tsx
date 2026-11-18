@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ChevronLeft, Coins, ShoppingCart } from 'lucide-react';
+import { ChevronLeft, Coins, Lock, ShieldAlert, ShoppingCart } from 'lucide-react';
 import { db } from '../firebaseClient';
 import { AudioEngine } from '../game/audio';
 import {
@@ -9,11 +9,19 @@ import {
   NOTE_RARITIES,
   ROYALTY_FREE_SONGS,
   SHAPES,
+  SHOP_SHUTDOWN_STORAGE_KEY,
 } from '../game/constants';
 import { drawNote } from '../game/renderer';
 import { safeGetStorage, safeSetStorage } from '../game/storage';
 import { useIsCompactLandscape } from '../game/useViewport';
-import type { FirebaseUser, HitSoundProduct, NoteProduct, PlayerInfo, ScreenId } from '../game/types';
+import type {
+  FirebaseUser,
+  HitSoundProduct,
+  NoteProduct,
+  PlayerInfo,
+  ScreenId,
+  ShopShutdownConfig,
+} from '../game/types';
 import { TouchLanePads } from './TouchControls';
 
 export const NoteTestArena: React.FC<{ product: Partial<NoteProduct>; onClose: () => void }> = ({
@@ -343,6 +351,76 @@ export const ShopMenu: React.FC<ShopMenuProps> = ({ setScreen, playerInfo, setPl
       return newData;
     });
   };
+
+  const [shopShutdown, setShopShutdown] = useState<ShopShutdownConfig>(() => {
+    try {
+      const saved = safeGetStorage(SHOP_SHUTDOWN_STORAGE_KEY);
+      return saved ? JSON.parse(saved) : { closed: false, message: '' };
+    } catch {
+      return { closed: false, message: '' };
+    }
+  });
+
+  useEffect(() => {
+    if (!db) return;
+    const unsub = db.collection('system').doc('shopStatus').onSnapshot(
+      (snap: any) => {
+        if (snap && snap.exists) {
+          const data = snap.data() as ShopShutdownConfig;
+          if (data && typeof data.closed === 'boolean') {
+            setShopShutdown(data);
+            safeSetStorage(SHOP_SHUTDOWN_STORAGE_KEY, JSON.stringify(data));
+          }
+        }
+      },
+      () => {}
+    );
+    return () => unsub();
+  }, []);
+
+  if (shopShutdown.closed) {
+    return (
+      <div
+        data-testid="shop-shutdown-screen"
+        className="rc-stage w-full h-full flex flex-col items-center justify-center overflow-hidden safe-top safe-bottom p-4"
+      >
+        <div className="absolute inset-0 rc-stage-dots pointer-events-none" />
+        <div className="relative z-10 rc-panel max-w-lg w-full p-6 sm:p-8 text-center border-2 border-rose-500/70 shadow-[0_0_40px_rgba(244,63,94,0.35)]">
+          <div className="w-16 h-16 rounded-2xl bg-rose-500/20 border-2 border-rose-400 flex items-center justify-center mx-auto mb-4">
+            <Lock className="w-8 h-8 text-rose-400" />
+          </div>
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-rose-500/25 border border-rose-400/50 text-rose-300 text-[11px] font-black uppercase tracking-widest mb-2">
+            <ShieldAlert className="w-3.5 h-3.5" /> ADMIN NOTICE
+          </div>
+          <h2 className="text-2xl sm:text-3xl font-black italic tracking-tight text-white uppercase mb-3">
+            SHOP TEMPORARILY SHUT DOWN
+          </h2>
+          <div
+            data-testid="shop-shutdown-reason"
+            className="rc-dock-well p-4 rounded-2xl border border-rose-400/40 text-sm sm:text-base font-bold text-rose-100 mb-6"
+          >
+            &ldquo;{shopShutdown.message || 'The Shop is temporarily closed by an administrator.'}&rdquo;
+          </div>
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <button
+              type="button"
+              onClick={() => setScreen('menu')}
+              className="rc-bevel-btn rc-tile-slate text-white font-black text-xs sm:text-sm px-6 py-3 rounded-xl uppercase"
+            >
+              BACK TO MAIN MENU
+            </button>
+            <button
+              type="button"
+              onClick={() => setScreen('admin_studio')}
+              className="rc-bevel-btn rc-tile-red text-white font-black text-xs sm:text-sm px-6 py-3 rounded-xl uppercase"
+            >
+              ADMIN STUDIO (REOPEN)
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="rc-stage w-full h-full flex flex-col overflow-hidden safe-top safe-bottom p-3 sm:p-4">

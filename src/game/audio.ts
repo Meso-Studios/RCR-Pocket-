@@ -193,6 +193,47 @@ export const AudioEngine = {
     clickOsc.start(now);
     clickOsc.stop(now + 0.015);
   },
+
+  playVinylStopSound(durationSec = 1.2) {
+    const ctx = this.ctx || this.init();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
+    const now = ctx.currentTime;
+    const dur = Math.max(0.3, Math.min(3.0, durationSec));
+
+    // Downward vinyl brake pitch sweep
+    const brakeOsc = ctx.createOscillator();
+    const brakeGain = ctx.createGain();
+    brakeOsc.type = 'sawtooth';
+    brakeOsc.frequency.setValueAtTime(340, now);
+    brakeOsc.frequency.exponentialRampToValueAtTime(24, now + dur);
+    brakeGain.gain.setValueAtTime(0.16, now);
+    brakeGain.gain.exponentialRampToValueAtTime(0.001, now + dur);
+    brakeOsc.connect(brakeGain);
+    brakeGain.connect(ctx.destination);
+    brakeOsc.start(now);
+    brakeOsc.stop(now + dur + 0.02);
+
+    // Filtered noise vinyl scratch texture
+    const noiseSrc = ctx.createBufferSource();
+    noiseSrc.buffer = getNoiseBuffer(ctx);
+    noiseSrc.loop = true;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.setValueAtTime(1400, now);
+    bp.frequency.exponentialRampToValueAtTime(90, now + dur);
+    bp.Q.setValueAtTime(3.2, now);
+    const noiseGain = ctx.createGain();
+    noiseGain.gain.setValueAtTime(0.14, now);
+    noiseGain.gain.exponentialRampToValueAtTime(0.001, now + dur);
+    noiseSrc.connect(bp);
+    bp.connect(noiseGain);
+    noiseGain.connect(ctx.destination);
+    noiseSrc.start(now);
+    noiseSrc.stop(now + dur + 0.02);
+  },
 };
 
 export interface BeatTelemetry {

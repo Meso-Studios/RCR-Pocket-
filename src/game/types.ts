@@ -16,6 +16,54 @@ export type NoteType = 'normal' | 'hold' | 'demon';
 export type SkinShape = 'arrow' | 'circle';
 export type MenuGenre = 'spotify' | 'rave' | 'dubstep' | 'hardtekk';
 
+export type SpeedTriggerPreset = 0.5 | 0.75 | 1.0 | 1.5 | 1.75 | 2.0;
+export type ExtraNotesCount = 4 | 6 | 8;
+export type ExpansionTransitionType =
+  | 'split_out'
+  | 'push_slide'
+  | 'wipe_reveal'
+  | 'zoom_burst'
+  | 'flip_3d'
+  | 'blinds_snap'
+  | 'morph_fade';
+
+export interface ChartTrigger {
+  id: string;
+  time: number;
+  row?: number;
+  type: 'speed' | 'extra_notes' | 'dj_stop';
+  speed?: SpeedTriggerPreset;
+  laneCount?: ExtraNotesCount;
+  transition?: ExpansionTransitionType;
+  transitionDurationSec?: number;
+  stopDurationSec?: number;
+}
+
+export interface EditorCheckpoint {
+  id: string;
+  row: number;
+  time: number;
+  label: string;
+}
+
+export interface TrackRatingEntry {
+  songId: string | number;
+  adminRating?: number | null;
+  isNewTop1?: boolean;
+  votes?: number[];
+  updatedAt?: number;
+  updatedBy?: string;
+}
+
+export type TrackRatingsMap = Record<string, TrackRatingEntry>;
+
+export interface ShopShutdownConfig {
+  closed: boolean;
+  message: string;
+  updatedAt?: number;
+  updatedBy?: string;
+}
+
 export interface ChartNote {
   time: number;
   lane: number;
@@ -48,6 +96,13 @@ export interface Song {
   noteCount?: number;
   featured?: boolean;
   ownerUid?: string;
+  difficultyRating?: number;
+  isNewTop1?: boolean;
+  ratingVotes?: number[];
+  triggers?: ChartTrigger[];
+  checkpoints?: EditorCheckpoint[];
+  sourceType?: 'file' | 'newgrounds' | 'spotify' | 'url';
+  sourceId?: string;
 }
 
 export interface NoteEffectConfig {
@@ -153,6 +208,11 @@ export interface Modifiers {
   noFail: boolean;
   extreme: boolean;
   nerf: number;
+  speedPreset?: SpeedTriggerPreset;
+  laneCount?: ExtraNotesCount;
+  expansionTransition?: ExpansionTransitionType;
+  transitionDurationSec?: number;
+  djStopEffect?: boolean;
 }
 
 export interface InterruptionData {

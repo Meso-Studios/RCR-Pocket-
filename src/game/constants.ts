@@ -1,4 +1,38 @@
-import type { Difficulty, MenuGenre, Song } from './types';
+import type {
+  Difficulty,
+  ExpansionTransitionType,
+  ExtraNotesCount,
+  MenuGenre,
+  Song,
+  SpeedTriggerPreset,
+} from './types';
+
+export const SPEED_TRIGGER_PRESETS: SpeedTriggerPreset[] = [0.5, 0.75, 1.0, 1.5, 1.75, 2.0];
+export const EXTRA_NOTES_PRESETS: ExtraNotesCount[] = [4, 6, 8];
+
+export interface ExpansionTransitionDef {
+  id: ExpansionTransitionType;
+  name: string;
+  shortLabel: string;
+  description: string;
+}
+
+export const EXPANSION_TRANSITIONS: ExpansionTransitionDef[] = [
+  { id: 'split_out', name: 'Split Out (Curtain)', shortLabel: 'SPLIT OUT', description: 'Center curtains part outward as new lanes emerge' },
+  { id: 'push_slide', name: 'Push Slide', shortLabel: 'PUSH SLIDE', description: 'Extra lanes slide in dynamically from the outer edges' },
+  { id: 'wipe_reveal', name: 'Wipe Reveal', shortLabel: 'WIPE REVEAL', description: 'Directional neon laser wipe sweeps across the playfield' },
+  { id: 'zoom_burst', name: 'Zoom Burst', shortLabel: 'ZOOM BURST', description: 'Explosive scale-up pop with shockwave expansion' },
+  { id: 'flip_3d', name: '3D Flip Deck', shortLabel: '3D FLIP', description: 'Perspective 3D card-flip into widened playfield' },
+  { id: 'blinds_snap', name: 'Venetian Blinds', shortLabel: 'BLINDS', description: 'Segmented arcade slats snap open into place' },
+  { id: 'morph_fade', name: 'Smooth Morph', shortLabel: 'MORPH', description: 'Silky eased interpolation and cross-dissolve' },
+];
+
+export const TRANSITION_SPEED_STEPS: number[] = Array.from({ length: 20 }, (_, i) =>
+  Number(((i + 1) * 0.1).toFixed(1))
+);
+export const TRACK_RATINGS_STORAGE_KEY = 'rhythmCanvasTrackRatings';
+export const SHOP_SHUTDOWN_STORAGE_KEY = 'rhythmCanvasShopShutdown';
+export const RHYTHM_LIST_STORAGE_KEY = 'rhythmCanvasRhythmList';
 
 export interface SpotifyPlaylistTrack {
   id: string;
@@ -236,40 +270,66 @@ export const MENU_GENRE_ORDER: MenuGenre[] = ['spotify', 'rave', 'dubstep', 'har
 export const KEY_MAP: Record<string, number> = {
   arrowleft: 0,
   a: 0,
-  j: 0,
+  '1': 0,
   arrowdown: 1,
   s: 1,
-  k: 1,
+  '2': 1,
   arrowup: 2,
   w: 2,
-  i: 2,
+  '3': 2,
   arrowright: 3,
   d: 3,
-  l: 3,
+  '4': 3,
+  f: 4,
+  j: 4,
+  '5': 4,
+  g: 5,
+  k: 5,
+  '6': 5,
+  h: 6,
+  l: 6,
+  '7': 6,
+  ';': 7,
+  '8': 7,
 };
 
 export const KEY_CODE_MAP: Record<string, number> = {
   ArrowLeft: 0,
   KeyA: 0,
-  KeyJ: 0,
+  Digit1: 0,
   ArrowDown: 1,
   KeyS: 1,
-  KeyK: 1,
+  Digit2: 1,
   ArrowUp: 2,
   KeyW: 2,
-  KeyI: 2,
+  Digit3: 2,
   ArrowRight: 3,
   KeyD: 3,
-  KeyL: 3,
+  Digit4: 3,
+  KeyF: 4,
+  KeyJ: 4,
+  Digit5: 4,
+  KeyG: 5,
+  KeyK: 5,
+  Digit6: 5,
+  KeyH: 6,
+  KeyL: 6,
+  Digit7: 6,
+  Semicolon: 7,
+  Digit8: 7,
 };
 
-export const LANE_LABELS = ['←', '↓', '↑', '→'] as const;
-export const LANE_NAMES = ['LEFT', 'DOWN', 'UP', 'RIGHT'] as const;
+export const LANE_LABELS = ['←', '↓', '↑', '→', '↖', '↙', '↗', '↘'] as const;
+export const LANE_NAMES = ['LEFT', 'DOWN', 'UP', 'RIGHT', 'EX-1', 'EX-2', 'EX-3', 'EX-4'] as const;
 
-export const APP_VERSION = 2.1;
-export const CHANGELOG_VERSION = '2.1.0';
+export const APP_VERSION = 2.2;
+export const CHANGELOG_VERSION = '2.2.0';
 export const CHANGELOG_STORAGE_KEY = 'rhythmCanvasChangelogSeen';
-export const ADMIN_EMAILS = ['rangoown84@gmail.com', 'invincible102102@gmail.com'];
+export const ADMIN_EMAILS = [
+  'rangoown84@gmail.com',
+  'invincible102102@gmail.com',
+  'palazzolomarin93@gmail.com',
+];
 export const SECRET_DEV_CODE = '070813a!070813a!070813a!';
 
 export interface SkinDef {
@@ -311,6 +371,7 @@ export const ROYALTY_FREE_SONGS: Song[] = [
     audioUrl: 'https://p.scdn.co/mp3-preview/b4c73256d422668e6b4d850407b38c133573a10f',
     featured: true,
     stepClick: false,
+    difficultyRating: 28.5,
   },
   {
     id: 202,
@@ -321,6 +382,7 @@ export const ROYALTY_FREE_SONGS: Song[] = [
     audioUrl: 'https://p.scdn.co/mp3-preview/8c006f969c9e18825e8e6452812af983116be288',
     featured: true,
     stepClick: false,
+    difficultyRating: 24.0,
   },
   {
     id: 203,
@@ -331,6 +393,8 @@ export const ROYALTY_FREE_SONGS: Song[] = [
     audioUrl: 'https://p.scdn.co/mp3-preview/1bd08f12cd8f94b5f5e58afecaaca53311b78b11',
     featured: true,
     stepClick: false,
+    difficultyRating: 30.0,
+    isNewTop1: true,
   },
   {
     id: 204,
@@ -341,6 +405,7 @@ export const ROYALTY_FREE_SONGS: Song[] = [
     audioUrl: 'https://p.scdn.co/mp3-preview/2770b8caf45f4de635b9a3b942f283221794355c',
     featured: true,
     stepClick: false,
+    difficultyRating: 26.5,
   },
   {
     id: 205,
@@ -351,6 +416,7 @@ export const ROYALTY_FREE_SONGS: Song[] = [
     audioUrl: 'https://p.scdn.co/mp3-preview/c0369458c321db86b8d2343dbdff6691da1261c1',
     featured: true,
     stepClick: false,
+    difficultyRating: 19.5,
   },
   {
     id: 206,
@@ -361,6 +427,7 @@ export const ROYALTY_FREE_SONGS: Song[] = [
     audioUrl: 'https://p.scdn.co/mp3-preview/ebb2fe6b398a37ffd1b325910501ed842caf594c',
     featured: true,
     stepClick: false,
+    difficultyRating: 22.0,
   },
   {
     id: 207,
@@ -371,6 +438,7 @@ export const ROYALTY_FREE_SONGS: Song[] = [
     audioUrl: 'https://p.scdn.co/mp3-preview/546fe77c555db3f00f644b62ad9cc6357dd4e5fd',
     featured: true,
     stepClick: false,
+    difficultyRating: 25.5,
   },
   {
     id: 208,
@@ -381,22 +449,111 @@ export const ROYALTY_FREE_SONGS: Song[] = [
     audioUrl: 'https://p.scdn.co/mp3-preview/4e9c1dafdc7f405dbe57cce4a7ee7bebbdc1759d',
     featured: true,
     stepClick: false,
+    difficultyRating: 18.0,
   },
-  { id: 101, title: 'HYPER RAVE 2000', artist: 'Rave Core', bpm: 155, color: '#ff2e88', audioUrl: 'synth:rave', featured: true, stepClick: false },
-  { id: 102, title: 'WOBBLE PROTOCOL', artist: 'Sub Bass Labs', bpm: 140, color: '#22d3ee', audioUrl: 'synth:dubstep', featured: true, stepClick: false },
-  { id: 103, title: 'SCHRANZ TEKK 180', artist: 'Tekk Foundry', bpm: 180, color: '#a3e635', audioUrl: 'synth:hardtekk', featured: true, stepClick: false },
-  { id: 1, title: 'Neon Drift', artist: 'Royalty Free', bpm: 120, color: '#f472b6', audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3', featured: false },
-  { id: 2, title: 'Cyber City', artist: 'Royalty Free', bpm: 130, color: '#38bdf8', audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3', featured: false },
-  { id: 3, title: 'Synthwave Nights', artist: 'Royalty Free', bpm: 140, color: '#a78bfa', audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3', featured: false },
-  { id: 4, title: 'Retro Run', artist: 'Royalty Free', bpm: 150, color: '#fb923c', audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3', featured: false },
-  { id: 5, title: 'Pixel Dawn', artist: 'Royalty Free', bpm: 160, color: '#facc15', audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3', featured: false },
-  { id: 6, title: 'Arcade Assault', artist: 'Royalty Free', bpm: 170, color: '#fb7185', audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-6.mp3', featured: false },
-  { id: 7, title: 'Vapor Trail', artist: 'Royalty Free', bpm: 115, color: '#2dd4bf', audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-7.mp3', featured: false },
-  { id: 8, title: 'Glitch Mode', artist: 'Royalty Free', bpm: 125, color: '#c084fc', audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3', featured: false },
-  { id: 9, title: 'Laser Grid', artist: 'Royalty Free', bpm: 135, color: '#f472b6', audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-9.mp3', featured: false },
-  { id: 10, title: 'Overclocked', artist: 'Royalty Free', bpm: 145, color: '#818cf8', audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-10.mp3', featured: false },
-  { id: 11, title: 'Data Stream', artist: 'Royalty Free', bpm: 155, color: '#e879f9', audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-11.mp3', featured: false },
-  { id: 12, title: 'Mainframe', artist: 'Royalty Free', bpm: 180, color: '#fbbf24', audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-12.mp3', featured: false },
+  {
+    id: 209,
+    title: 'Boom, Boom, Boom, Boom!!',
+    artist: 'Zak Conner',
+    bpm: 165,
+    color: '#a3e635',
+    audioUrl: 'https://p.scdn.co/mp3-preview/739655832e5ddbc6977bacb575d184cc8a5e6e8d',
+    featured: true,
+    stepClick: false,
+    difficultyRating: 21.0,
+  },
+  {
+    id: 210,
+    title: 'Woops (Hardtekk VIP)',
+    artist: 'Dj Bountyhunter',
+    bpm: 176,
+    color: '#ef4444',
+    audioUrl: 'https://p.scdn.co/mp3-preview/8585a764532e7b48ec1a5a867487a7b1a8d71946',
+    featured: true,
+    stepClick: false,
+    difficultyRating: 27.0,
+  },
+  {
+    id: 211,
+    title: 'ЗАВОД (ZAVOD)',
+    artist: 'ZAPRAVKA',
+    bpm: 170,
+    color: '#38bdf8',
+    audioUrl: 'https://p.scdn.co/mp3-preview/f07da72db1400ca6a6bce2d4302d7069120e36fa',
+    featured: true,
+    stepClick: false,
+    difficultyRating: 23.5,
+  },
+  {
+    id: 212,
+    title: 'General Release',
+    artist: 'Mike Klubnika',
+    bpm: 138,
+    color: '#c084fc',
+    audioUrl: 'https://p.scdn.co/mp3-preview/861182dd026ae1f5b0a931c3115ba98ebf1a6d15',
+    featured: true,
+    stepClick: false,
+    difficultyRating: 16.5,
+  },
+  {
+    id: 213,
+    title: 'Invincible',
+    artist: 'Deaf Kev',
+    bpm: 140,
+    color: '#f472b6',
+    audioUrl: 'https://p.scdn.co/mp3-preview/d4290ea0e3b020a1ecbf5b63e76adf930b117668',
+    featured: true,
+    stepClick: false,
+    difficultyRating: 15.0,
+  },
+  {
+    id: 214,
+    title: 'Blind (Metal Rave)',
+    artist: 'Korn',
+    bpm: 158,
+    color: '#34d399',
+    audioUrl: 'https://p.scdn.co/mp3-preview/7c2868a7b00e17f310b3366160f900749490d468',
+    featured: true,
+    stepClick: false,
+    difficultyRating: 20.5,
+  },
+  {
+    id: 215,
+    title: 'Stranded',
+    artist: 'Gojira',
+    bpm: 160,
+    color: '#facc15',
+    audioUrl: 'https://p.scdn.co/mp3-preview/7c153b1c254c73fe348016ce9b56c5f18a1b8f19',
+    featured: true,
+    stepClick: false,
+    difficultyRating: 22.5,
+  },
+  {
+    id: 216,
+    title: 'Roots Bloody Roots',
+    artist: 'Sepultura',
+    bpm: 178,
+    color: '#fb7185',
+    audioUrl: 'https://p.scdn.co/mp3-preview/6872c1cff7bdfa31df19ff6cad7c7f0e8e28b899',
+    featured: true,
+    stepClick: false,
+    difficultyRating: 27.5,
+  },
+  { id: 101, title: 'HYPER RAVE 2000', artist: 'Rave Core', bpm: 155, color: '#ff2e88', audioUrl: 'synth:rave', featured: true, stepClick: false, difficultyRating: 17.5 },
+  { id: 102, title: 'WOBBLE PROTOCOL', artist: 'Sub Bass Labs', bpm: 140, color: '#22d3ee', audioUrl: 'synth:dubstep', featured: true, stepClick: false, difficultyRating: 14.0 },
+  { id: 103, title: 'SCHRANZ TEKK 180', artist: 'Tekk Foundry', bpm: 180, color: '#a3e635', audioUrl: 'synth:hardtekk', featured: true, stepClick: false, difficultyRating: 29.0 },
+  { id: 1, title: 'Neon Drift', artist: 'Royalty Free', bpm: 120, color: '#f472b6', audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3', featured: true, difficultyRating: 4.5 },
+  { id: 2, title: 'Cyber City', artist: 'Royalty Free', bpm: 130, color: '#38bdf8', audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3', featured: true, difficultyRating: 6.0 },
+  { id: 3, title: 'Synthwave Nights', artist: 'Royalty Free', bpm: 140, color: '#a78bfa', audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3', featured: true, difficultyRating: 8.5 },
+  { id: 4, title: 'Retro Run', artist: 'Royalty Free', bpm: 150, color: '#fb923c', audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3', featured: true, difficultyRating: 11.0 },
+  { id: 5, title: 'Pixel Dawn', artist: 'Royalty Free', bpm: 160, color: '#facc15', audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3', featured: true, difficultyRating: 13.0 },
+  { id: 6, title: 'Arcade Assault', artist: 'Royalty Free', bpm: 170, color: '#fb7185', audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-6.mp3', featured: true, difficultyRating: 15.5 },
+  { id: 7, title: 'Vapor Trail', artist: 'Royalty Free', bpm: 115, color: '#2dd4bf', audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-7.mp3', featured: true, difficultyRating: 3.5 },
+  { id: 8, title: 'Glitch Mode', artist: 'Royalty Free', bpm: 125, color: '#c084fc', audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3', featured: true, difficultyRating: 5.5 },
+  { id: 9, title: 'Laser Grid', artist: 'Royalty Free', bpm: 135, color: '#f472b6', audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-9.mp3', featured: true, difficultyRating: 7.5 },
+  { id: 10, title: 'Overclocked', artist: 'Royalty Free', bpm: 145, color: '#818cf8', audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-10.mp3', featured: true, difficultyRating: 10.0 },
+  { id: 11, title: 'Data Stream', artist: 'Royalty Free', bpm: 155, color: '#e879f9', audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-11.mp3', featured: true, difficultyRating: 12.0 },
+  { id: 12, title: 'Mainframe', artist: 'Royalty Free', bpm: 180, color: '#fbbf24', audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-12.mp3', featured: false, difficultyRating: 25.0 },
 ];
 
 export const MENU_BGM = 'https://p.scdn.co/mp3-preview/9341d80aa95b5caae8421b60bb636895f3c8d044';
