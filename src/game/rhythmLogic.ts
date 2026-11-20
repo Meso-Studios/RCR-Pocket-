@@ -26,29 +26,138 @@ import type {
   TrackRatingsMap,
 } from './types';
 
-export const getXpRequirement = (level: number): number =>
-  Math.max(100, Math.round(100 * Math.pow(1.18, Math.max(0, level - 1))));
+export const MAX_LEVEL_XP_THRESHOLD = 100000;
 
+/**
+ * Level 1 requires 1000 XP to pass.
+ * Each subsequent level multiplies the XP threshold by 1.1, then 1.2, then 1.3 in a repeating sequence
+ * until it maxes out at MAX_LEVEL_XP_THRESHOLD (100,000 XP).
+ */
+export const getXpRequirement = (level: number): number => {
+  const safeLevel = Math.max(1, Math.floor(Number(level) || 1));
+  const multipliers = [1.1, 1.2, 1.3];
+  let threshold = 1000;
+  for (let i = 1; i < safeLevel; i++) {
+    const mult = multipliers[(i - 1) % multipliers.length];
+    threshold = Math.round(threshold * mult);
+    if (threshold >= MAX_LEVEL_XP_THRESHOLD) {
+      return MAX_LEVEL_XP_THRESHOLD;
+    }
+  }
+  return Math.min(MAX_LEVEL_XP_THRESHOLD, threshold);
+};
+
+export interface TrackXpCalculationInput {
+  trackRating: number | null | undefined;
+  score: number;
+  previousHighScore?: number;
+  isFirstPlay?: boolean;
+}
+
+export interface TrackXpCalculationResult {
+  xpEarned: number;
+  eligible: boolean;
+  isNewHighScore: boolean;
+  isFirstPlay: boolean;
+  effectiveHighScore: number;
+  reason: string;
+}
+
+/**
+ * Formula: (Track Numerical Rating * 10) + (Highscore / 150)
+ * - Only awarded if the track IS difficulty rated (rating !== null && rating > 0).
+ * - Only awarded if the player got a new highscore OR it is their first play on the track.
+ */
+export const calculateTrackXpReward = (
+  input: TrackXpCalculationInput
+): TrackXpCalculationResult => {
+  const { trackRating, score, previousHighScore = 0, isFirstPlay = false } = input;
+  const cleanScore = Math.max(0, Math.floor(Number(score) || 0));
+  const prevBest = Math.max(0, Math.floor(Number(previousHighScore) || 0));
+  const firstPlay = Boolean(isFirstPlay || prevBest === 0);
+  const isNewHighScore = cleanScore > prevBest;
+  const effectiveHighScore = Math.max(cleanScore, prevBest);
+
+  if (
+    trackRating === null ||
+    trackRating === undefined ||
+    !Number.isFinite(Number(trackRating)) ||
+    Number(trackRating) <= 0
+  ) {
+    return {
+      xpEarned: 0,
+      eligible: false,
+      isNewHighScore,
+      isFirstPlay: firstPlay,
+      effectiveHighScore,
+      reason: 'Track is NOT difficulty rated (★ N/A) — cannot level up from unrated tracks.',
+    };
+  }
+
+  if (!firstPlay && !isNewHighScore) {
+    return {
+      xpEarned: 0,
+      eligible: false,
+      isNewHighScore: false,
+      isFirstPlay: false,
+      effectiveHighScore,
+      reason: `Did not beat your high score (${prevBest.toLocaleString()}) — new highscore or first play required for XP.`,
+    };
+  }
+
+  const numRating = Number(trackRating);
+  const xpEarned = Math.max(1, Math.round(numRating * 10 + cleanScore / 150));
+  return {
+    xpEarned,
+    eligible: true,
+    isNewHighScore,
+    isFirstPlay: firstPlay,
+    effectiveHighScore,
+    reason: firstPlay
+      ? `First Play XP! (★ ${numRating} × 10) + (${cleanScore.toLocaleString()} / 150) = +${xpEarned} XP`
+      : `New High Score XP! (★ ${numRating} × 10) + (${cleanScore.toLocaleString()} / 150) = +${xpEarned} XP`,
+  };
+};
+
+/**
+ * Each time you level up, the game gives you 25% of the coins you currently have.
+ */
 export const addRewardsCalc = (
   info: PlayerInfo,
   xpToAdd: number,
   coinsToAdd: number
-): { next: PlayerInfo; leveledUp: boolean } => {
+): { next: PlayerInfo; leveledUp: boolean; levelsGained: number; levelUpBonusCoins: number } => {
   let level = info.level || 1;
   let xp = (info.xp || 0) + Math.max(0, Math.round(xpToAdd));
-  const coins = (info.coins || 0) + Math.max(0, Math.round(coinsToAdd));
+  let coins = (info.coins || 0) + Math.max(0, Math.round(coinsToAdd));
   let leveledUp = false;
+  let levelsGained = 0;
+  let levelUpBonusCoins = 0;
 
   while (xp >= getXpRequirement(level)) {
     xp -= getXpRequirement(level);
     level += 1;
     leveledUp = true;
+    levelsGained += 1;
+    const bonus = Math.round(coins * 0.25);
+    coins += bonus;
+    levelUpBonusCoins += bonus;
   }
 
   return {
     next: { ...info, level, xp, coins },
     leveledUp,
+    levelsGained,
+    levelUpBonusCoins,
   };
+};
+
+/**
+ * Slot machine spin cost starts at 1,200 coins and increases by 1.5x each time you spin.
+ */
+export const getSlotMachineSpinCost = (spinCount = 0): number => {
+  const safeCount = Math.max(0, Math.floor(Number(spinCount) || 0));
+  return Math.round(1200 * Math.pow(1.5, safeCount));
 };
 
 export const normalizeChart = (rawNotes?: ChartNote[] | null): ChartNote[] => {
@@ -332,35 +441,44 @@ export const getPlayfieldLayout = (params: {
     const finalX = startX + i * stepPx;
     const finalY = basePixels.ys[i % 4] ?? baseReceptorY;
     const isExtraLane = i >= fromLaneCount;
+    const isTransitioning = fromLaneCount !== laneCount && p < 0.999;
 
     let x = finalX;
     let scaleX = 1;
     let scaleY = 1;
     let alpha = 1;
 
-    if (isExtraLane && p < 0.999) {
-      alpha = easedP;
+    if (isTransitioning) {
       const centerX = canvasWidth / 2 - noteSize / 2;
-      if (transitionType === 'split_out' || transitionType === 'split') {
-        x = Math.round(centerX + (finalX - centerX) * easedP);
-      } else if (
-        transitionType === 'edge_slide' ||
-        transitionType === 'push' ||
-        transitionType === 'cover_slide'
-      ) {
-        x = Math.round(finalX + (1 - easedP) * stepPx * 1.5);
-      } else if (transitionType === 'zoom_burst' || transitionType === 'fade_zoom') {
-        scaleX = 0.25 + 0.75 * easedP;
-        scaleY = 0.25 + 0.75 * easedP;
-      } else if (transitionType === 'flip_3d' || transitionType === 'cube_rotate') {
-        scaleX = Math.max(0.08, Math.sin(easedP * Math.PI * 0.5));
-      } else if (transitionType === 'blinds_snap') {
-        scaleY = Math.max(0.1, easedP);
-      } else if (transitionType === 'wipe_reveal' || transitionType === 'wipe') {
-        const laneTriggerP = (i - fromLaneCount) / Math.max(1, laneCount - fromLaneCount);
-        alpha = Math.max(0, Math.min(1, (p - laneTriggerP * 0.4) / 0.6));
-      } else if (transitionType === 'flash_cut' || transitionType === 'cut') {
-        alpha = p > 0.15 ? 1 : 0;
+      if (isExtraLane) {
+        alpha = easedP;
+        if (transitionType === 'split_out' || transitionType === 'split') {
+          x = Math.round(centerX + (finalX - centerX) * easedP);
+        } else if (
+          transitionType === 'edge_slide' ||
+          transitionType === 'push' ||
+          transitionType === 'cover_slide'
+        ) {
+          x = Math.round(finalX + (1 - easedP) * stepPx * 1.5);
+        } else if (transitionType === 'zoom_burst' || transitionType === 'fade_zoom') {
+          scaleX = 0.25 + 0.75 * easedP;
+          scaleY = 0.25 + 0.75 * easedP;
+        } else if (transitionType === 'flip_3d' || transitionType === 'cube_rotate') {
+          scaleX = Math.max(0.08, Math.sin(easedP * Math.PI * 0.5));
+        } else if (transitionType === 'blinds_snap') {
+          scaleY = Math.max(0.1, easedP);
+        } else if (transitionType === 'wipe_reveal' || transitionType === 'wipe') {
+          const laneTriggerP = (i - fromLaneCount) / Math.max(1, laneCount - fromLaneCount);
+          alpha = Math.max(0, Math.min(1, (p - laneTriggerP * 0.4) / 0.6));
+        } else if (transitionType === 'flash_cut' || transitionType === 'cut') {
+          alpha = p > 0.15 ? 1 : 0;
+        }
+      } else {
+        // Core lanes smoothly glide from their previous centered position to their new position
+        const prevTotalRowSpan = (fromLaneCount - 1) * stepPx + noteSize;
+        const prevStartX = Math.round((canvasWidth - prevTotalRowSpan) / 2);
+        const prevX = prevStartX + i * stepPx;
+        x = Math.round(prevX + (finalX - prevX) * easedP);
       }
     }
 
@@ -463,13 +581,61 @@ export const getActiveSpeedMultiplierAtTime = (
   fallbackPreset: SpeedTriggerPreset = 1.0
 ): SpeedTriggerPreset => {
   if (!Array.isArray(triggers) || triggers.length === 0) return fallbackPreset;
+  const sorted = [...triggers]
+    .filter((t) => t.type === 'speed' && typeof t.speed === 'number')
+    .sort((a, b) => a.time - b.time);
   let current: SpeedTriggerPreset = fallbackPreset;
-  for (const t of triggers) {
-    if (t.type === 'speed' && t.time <= currentTimeMs && t.speed) {
+  for (const t of sorted) {
+    if (t.time <= currentTimeMs && t.speed) {
       current = t.speed;
     }
   }
   return current;
+};
+
+/**
+ * Smoothly interpolates speed trigger changes over rampDurationMs using a cubic smoothstep curve
+ * so speed triggers feel smooth and never cause janky instant note jumps.
+ */
+export const getSmoothedSpeedMultiplierAtTime = (
+  triggers: ChartTrigger[] | undefined,
+  currentTimeMs: number,
+  fallbackPreset: SpeedTriggerPreset = 1.0,
+  rampDurationMs = 360
+): number => {
+  if (!Array.isArray(triggers) || triggers.length === 0) return fallbackPreset;
+  const sorted = [...triggers]
+    .filter((t) => t.type === 'speed' && typeof t.speed === 'number')
+    .sort((a, b) => a.time - b.time);
+
+  if (sorted.length === 0) return fallbackPreset;
+
+  let prevSpeed: number = fallbackPreset;
+  let currentSpeed: number = fallbackPreset;
+  let activeTriggerTime = -Infinity;
+
+  for (const t of sorted) {
+    if (t.time <= currentTimeMs && typeof t.speed === 'number') {
+      prevSpeed = currentSpeed;
+      currentSpeed = t.speed;
+      activeTriggerTime = t.time;
+    } else if (t.time > currentTimeMs) {
+      break;
+    }
+  }
+
+  if (activeTriggerTime === -Infinity || rampDurationMs <= 0) {
+    return currentSpeed;
+  }
+
+  const elapsed = currentTimeMs - activeTriggerTime;
+  if (elapsed >= rampDurationMs) {
+    return currentSpeed;
+  }
+
+  const u = Math.max(0, Math.min(1, elapsed / rampDurationMs));
+  const smoothU = u * u * (3 - 2 * u);
+  return Number((prevSpeed + (currentSpeed - prevSpeed) * smoothU).toFixed(4));
 };
 
 export const getEffectiveScrollSpeed = (
@@ -560,6 +726,12 @@ export function evaluateActiveTriggers(
   defaultTransitionDuration = 0.5
 ) {
   const speed = getActiveSpeedMultiplierAtTime(triggers, currentTimeMs, defaultSpeedPreset);
+  const smoothedSpeed = getSmoothedSpeedMultiplierAtTime(
+    triggers,
+    currentTimeMs,
+    defaultSpeedPreset,
+    360
+  );
   const exp = getActiveLaneExpansionState(
     triggers,
     currentTimeMs,
@@ -571,6 +743,7 @@ export function evaluateActiveTriggers(
   const vel = getActiveVelocityEffectAtTime(triggers, currentTimeMs);
   return {
     activeSpeedMultiplier: speed,
+    smoothedSpeedMultiplier: smoothedSpeed,
     targetLaneCount: exp.targetLanes,
     previousLaneCount: exp.fromLanes,
     activeTransition: exp.transition,

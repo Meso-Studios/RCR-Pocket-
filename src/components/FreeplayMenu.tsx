@@ -153,7 +153,7 @@ export const FreeplayMenu: React.FC<FreeplayMenuProps> = ({
   }, []);
 
   const effectiveEmail =
-    user?.email || playerInfo.profile?.email || DEFAULT_OWNER_EMAIL;
+    user?.email || playerInfo.profile?.email || '';
   const isAdminUser = isUserAdmin(effectiveEmail, customAdmins);
   const rhythmListIds = useMemo(() => rhythmList.map(String), [rhythmList]);
 
@@ -540,7 +540,7 @@ export const FreeplayMenu: React.FC<FreeplayMenuProps> = ({
         }}
       >
         {/* Top Centered/Balanced Dock Header */}
-        <div className="rc-dock-rail flex items-center justify-between gap-2 p-1.5 shrink-0">
+        <div className="rc-dock-rail relative z-30 flex items-center justify-between gap-2 p-1.5 shrink-0">
           <button
             type="button"
             onClick={() => setScreen('menu')}
@@ -584,10 +584,10 @@ export const FreeplayMenu: React.FC<FreeplayMenuProps> = ({
         </div>
 
         {/* Center Hero Track Card */}
-        <div className="flex-1 min-h-0 flex items-center justify-center py-2">
+        <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar flex items-start sm:items-center justify-center py-1.5 sm:py-2">
           <div
-            className={`rc-panel w-full max-w-3xl flex items-center gap-4 ${
-              isCompact ? 'p-3' : 'p-5 sm:p-6'
+            className={`rc-panel w-full max-w-3xl flex items-center gap-3 sm:gap-4 ${
+              isCompact ? 'p-2.5' : 'p-4 sm:p-6'
             }`}
           >
             {selectedSong?.coverUrl && (
@@ -597,16 +597,16 @@ export const FreeplayMenu: React.FC<FreeplayMenuProps> = ({
                 data-wave-cover={String(selectedSong.id)}
                 alt={selectedSong.title}
                 className={`reactive-cover rounded-xl object-cover border-2 border-yellow-400 shadow-[0_6px_16px_rgba(0,0,0,0.65)] shrink-0 ${
-                  isCompact ? 'w-24 h-24' : 'w-32 h-32 sm:w-36 sm:h-36'
+                  isCompact ? 'w-16 h-16 sm:w-24 sm:h-24' : 'w-28 h-28 sm:w-36 sm:h-36'
                 }`}
               />
             )}
 
-            <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+            <div className="flex-1 min-w-0 flex flex-col gap-1">
               <div className="flex items-center justify-between gap-2">
                 <h2
                   className={`font-black italic text-white uppercase drop-shadow-[0_3px_0_#080a0f] truncate ${
-                    isCompact ? 'text-2xl' : 'text-3xl sm:text-4xl'
+                    isCompact ? 'text-xl sm:text-2xl' : 'text-2xl sm:text-4xl'
                   }`}
                 >
                   {selectedSong?.title || 'NO TRACKS'}
@@ -661,6 +661,15 @@ export const FreeplayMenu: React.FC<FreeplayMenuProps> = ({
                       BEST GRADE {getGrade(bestGrades[String(selectedSong.id)] || 0)}
                     </span>
                   </div>
+
+                  {getDisplayTrackRating(selectedSong, trackRatings, rhythmListIds) === null && (
+                    <div
+                      data-testid="unrated-track-xp-notice"
+                      className="mt-1 px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-400/50 text-[10px] sm:text-[11px] font-black uppercase tracking-wider text-amber-300"
+                    >
+                      UNRATED TRACK (★ N/A) — Playable for coins & fun, but cannot earn Level-Up XP until difficulty rated.
+                    </div>
+                  )}
 
                   {/* Public Difficulty Voting Widget */}
                   <div className="mt-1.5 rc-dock-well p-2 rounded-xl flex flex-wrap items-center justify-between gap-2">

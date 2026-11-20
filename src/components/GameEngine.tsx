@@ -7,9 +7,11 @@ import {
   HIT_WINDOWS,
   KEY_CODE_MAP,
   KEY_MAP,
+  RHYTHM_LIST_STORAGE_KEY,
   SCROLL_SPEEDS,
   SKINS,
   SPEED_TRIGGER_PRESETS,
+  TRACK_RATINGS_STORAGE_KEY,
 } from '../game/constants';
 import { pollActiveGamepadLanes, type LaneTuple } from '../game/gamepad';
 import {
@@ -27,6 +29,7 @@ import {
 } from '../game/renderer';
 import {
   applyNerfChart,
+  calculateTrackXpReward,
   computeInvisibleNoteVisibility,
   computeVelocityNoteScroll,
   createAltChart,
@@ -34,7 +37,6 @@ import {
   formatTrackRatingBadge,
   generateBeatmap,
   getActiveLaneExpansionState,
-  getActiveSpeedMultiplierAtTime,
   getActiveVelocityEffectAtTime,
   getDisplayTrackRating,
   getEffectiveScrollSpeed,
@@ -42,6 +44,7 @@ import {
   getGrade,
   getLaneFromPlayfieldPoint,
   getPlayfieldLayout,
+  getSmoothedSpeedMultiplierAtTime,
   isInvisibleTriggerActiveAtTime,
   mapCustomKeyToLane,
   normalizeChart,
@@ -196,6 +199,23 @@ export const GameEngine: React.FC<GameEngineProps> = ({
   const [displayScore, setDisplayScore] = useState(0);
   const [isNewHigh, setIsNewHigh] = useState(false);
   const [previousHigh, setPreviousHigh] = useState(0);
+  const [earnedXpSummary, setEarnedXpSummary] = useState<{
+    xpEarned: number;
+    coinsEarned: number;
+    reason: string;
+  }>({ xpEarned: 0, coinsEarned: 0, reason: '' });
+
+  const resolvedTrackRating = useMemo<number | null>(() => {
+    try {
+      const ratingsRaw = safeGetStorage(TRACK_RATINGS_STORAGE_KEY);
+      const ratingsMap = ratingsRaw ? JSON.parse(ratingsRaw) : {};
+      const listRaw = safeGetStorage(RHYTHM_LIST_STORAGE_KEY);
+      const listIds = listRaw ? JSON.parse(listRaw).map(String) : [];
+      return getDisplayTrackRating(song, ratingsMap, listIds);
+    } catch {
+      return getDisplayTrackRating(song);
+    }
+  }, [song]);
   const [loopCount, setLoopCount] = useState(0);
   const [brAlive, setBrAlive] = useState(50);
   const [brBoard, setBrBoard] = useState<BRBoardRow[]>([]);
@@ -559,14 +579,8 @@ export const GameEngine: React.FC<GameEngineProps> = ({
     [playerInfo.equippedHitSound]
   );
 
-  const productEffect = useCallback(
-    (id: string) => {
-      if (isBattleRoyale) return 0;
-      const f = playerInfo.equippedNoteProduct?.effects?.find((x) => x.id === id);
-      return f ? Math.max(0.01, (f.intensity || 50) / 100) : 0;
-    },
-    [isBattleRoyale, playerInfo.equippedNoteProduct]
-  );
+  // Pure cosmetic Note Skins only — all gameplay-altering note abilities are disabled
+  const productEffect = useCallback((_id: string) => 0, []);
 
   const spawnJudgment = useCallback(
     (text: string, color: string, isPlayer = true) => {
@@ -592,272 +606,9 @@ export const GameEngine: React.FC<GameEngineProps> = ({
     [heroMode]
   );
 
-  const effectCooldowns = useRef<Record<string, number>>({});
   const triggerProductEffects = useCallback(
-    (baseScore = 350, note: ChartNote | null = null) => {
-      const product = isBattleRoyale ? null : playerInfo.equippedNoteProduct;
-      if (!product?.effects) return 0;
-      let bonus = 0;
-      const visual = (label: string, color = product.fill || '#fff', freq = 700) => {
-        spawnJudgment(label, color, true);
-        hitBursts.current.push({
-          lane: note?.lane ?? Math.floor(Math.random() * 4),
-          time: performance.now(),
-          color,
-        });
-        AudioEngine.playTone(freq, 'triangle', 0.07, 0.028);
-      };
-      const once = (id: string, ms: number, fn: () => void) => {
-        const now = performance.now();
-        if ((effectCooldowns.current[id] || 0) <= now) {
-          effectCooldowns.current[id] = now + ms;
-          fn();
-        }
-      };
-      const curCombo = comboRef.current;
-      const curHealth = playerHealthRef.current;
-      product.effects.forEach((f) => {
-        const k = Math.max(0.01, (f.intensity || 50) / 100);
-        switch (f.id) {
-          case 'score_boost':
-            bonus += Math.round(baseScore * k);
-            break;
-          case 'heal':
-            setHealth((h) => Math.min(100, h + 10 * k));
-            visual('HEAL', '#4ade80', 620);
-            break;
-          case 'combo_guard':
-            once(f.id, 2500, () => visual('COMBO GUARD', '#67e8f9', 880));
-            break;
-          case 'coin_bonus':
-            addRewards(0, Math.max(1, Math.round(2 * k)));
-            visual('+COIN', '#facc15', 980);
-            break;
-          case 'xp_bonus':
-            addRewards(Math.max(1, Math.round(5 * k)), 0);
-            visual('+XP', '#a78bfa', 760);
-            break;
-          case 'wide_window':
-            bonus += Math.round(25 * k);
-            visual('WIDE', '#38bdf8', 540);
-            break;
-          case 'perfect_lock':
-            bonus += Math.round(70 * k);
-            visual('LOCK', '#22d3ee', 1080);
-            break;
-          case 'double_hit':
-            bonus += Math.round(baseScore * 0.65 * k);
-            setTimeout(() => AudioEngine.playHitSound(), 70);
-            visual('ECHO', '#f0abfc', 820);
-            break;
-          case 'shield':
-            setHealth((h) => Math.min(100, h + 4 * k));
-            visual('SHIELD', '#60a5fa', 500);
-            break;
-          case 'life_steal':
-            setHealth((h) => Math.min(100, h + (baseScore * k) / 100));
-            visual('DRAIN', '#fb7185', 420);
-            break;
-          case 'fever':
-            bonus += Math.round((curCombo + 1) * 12 * k);
-            setIsPulsing(true);
-            setTimeout(() => setIsPulsing(false), 180);
-            visual('FEVER', '#fb3bc7', 920);
-            break;
-          case 'slow_time':
-            once(f.id, 5000, () => {
-              if (bgmRef.current) {
-                const r = bgmRef.current.playbackRate;
-                bgmRef.current.playbackRate = Math.max(0.25, r * (1 - 0.18 * k));
-                setTimeout(() => {
-                  if (bgmRef.current) bgmRef.current.playbackRate = r;
-                }, 350 + 650 * k);
-              }
-              visual('TIME BEND', '#818cf8', 330);
-            });
-            break;
-          case 'speed_burst':
-            once(f.id, 5000, () => {
-              if (bgmRef.current) {
-                const r = bgmRef.current.playbackRate;
-                bgmRef.current.playbackRate = Math.min(4, r * (1 + 0.2 * k));
-                setTimeout(() => {
-                  if (bgmRef.current) bgmRef.current.playbackRate = r;
-                }, 300 + 500 * k);
-              }
-              visual('OVERDRIVE', '#f97316', 1200);
-            });
-            break;
-          case 'gravity':
-            setShake(true);
-            setTimeout(() => setShake(false), 120 + 250 * k);
-            visual('GRAVITY FLIP', '#c084fc', 280);
-            break;
-          case 'lane_shuffle':
-            once(f.id, 3500, () => {
-              mapRef.current
-                .filter((n) => !n.hit && !n.missed && n.time > (bgmRef.current?.currentTime || 0) * 1000)
-                .slice(0, Math.ceil(3 + 5 * k))
-                .forEach((n) => {
-                  n.lane = n.lane < 4 ? Math.floor(Math.random() * 4) : n.lane;
-                });
-              visual('LANE WARP', '#2dd4bf', 670);
-            });
-            break;
-          case 'rainbow':
-            ['#ef4444', '#facc15', '#4ade80', '#38bdf8', '#c084fc'].forEach((c, i) =>
-              setTimeout(
-                () =>
-                  hitBursts.current.push({
-                    lane: ((note?.lane ?? 0) + i) % 4,
-                    time: performance.now(),
-                    color: c,
-                  }),
-                i * 25
-              )
-            );
-            break;
-          case 'explosion':
-            for (let i = 0; i < Math.ceil(3 + 8 * k); i++) {
-              hitBursts.current.push({ lane: i % 4, time: performance.now() - i * 12, color: '#fb923c' });
-            }
-            visual('NOVA', '#fb923c', 180);
-            break;
-          case 'freeze':
-            once(f.id, 4500, () => {
-              if (bgmRef.current) {
-                bgmRef.current.pause();
-                setTimeout(() => bgmRef.current?.play().catch(() => {}), 80 + 180 * k);
-              }
-              visual('FREEZE', '#bae6fd', 1400);
-            });
-            break;
-          case 'screen_pulse':
-            setIsPulsing(true);
-            setTimeout(() => setIsPulsing(false), 130 + 350 * k);
-            break;
-          case 'shake':
-            setShake(true);
-            setTimeout(() => setShake(false), 100 + 300 * k);
-            break;
-          case 'ghost':
-            bonus += Math.round(40 * k);
-            visual('GHOST', '#d1d5db', 390);
-            break;
-          case 'spark':
-            for (let i = 0; i < 4; i++) {
-              setTimeout(
-                () =>
-                  hitBursts.current.push({
-                    lane: Math.floor(Math.random() * 4),
-                    time: performance.now(),
-                    color: '#fff',
-                  }),
-                i * 30
-              );
-            }
-            break;
-          case 'flame':
-            visual('FLAME', '#ef4444', 240);
-            setHealth((h) => Math.min(100, h + 3 * k));
-            break;
-          case 'ice':
-            visual('ICE', '#7dd3fc', 1350);
-            bonus += Math.round(45 * k);
-            break;
-          case 'lightning':
-            visual('ZAP', '#fef08a', 1550);
-            bonus += Math.round(80 * k);
-            break;
-          case 'void':
-            visual('VOID', '#6d28d9', 90);
-            bonus += Math.round(100 * k);
-            break;
-          case 'gold_rush':
-            bonus += Math.round(150 * k);
-            visual('GOLD', '#facc15', 1100);
-            break;
-          case 'accuracy_save':
-            bonus += Math.round(30 * k);
-            visual('STABLE', '#34d399', 610);
-            break;
-          case 'hold_power':
-            if (note?.type === 'hold') {
-              bonus += Math.round(baseScore * 1.5 * k);
-              visual('HOLD POWER', '#a78bfa', 740);
-            }
-            break;
-          case 'chord_power': {
-            const chord = mapRef.current.filter((n) => Math.abs(n.time - (note?.time ?? -999)) < 2).length;
-            if (chord > 1) {
-              bonus += Math.round(baseScore * k * chord);
-              visual('CHORD x' + chord, '#22d3ee', 900);
-            }
-            break;
-          }
-          case 'streak_heal':
-            if ((curCombo + 1) % 10 === 0) {
-              setHealth((h) => Math.min(100, h + 15 * k));
-              visual('STREAK HEAL', '#86efac', 640);
-            }
-            break;
-          case 'streak_score':
-            bonus += Math.round(Math.min(500, curCombo * 3) * k);
-            break;
-          case 'risk_reward':
-            bonus += Math.round(baseScore * 1.8 * k);
-            setHealth((h) => Math.max(1, h - 3 * k));
-            visual('RISK', '#f43f5e', 260);
-            break;
-          case 'last_stand':
-            if (curHealth < 20) {
-              setHealth((h) => Math.max(h, 5 + 15 * k));
-              visual('LAST STAND', '#f97316', 200);
-            }
-            break;
-          case 'auto_sick':
-            bonus += Math.random() < k * 0.35 ? Math.round(200 * k) : 0;
-            visual('LUCK', '#e879f9', 1000);
-            break;
-          case 'demon_ward':
-            setHealth((h) => Math.min(100, h + 2 * k));
-            visual('WARD', '#ddd6fe', 460);
-            break;
-          case 'pulse_blast':
-            setIsPulsing(true);
-            setTimeout(() => setIsPulsing(false), 200 + 400 * k);
-            bonus += Math.round(60 * k);
-            break;
-          case 'mirror_flash':
-            setShake(true);
-            setTimeout(() => setShake(false), 80);
-            visual('MIRROR', '#f9a8d4', 830);
-            break;
-          case 'tiny_notes':
-            bonus += Math.round(35 * k);
-            visual('MINI', '#93c5fd', 1250);
-            break;
-          case 'giant_notes':
-            bonus += Math.round(90 * k);
-            visual('GIANT', '#fdba74', 160);
-            break;
-          case 'jackpot':
-            if (Math.random() < 0.06 + 0.12 * k) {
-              bonus += Math.round(3000 * k);
-              visual('JACKPOT!', '#fde047', 1600);
-            }
-            break;
-          case 'revive':
-            if (curHealth < 10 && Math.random() < 0.25 + 0.5 * k) {
-              setHealth(30 + 30 * k);
-              visual('PHOENIX', '#fb923c', 520);
-            }
-            break;
-        }
-      });
-      return bonus;
-    },
-    [addRewards, isBattleRoyale, playerInfo.equippedNoteProduct, spawnJudgment]
+    (_baseScore = 350, _note: ChartNote | null = null) => 0,
+    []
   );
 
   useEffect(() => {
@@ -1240,9 +991,35 @@ export const GameEngine: React.FC<GameEngineProps> = ({
 
   useEffect(() => {
     if (gameState === 'finished') {
+      const highKey = `rhythmCanvasHigh_${song.id}_${difficulty}`;
+      const oldHigh = Number(safeGetStorage(highKey) || 0);
+      setPreviousHigh(oldHigh);
+      const isFirstPlay = oldHigh <= 0;
+      const fresh = score > oldHigh;
+      setIsNewHigh(fresh);
+      if (fresh) safeSetStorage(highKey, String(score));
+
       if (!rewardsProcessed.current) {
         rewardsProcessed.current = true;
-        addRewards(Math.floor(score / 200), Math.floor(score / 500));
+        const coinsEarned = Math.floor(score / 500);
+        const xpCalc = calculateTrackXpReward({
+          trackRating: resolvedTrackRating,
+          score,
+          previousHighScore: oldHigh,
+          isFirstPlay,
+        });
+        const reason =
+          xpCalc.reason === 'unrated'
+            ? 'UNRATED TRACK (★ N/A) — 0 LEVEL-UP XP'
+            : xpCalc.reason === 'no_new_record'
+            ? 'NO NEW HIGH SCORE — 0 BONUS LEVEL-UP XP'
+            : `RATED ★ ${resolvedTrackRating} × 10 + HIGHSCORE / 150`;
+        setEarnedXpSummary({
+          xpEarned: xpCalc.xpEarned,
+          coinsEarned,
+          reason,
+        });
+        addRewards(xpCalc.xpEarned, coinsEarned);
         recordGrade?.(song.id, accuracy);
         onGradeUpdate?.(getGrade(accuracy));
       }
@@ -1257,16 +1034,10 @@ export const GameEngine: React.FC<GameEngineProps> = ({
         if (bgmRef.current) bgmRef.current.playbackRate = 1;
       };
     }
-  }, [gameState, accuracy, addRewards, recordGrade, onGradeUpdate, score, song.id, synthGenre]);
+  }, [gameState, accuracy, addRewards, difficulty, recordGrade, onGradeUpdate, resolvedTrackRating, score, song.id, synthGenre]);
 
   useEffect(() => {
     if (gameState !== 'finished') return;
-    const highKey = `rhythmCanvasHigh_${song.id}_${difficulty}`;
-    const oldHigh = Number(safeGetStorage(highKey) || 0);
-    setPreviousHigh(oldHigh);
-    const fresh = score > oldHigh;
-    setIsNewHigh(fresh);
-    if (fresh) safeSetStorage(highKey, String(score));
     setDisplayScore(0);
     const steps = 36;
     const increment = Math.max(1, Math.ceil(Math.max(0, score) / steps));
@@ -1638,11 +1409,12 @@ export const GameEngine: React.FC<GameEngineProps> = ({
         );
       }
 
-      // Speed Trigger multiplier preserves exact difficulty speed ratio AND syncs with DJ Record Stop brake
-      const activeSpeedMultiplier = getActiveSpeedMultiplierAtTime(
+      // Smoothed Speed Trigger multiplier glides cleanly without janky jumps, preserves difficulty speed ratio, and syncs with DJ Record Stop brake
+      const activeSpeedMultiplier = getSmoothedSpeedMultiplierAtTime(
         curSong.triggers,
         currentAudioTime,
-        liveSpeedTriggerRef.current
+        liveSpeedTriggerRef.current,
+        360
       );
       const visualSpeed = getEffectiveScrollSpeed(curDifficulty, activeSpeedMultiplier) * vinylBrakeFactor;
 
@@ -2137,7 +1909,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
         ctx.save();
         ctx.globalAlpha = 1 - life;
         ctx.textAlign = 'center';
-        ctx.font = '900 italic 42px Saira, sans-serif';
+        ctx.font = '900 italic 42px "Aller", sans-serif';
         ctx.lineWidth = 6;
         ctx.strokeStyle = '#000';
         ctx.fillStyle =
@@ -2164,7 +1936,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
           ctx.scale(popScale, popScale);
           ctx.globalAlpha = 1 - Math.pow(life, 3);
           ctx.fillStyle = j.color;
-          ctx.font = j.compact ? '900 italic 25px Saira, sans-serif' : '900 italic 48px Saira, sans-serif';
+          ctx.font = j.compact ? '900 italic 25px "Aller", sans-serif' : '900 italic 48px "Aller", sans-serif';
           ctx.textAlign = 'center';
           ctx.lineWidth = j.compact ? 4 : 7;
           ctx.strokeStyle = '#05070f';
@@ -2674,6 +2446,14 @@ export const GameEngine: React.FC<GameEngineProps> = ({
           <div className="mt-4 rc-dock-rail px-4 py-1.5 text-xs sm:text-base font-black text-cyan-300 tracking-widest uppercase text-center">
             TAP GRAY NOTES • KEYBOARD • CONTROLLER
           </div>
+          {resolvedTrackRating === null && (
+            <div
+              data-testid="countdown-unrated-notice"
+              className="mt-2.5 px-4 py-1.5 rounded-xl bg-amber-500/20 border-2 border-amber-400/70 text-amber-300 text-xs sm:text-sm font-black uppercase tracking-wider text-center"
+            >
+              UNRATED TRACK (★ N/A) — PLAY FOR FUN &amp; COINS (CANNOT LEVEL UP FROM UNRATED TRACKS)
+            </div>
+          )}
         </div>
       )}
 
@@ -2703,7 +2483,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
                     {song.artist} • {difficulty} • {gameMode}
                   </span>
                   <span className="px-2 py-0.5 rounded bg-amber-500/20 border border-amber-400/50 text-[10px] font-black text-amber-300">
-                    ★ {formatTrackRatingBadge(getDisplayTrackRating(song))} DIFFICULTY
+                    ★ {formatTrackRatingBadge(resolvedTrackRating)} DIFFICULTY
                   </span>
                   <span className="px-2 py-0.5 rounded bg-fuchsia-500/20 border border-fuchsia-400/50 text-[10px] font-black text-fuchsia-200">
                     {liveExtraNotes} LANES • {liveSpeedTrigger.toFixed(2)}x SCROLL
@@ -2825,11 +2605,18 @@ export const GameEngine: React.FC<GameEngineProps> = ({
                     {getGrade(accuracy)}
                   </div>
                   <div
-                    className={`rc-dock-well font-black text-white tabular-nums mt-2 ${
+                    className={`rc-dock-well font-black text-white tabular-nums mt-2 text-center ${
                       isLandscapeCompact ? 'px-3 py-1 text-xs' : 'px-4 py-1.5 text-sm'
                     }`}
                   >
-                    +{Math.floor(score / 200)} XP • +{Math.floor(score / 500)} COINS
+                    <div>
+                      +{earnedXpSummary.xpEarned} XP • +{earnedXpSummary.coinsEarned} COINS
+                    </div>
+                    {earnedXpSummary.reason && (
+                      <div className="text-[10px] text-amber-300 font-bold uppercase tracking-wider mt-0.5">
+                        {earnedXpSummary.reason}
+                      </div>
+                    )}
                   </div>
                 </div>
 

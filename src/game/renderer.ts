@@ -238,7 +238,7 @@ const getOrCreateNoteSprite = (
       ctx.fillStyle = '#fff';
       ctx.strokeStyle = '#000';
       ctx.lineWidth = 3;
-      ctx.font = `900 ${Math.max(10, roundedSize * 0.22)}px Saira`;
+      ctx.font = `900 ${Math.max(10, roundedSize * 0.22)}px "Aller", sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.strokeText(product.text, 0, 0);

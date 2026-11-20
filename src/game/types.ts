@@ -20,7 +20,7 @@ export type MenuGenre = 'spotify' | 'rave' | 'dubstep' | 'hardtekk';
 
 export type SkinShape = 'arrow' | 'circle';
 
-export type NoteType = 'normal' | 'hold' | 'demon' | 'mine' | 'gold' | 'fire';
+export type NoteType = 'normal' | 'hold' | 'demon';
 
 export type SpeedTriggerPreset = 0.5 | 0.75 | 1 | 1.5 | 1.75 | 2;
 
@@ -286,6 +286,7 @@ export interface PlayerProfile {
   email?: string;
   avatarEmoji?: string;
   avatarIcon?: string;
+  avatarPhotoUrl?: string;
   bannerColor: string;
   bio: string;
   titleBadge: string;
@@ -301,6 +302,33 @@ export interface PlayerProfile {
   isAdmin?: boolean;
   status?: 'online' | 'in_match' | 'idle';
   lastActiveAt?: number;
+  createdProfile?: boolean;
+  messagingWaitlistStatus?: 'none' | 'pending' | 'approved';
+}
+
+export interface MessagingWaitlistEntry {
+  uid: string;
+  displayName: string;
+  email?: string;
+  avatarPhotoUrl?: string;
+  avatarEmoji?: string;
+  reason: string;
+  status: 'pending' | 'approved' | 'rejected';
+  appliedAt: number;
+  reviewedBy?: string;
+  reviewedAt?: number;
+}
+
+export interface ProfileDirectMessage {
+  id: string;
+  fromUid: string;
+  fromName: string;
+  fromPhotoUrl?: string;
+  fromEmoji?: string;
+  toUid: string;
+  toName: string;
+  text: string;
+  createdAt: number;
 }
 
 export interface MatchInviteConfig {
@@ -342,4 +370,6 @@ export interface PlayerInfo {
   profile?: PlayerProfile;
   unlockedItems?: string[];
   completedLevels?: string[];
+  slotSpinCount?: number;
+  trackHighScores?: Record<string, number>;
 }

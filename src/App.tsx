@@ -318,17 +318,20 @@ function RhythmCanvasApp() {
       menuBgmMuted: false,
       customKeybinds: DEFAULT_CUSTOM_KEYBINDS,
       profile: {
-        uid: 'owner-01',
-        displayName: 'Marin',
-        email: DEFAULT_OWNER_EMAIL,
-        avatarEmoji: '👑',
-        bannerColor: '#ff2e88',
-        bio: 'Rhythm Canvas Reboot Lead Creator & Rhythm List Curator.',
-        titleBadge: 'RHYTHM ARCHITECT',
-        wins1v1: 12,
-        matchesPlayed: 15,
+        uid: `player-${Math.random().toString(36).slice(2, 8)}`,
+        displayName: 'Player',
+        email: '',
+        avatarEmoji: '🎧',
+        avatarPhotoUrl: '',
+        bannerColor: '#22d3ee',
+        bio: 'Rhythm Canvas Player — Customize your profile & photo!',
+        titleBadge: 'RHYTHM CHALLENGER',
+        wins1v1: 0,
+        matchesPlayed: 0,
         favoriteGenre: 'HARDTEKK',
-        isAdmin: true,
+        isAdmin: false,
+        createdProfile: false,
+        messagingWaitlistStatus: 'none',
       },
       ...parsed,
       menuGenre: (parsed as any)?.v2SpotifyDefaultApplied ? (parsed.menuGenre || 'spotify') : 'spotify',
@@ -344,6 +347,25 @@ function RhythmCanvasApp() {
       const localSave = safeGetStorage('rhythmCanvasSave');
       if (localSave) {
         const parsed = JSON.parse(localSave);
+        // If an older build auto-defaulted a guest's profile to 'Marin' / 'owner-01' without explicit profile creation, clear that default
+        if (
+          parsed?.profile &&
+          !parsed.profile.createdProfile &&
+          (parsed.profile.uid === 'owner-01' || parsed.profile.displayName === 'Marin')
+        ) {
+          parsed.profile = {
+            ...parsed.profile,
+            uid: `player-${Math.random().toString(36).slice(2, 8)}`,
+            displayName: 'Player',
+            email: '',
+            avatarEmoji: '🎧',
+            titleBadge: 'RHYTHM CHALLENGER',
+            bio: 'Rhythm Canvas Player — Customize your profile & photo!',
+            isAdmin: false,
+            createdProfile: false,
+          };
+          safeSetStorage('rhythmCanvasSave', JSON.stringify(parsed));
+        }
         setPlayerInfo((prev) => ({
           ...prev,
           ...parsed,

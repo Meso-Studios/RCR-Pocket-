@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  addRewardsCalc,
   autoIndexFeaturedTracks,
   autoSyncNotesToBpm,
+  calculateTrackXpReward,
   computeEffectiveScrollSpeed,
   computeExpandedPlayfieldLayout,
   computeInvisibleNoteVisibility,
@@ -13,6 +15,9 @@ import {
   getActiveVelocityEffectAtTime,
   getDisplayTrackRating,
   getLaneColor,
+  getSlotMachineSpinCost,
+  getSmoothedSpeedMultiplierAtTime,
+  getXpRequirement,
   invertHexColor,
   isInvisibleTriggerActiveAtTime,
   mapCustomKeyToLane,
@@ -20,8 +25,8 @@ import {
   snapTimeToBeatGrid,
   validateDifficultyVote,
 } from './rhythmLogic';
-import { NOTE_VELOCITY_EFFECTS } from './constants';
-import type { ChartNote, ChartTrigger, Song, TrackRatingsMap } from './types';
+import { DEFAULT_HAPTICS, NOTE_VELOCITY_EFFECTS } from './constants';
+import type { ChartNote, ChartTrigger, PlayerInfo, Song, TrackRatingsMap } from './types';
 
 test('Featured levels rating defaults to N/A unless in Rhythm List or Admin Rated', () => {
   const unratedFeatured: Song = {
@@ -172,4 +177,88 @@ test('Auto-sync snaps recorded notes onto BPM subdivision grid', () => {
   const synced = autoSyncNotesToBpm(raw, 120, 4);
   assert.equal(synced[0].time, 500);
   assert.equal(synced[1].time, 1000);
+});
+
+test('Revamped XP system: 1000 base with 1.1 -> 1.2 -> 1.3 sequence, rating*10 + highscore/150, unrated guard, and +25% coins on level up', () => {
+  assert.equal(getXpRequirement(1), 1000);
+  assert.equal(getXpRequirement(2), 1100); // 1000 * 1.1
+  assert.equal(getXpRequirement(3), 1320); // 1100 * 1.2
+  assert.equal(getXpRequirement(4), 1716); // 1320 * 1.3
+  assert.equal(getXpRequirement(5), 1888); // Math.round(1716 * 1.1)
+
+  // Unrated track gives 0 XP
+  const unratedRes = calculateTrackXpReward({
+    trackRating: null,
+    score: 45000,
+    previousHighScore: 0,
+    isFirstPlay: true,
+  });
+  assert.equal(unratedRes.eligible, false);
+  assert.equal(unratedRes.xpEarned, 0);
+
+  // Rated track on first play gives rating * 10 + score / 150
+  const ratedFirst = calculateTrackXpReward({
+    trackRating: 20,
+    score: 30000,
+    previousHighScore: 0,
+    isFirstPlay: true,
+  });
+  assert.equal(ratedFirst.eligible, true);
+  assert.equal(ratedFirst.xpEarned, 20 * 10 + 30000 / 150); // 200 + 200 = 400
+
+  // Rated track that does NOT beat previous highscore gives 0 XP
+  const noBeat = calculateTrackXpReward({
+    trackRating: 20,
+    score: 25000,
+    previousHighScore: 30000,
+    isFirstPlay: false,
+  });
+  assert.equal(noBeat.eligible, false);
+  assert.equal(noBeat.xpEarned, 0);
+
+  // Leveling up grants +25% of current coins
+  const dummyInfo: PlayerInfo = {
+    level: 1,
+    xp: 900,
+    coins: 2000,
+    equippedSkin: 'default',
+    unlockedSkins: ['default'],
+    equippedShape: 'arrow',
+    unlockedShapes: ['arrow'],
+    customColors: ['#36e2ff', '#ff2e88', '#34d399', '#facc15'],
+    botplay: false,
+    downscroll: true,
+    unlockedNoteProducts: [],
+    equippedNoteProduct: null,
+    unlockedHitSounds: [],
+    equippedHitSound: null,
+    unlockedGameMods: [],
+    activeGameMods: [],
+    haptics: DEFAULT_HAPTICS,
+    controlLayout: {
+      portraitLanes: null,
+      landscapeLanes: null,
+      portraitPads: null,
+      landscapePads: null,
+    },
+  };
+
+  const rewardRes = addRewardsCalc(dummyInfo, 250, 0);
+  assert.equal(rewardRes.leveledUp, true);
+  assert.equal(rewardRes.next.level, 2);
+  assert.equal(rewardRes.next.xp, 150);
+  assert.equal(rewardRes.next.coins, 2500); // 2000 + 25% of 2000 (500)
+});
+
+test('Slot machine spin cost starts at 1200 and multiplies by 1.5x per spin; smooth speed trigger interpolates cleanly', () => {
+  assert.equal(getSlotMachineSpinCost(0), 1200);
+  assert.equal(getSlotMachineSpinCost(1), 1800);
+  assert.equal(getSlotMachineSpinCost(2), 2700);
+  assert.equal(getSlotMachineSpinCost(3), 4050);
+
+  const triggers: ChartTrigger[] = [{ id: 'sp-1', time: 1000, type: 'speed', speed: 2.0 }];
+  assert.equal(getSmoothedSpeedMultiplierAtTime(triggers, 900, 1.0, 300), 1.0);
+  const midSpeed = getSmoothedSpeedMultiplierAtTime(triggers, 1150, 1.0, 300);
+  assert.ok(midSpeed > 1.2 && midSpeed < 1.8, `Expected smooth midpoint ~1.5, got ${midSpeed}`);
+  assert.equal(getSmoothedSpeedMultiplierAtTime(triggers, 1400, 1.0, 300), 2.0);
 });

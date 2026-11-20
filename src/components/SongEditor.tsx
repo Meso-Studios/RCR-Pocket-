@@ -125,13 +125,12 @@ export const SongEditor: React.FC<SongEditorProps> = ({
   const [isPlaying, setIsPlaying] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
-  const [selectedNoteType, setSelectedNoteType] = useState<
-    'normal' | 'mine' | 'gold' | 'fire' | 'demon'
-  >('normal');
+  const [selectedNoteType, setSelectedNoteType] = useState<'normal' | 'demon'>('normal');
   const [isHoldMode, setIsHoldMode] = useState(false);
   const [holdStart, setHoldStart] = useState<{ row: number; col: number } | null>(null);
   const [showTutorial, setShowTutorial] = useState(false);
   const [statusBanner, setStatusBanner] = useState<string | null>(null);
+  const [activeRecLanes, setActiveRecLanes] = useState<Record<number, boolean>>({});
 
   // Press-and-Hold / Right-Click Slot Context Modal State
   const [slotModalRow, setSlotModalRow] = useState<number | null>(null);
@@ -441,6 +440,8 @@ export const SongEditor: React.FC<SongEditorProps> = ({
     setIsPlaying(false);
     setIsRecording(false);
     setIsPreviewingExternal(false);
+    setActiveRecLanes({});
+    activeRecordingNotes.current = {};
     cancelAnimationFrame(requestRef.current);
     AudioEngine.stopMenuMusic();
     if (audioRef.current) {
@@ -450,6 +451,13 @@ export const SongEditor: React.FC<SongEditorProps> = ({
 
   const togglePlay = (recordMode = false, overrideStartTimeMs?: number) => {
     if (isPlaying) {
+      if (recordMode && !isRecording) {
+        // Switch straight into live recording mode while playing
+        setIsRecording(true);
+        triggerHapticFeedback('heavy', haptics);
+        showToast('LIVE REC ACTIVE — Tap the Record Buttons below or press your keybinds!');
+        return;
+      }
       stopPlayback();
     } else {
       const launchTime =
@@ -475,6 +483,7 @@ export const SongEditor: React.FC<SongEditorProps> = ({
     if (elapsed >= duration * 1000) {
       setIsPlaying(false);
       setIsRecording(false);
+      setActiveRecLanes({});
       setCurrentTime(0);
       AudioEngine.stopMenuMusic();
       if (audioRef.current) {
@@ -502,6 +511,58 @@ export const SongEditor: React.FC<SongEditorProps> = ({
     };
   }, []);
 
+  // Unified Live Record Lane Start/End for both Keyboard Keybinds and On-Screen Record Buttons
+  const startLiveRecordLane = (lane: number) => {
+    if (lane < 0 || lane >= editorLaneCount) return;
+    if (!isRecording) {
+      // If user taps a record button while not playing, auto-start Live Rec!
+      togglePlay(true);
+    }
+    if (activeRecordingNotes.current[lane] !== undefined) return;
+    const rawTime = isPlaying ? performance.now() - startTimeRef.current : currentTime;
+    const noteTime = autoSyncEnabled
+      ? snapTimeToBeatGrid(Math.max(0, rawTime), bpm, autoSyncSubdivision)
+      : Math.max(0, Math.round(rawTime / stepTime) * stepTime);
+    activeRecordingNotes.current[lane] = noteTime;
+    setActiveRecLanes((prev) => ({ ...prev, [lane]: true }));
+    triggerHapticFeedback('hit', haptics);
+  };
+
+  const endLiveRecordLane = (lane: number) => {
+    if (activeRecordingNotes.current[lane] === undefined) return;
+    const startTime = activeRecordingNotes.current[lane];
+    const rawEnd = isPlaying ? performance.now() - startTimeRef.current : currentTime;
+    const endTime = autoSyncEnabled
+      ? snapTimeToBeatGrid(Math.max(startTime, rawEnd), bpm, autoSyncSubdivision)
+      : Math.max(startTime, Math.round(rawEnd / stepTime) * stepTime);
+    const holdDuration = endTime - startTime;
+
+    const newNote: Note = {
+      time: startTime,
+      lane,
+      hit: false,
+      missed: false,
+      type: isHoldMode || holdDuration >= stepTime * 2 ? 'hold' : selectedNoteType,
+      duration:
+        holdDuration >= stepTime * 2
+          ? holdDuration
+          : isHoldMode
+          ? Math.round(stepTime * 4)
+          : undefined,
+    };
+
+    setNotes((prev) =>
+      [
+        ...prev.filter(
+          (n) => !(Math.abs(n.time - startTime) < stepTime / 2 && n.lane === lane)
+        ),
+        newNote,
+      ].sort((a, b) => a.time - b.time)
+    );
+    delete activeRecordingNotes.current[lane];
+    setActiveRecLanes((prev) => ({ ...prev, [lane]: false }));
+  };
+
   // Live Recording Key Listeners supporting all 8 Custom Keybinds
   useEffect(() => {
     if (!isRecording) return;
@@ -510,42 +571,14 @@ export const SongEditor: React.FC<SongEditorProps> = ({
       if (e.repeat) return;
       const lane = mapCustomKeyToLane(e.key, e.code, customKeybinds);
       if (lane !== null && lane >= 0 && lane < editorLaneCount) {
-        const rawTime = performance.now() - startTimeRef.current;
-        const noteTime = autoSyncEnabled
-          ? snapTimeToBeatGrid(rawTime, bpm, autoSyncSubdivision)
-          : Math.round(rawTime / stepTime) * stepTime;
-        activeRecordingNotes.current[lane] = noteTime;
+        startLiveRecordLane(lane);
       }
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
       const lane = mapCustomKeyToLane(e.key, e.code, customKeybinds);
-      if (lane !== null && lane >= 0 && activeRecordingNotes.current[lane] !== undefined) {
-        const startTime = activeRecordingNotes.current[lane];
-        const rawEnd = performance.now() - startTimeRef.current;
-        const endTime = autoSyncEnabled
-          ? snapTimeToBeatGrid(rawEnd, bpm, autoSyncSubdivision)
-          : Math.round(rawEnd / stepTime) * stepTime;
-        const holdDuration = endTime - startTime;
-
-        const newNote: Note = {
-          time: startTime,
-          lane,
-          hit: false,
-          missed: false,
-          type: selectedNoteType,
-          duration: holdDuration >= stepTime * 2 ? holdDuration : undefined,
-        };
-
-        setNotes((prev) =>
-          [
-            ...prev.filter(
-              (n) => !(Math.abs(n.time - startTime) < stepTime / 2 && n.lane === lane)
-            ),
-            newNote,
-          ].sort((a, b) => a.time - b.time)
-        );
-        delete activeRecordingNotes.current[lane];
+      if (lane !== null && lane >= 0) {
+        endLiveRecordLane(lane);
       }
     };
 
@@ -557,8 +590,11 @@ export const SongEditor: React.FC<SongEditorProps> = ({
     };
   }, [
     isRecording,
+    isPlaying,
+    currentTime,
     stepTime,
     selectedNoteType,
+    isHoldMode,
     editorLaneCount,
     autoSyncEnabled,
     autoSyncSubdivision,
@@ -593,7 +629,7 @@ export const SongEditor: React.FC<SongEditorProps> = ({
             lane: col,
             hit: false,
             missed: false,
-            type: selectedNoteType,
+            type: 'hold',
             duration: holdDuration,
           });
           updated.sort((a, b) => a.time - b.time);
@@ -703,7 +739,15 @@ export const SongEditor: React.FC<SongEditorProps> = ({
     reader.onload = (event) => {
       try {
         const importedSong = JSON.parse(event.target?.result as string) as Song;
-        const importedNotes = importedSong.customMap || importedSong.notes;
+        const importedNotes = (importedSong.customMap || importedSong.notes || []).map((n) => ({
+          ...n,
+          type:
+            n.type === 'demon'
+              ? ('demon' as const)
+              : n.type === 'hold' || (n.duration && n.duration > 0)
+              ? ('hold' as const)
+              : ('normal' as const),
+        }));
         if (importedSong.title && importedSong.bpm && Array.isArray(importedNotes)) {
           setTitle(importedSong.title);
           setArtist(importedSong.artist || 'Unknown Artist');
@@ -725,629 +769,678 @@ export const SongEditor: React.FC<SongEditorProps> = ({
 
   const getLaneHeaderLabel = (col: number) => {
     const dirNames = ['LEFT', 'DOWN', 'UP', 'RIGHT', 'EX-1', 'EX-2', 'EX-3', 'EX-4'];
-    const keyBind = customKeybinds[col] || DEFAULT_CUSTOM_KEYBINDS[col];
+    const keyBind = (customKeybinds[col] || DEFAULT_CUSTOM_KEYBINDS[col] || '').replace('Key', '');
     return `${dirNames[col]} [${keyBind}]`;
   };
 
   return (
-    <div className="relative z-10 flex flex-col h-full w-full bg-[#070912]/90 backdrop-blur-xl text-white overflow-hidden select-none">
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between px-4 py-2.5 bg-slate-950/90 border-b border-white/15 gap-2 shrink-0">
-        <button
-          onClick={() => {
-            stopPlayback();
-            if (onBack) onBack();
-            else if (setScreen) setScreen('menu');
-          }}
-          className="flex items-center gap-2 text-slate-300 hover:text-white transition-colors font-black text-xs tracking-widest uppercase cursor-pointer"
-        >
-          <ArrowLeft className="w-4 h-4" /> EXIT STUDIO
-        </button>
+    <div className="rc-stage relative z-10 flex flex-col h-full w-full text-white overflow-hidden select-none p-2 sm:p-3">
+      <div className="rc-stage-dots" />
 
-        <div className="flex items-center gap-2">
-          <h1 className="text-base sm:text-lg font-black italic tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-amber-300 via-cyan-300 to-fuchsia-400">
-            BEATMAP & TRIGGER STUDIO 3.0
-          </h1>
-          <span className="px-2 py-0.5 rounded bg-cyan-500/15 border border-cyan-400/40 text-cyan-200 text-[10px] font-black uppercase tracking-wider hidden md:inline-block">
-            HOLD OR RIGHT-CLICK ANY SLOT FOR TRIGGERS & CHECKPOINTS
-          </span>
-          <button
-            onClick={() => setShowTutorial(true)}
-            className="text-slate-400 hover:text-white transition-colors cursor-pointer"
-            title="How to use the editor"
-          >
-            <HelpCircle className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-1.5">
-          {onPlaytest && (
-            <>
-              <button
-                onClick={() => handleLocalPlaytest(false)}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-200 font-black rounded-lg border border-cyan-400/50 transition-all text-[11px] cursor-pointer"
-                title="Test play your track from the beginning (0:00)"
-              >
-                <Play className="w-3.5 h-3.5" /> TEST START
-              </button>
-              <button
-                onClick={() => handleLocalPlaytest(true)}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 font-black rounded-lg border border-emerald-400/50 transition-all text-[11px] cursor-pointer"
-                title="Test play your track from active checkpoint or current playhead"
-              >
-                <Flag className="w-3.5 h-3.5" /> TEST CHECKPOINT
-              </button>
-            </>
-          )}
-          <label className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-lg cursor-pointer transition-colors text-[11px] border border-white/15">
-            <Upload className="w-3.5 h-3.5" /> IMPORT
-            <input type="file" accept=".json" onChange={handleImport} className="hidden" />
-          </label>
-          <button
-            onClick={handleExport}
-            className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-lg transition-colors text-[11px] border border-white/15 cursor-pointer"
-          >
-            <Download className="w-3.5 h-3.5" /> EXPORT
-          </button>
-          <button
-            onClick={handleSave}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-gradient-to-r from-emerald-400 to-cyan-400 hover:from-emerald-300 hover:to-cyan-300 text-slate-950 font-black rounded-lg transition-all shadow-[0_0_15px_rgba(16,185,129,0.4)] text-[11px] cursor-pointer uppercase tracking-wider"
-          >
-            <UploadCloud className="w-3.5 h-3.5" /> PUBLISH
-          </button>
-        </div>
-      </div>
-
-      {statusBanner && (
-        <div className="px-4 py-1.5 bg-cyan-500/20 border-b border-cyan-400/40 text-cyan-200 text-xs font-black tracking-wide flex items-center justify-between shrink-0">
-          <span>{statusBanner}</span>
-          <button onClick={() => setStatusBanner(null)} className="text-cyan-300 hover:text-white">
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
-
-      {/* Primary Track Metadata & External Song Loader Bar */}
-      <div className="px-4 py-2 bg-slate-900/80 border-b border-white/10 flex flex-wrap gap-2.5 items-center justify-between shrink-0">
-        <div className="flex flex-wrap gap-2 items-center">
-          <div className="flex flex-col">
-            <label className="text-[9px] text-slate-400 font-black uppercase">Title</label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="bg-slate-950 border border-white/15 rounded px-2 py-1 text-white text-xs font-bold focus:outline-none focus:border-cyan-400 w-32 sm:w-40"
-            />
-          </div>
-          <div className="flex flex-col">
-            <label className="text-[9px] text-slate-400 font-black uppercase">Artist</label>
-            <input
-              type="text"
-              value={artist}
-              onChange={(e) => setArtist(e.target.value)}
-              className="bg-slate-950 border border-white/15 rounded px-2 py-1 text-white text-xs font-bold focus:outline-none focus:border-cyan-400 w-28 sm:w-36"
-            />
-          </div>
-          <div className="flex flex-col">
-            <label className="text-[9px] text-slate-400 font-black uppercase">BPM</label>
-            <input
-              type="number"
-              value={bpm}
-              onChange={(e) => setBpm(Number(e.target.value))}
-              min="40"
-              max="360"
-              className="bg-slate-950 border border-white/15 rounded px-2 py-1 text-white text-xs font-bold focus:outline-none focus:border-cyan-400 w-16"
-            />
-          </div>
-          <div className="flex flex-col">
-            <label className="text-[9px] text-slate-400 font-black uppercase">Len (s)</label>
-            <input
-              type="number"
-              value={duration}
-              onChange={(e) => setDuration(Number(e.target.value))}
-              min="10"
-              max="600"
-              className="bg-slate-950 border border-white/15 rounded px-2 py-1 text-white text-xs font-bold focus:outline-none focus:border-cyan-400 w-16"
-            />
-          </div>
-          <div className="flex flex-col">
-            <label className="text-[9px] text-slate-400 font-black uppercase">Difficulty</label>
-            <select
-              value={difficulty}
-              onChange={(e) => setDifficulty(e.target.value as Difficulty)}
-              className="bg-slate-950 border border-white/15 rounded px-2 py-1 text-white text-xs font-bold focus:outline-none focus:border-cyan-400"
-            >
-              <option value="Easy">Easy</option>
-              <option value="Medium">Medium</option>
-              <option value="Hard">Hard</option>
-              <option value="Expert">Expert</option>
-              <option value="Death">Death</option>
-            </select>
-          </div>
-          <div className="flex flex-col">
-            <label className="text-[9px] text-slate-400 font-black uppercase">Grid Lanes</label>
-            <select
-              value={editorLaneCount}
-              onChange={(e) => setEditorLaneCount(Number(e.target.value) as LaneCountOption)}
-              className="bg-slate-950 border border-cyan-400/50 rounded px-2 py-1 text-cyan-200 text-xs font-black focus:outline-none"
-            >
-              <option value={4}>4 Lanes (Default)</option>
-              <option value={6}>6 Lanes (Expanded)</option>
-              <option value={8}>8 Lanes (Full Stage)</option>
-            </select>
-          </div>
-
-          {/* Local file upload */}
-          <div className="flex flex-col">
-            <label className="text-[9px] text-slate-400 font-black uppercase">MP3/OGG File</label>
-            <label className="flex items-center gap-1 px-2.5 py-1 bg-slate-950 hover:bg-slate-800 border border-white/15 rounded cursor-pointer text-xs font-bold text-cyan-300">
-              <Music className="w-3.5 h-3.5" />
-              <span className="truncate max-w-[85px]">{audioUrl ? 'Loaded ✓' : 'Upload File'}</span>
-              <input type="file" accept="audio/*" onChange={handleAudioUpload} className="hidden" />
-            </label>
-          </div>
-
-          {/* Newgrounds ID or Spotify Link Upload */}
-          <div className="flex flex-col">
-            <label className="text-[9px] text-amber-300 font-black uppercase flex items-center gap-1">
-              <Link2 className="w-3 h-3" /> Newgrounds ID or Spotify Link
-            </label>
-            <div className="flex items-center gap-1">
-              <input
-                type="text"
-                value={externalAudioInput}
-                onChange={(e) => setExternalAudioInput(e.target.value)}
-                placeholder="NG ID (e.g. 1094821) or Spotify URL..."
-                className="bg-slate-950 border border-amber-400/40 rounded px-2 py-1 text-white text-xs w-44 sm:w-56 focus:outline-none focus:border-amber-300"
-              />
-              <button
-                onClick={handleApplyExternalAudio}
-                className="px-2.5 py-1 rounded bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-[11px] uppercase cursor-pointer"
-              >
-                LOAD
-              </button>
-              <button
-                onClick={handlePreviewExternalAudio}
-                className={`px-2 py-1 rounded border font-black text-[11px] uppercase cursor-pointer flex items-center gap-1 ${
-                  isPreviewingExternal
-                    ? 'bg-rose-500/25 border-rose-400 text-rose-200'
-                    : 'bg-cyan-500/20 border-cyan-400/50 text-cyan-200'
-                }`}
-                title="Preview loaded Newgrounds / Spotify audio"
-              >
-                <Volume2 className="w-3 h-3" /> {isPreviewingExternal ? 'STOP' : 'HEAR'}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {externalStatus && (
-        <div className="px-4 py-1 bg-amber-500/15 border-b border-amber-400/30 text-amber-200 text-[11px] font-bold flex items-center justify-between shrink-0">
-          <span>{externalStatus}</span>
-          <button onClick={() => setExternalStatus('')} className="text-amber-300 hover:text-white">
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
-
-      {/* Secondary Toolbar: Note Types, Hold Mode, Auto-Sync (Beta), Play/Record */}
-      <div className="px-4 py-2 bg-slate-950/80 border-b border-white/10 flex flex-wrap items-center justify-between gap-2 shrink-0">
-        {/* Note Types */}
-        <div className="flex flex-wrap items-center gap-1.5">
-          <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-lg border border-white/10">
-            <button
-              onClick={() => setSelectedNoteType('normal')}
-              className={`px-2 py-1 rounded text-[11px] font-black transition-colors cursor-pointer ${
-                selectedNoteType === 'normal'
-                  ? 'bg-cyan-400 text-slate-950'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              NORMAL
-            </button>
-            <button
-              onClick={() => setSelectedNoteType('gold')}
-              className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-black transition-colors cursor-pointer ${
-                selectedNoteType === 'gold'
-                  ? 'bg-yellow-400 text-slate-950'
-                  : 'text-yellow-400/70 hover:text-yellow-300'
-              }`}
-            >
-              <Sparkles className="w-3 h-3" /> GOLD
-            </button>
-            <button
-              onClick={() => setSelectedNoteType('fire')}
-              className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-black transition-colors cursor-pointer ${
-                selectedNoteType === 'fire'
-                  ? 'bg-orange-500 text-white'
-                  : 'text-orange-400/70 hover:text-orange-300'
-              }`}
-            >
-              <Flame className="w-3 h-3" /> FIRE
-            </button>
-            <button
-              onClick={() => setSelectedNoteType('mine')}
-              className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-black transition-colors cursor-pointer ${
-                selectedNoteType === 'mine'
-                  ? 'bg-rose-600 text-white'
-                  : 'text-rose-400/70 hover:text-rose-300'
-              }`}
-            >
-              <Skull className="w-3 h-3" /> MINE
-            </button>
-            <button
-              onClick={() => setSelectedNoteType('demon')}
-              className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-black transition-colors cursor-pointer ${
-                selectedNoteType === 'demon'
-                  ? 'bg-red-900 text-red-100 border border-red-400'
-                  : 'text-red-500 hover:text-red-300'
-              }`}
-            >
-              <Skull className="w-3 h-3" /> DEMON
-            </button>
-          </div>
-
+      <div className="rc-console-tray relative z-10 flex flex-col h-full w-full p-2.5 sm:p-3 gap-2 overflow-hidden">
+        {/* Top Console Dock Rail — Exact same UI as Main Menu / Freeplay / Online Tracks */}
+        <div className="rc-dock-rail px-3 py-2 flex flex-wrap items-center justify-between gap-2 shrink-0">
           <button
             onClick={() => {
-              setIsHoldMode(!isHoldMode);
-              setHoldStart(null);
+              stopPlayback();
+              if (onBack) onBack();
+              else if (setScreen) setScreen('menu');
             }}
-            className={`px-2.5 py-1.5 rounded-lg text-[11px] font-black border transition-colors cursor-pointer ${
-              isHoldMode
-                ? 'bg-purple-600 border-purple-300 text-white'
-                : 'bg-slate-900 border-white/15 text-slate-300 hover:text-white'
-            }`}
+            className="rc-bevel-btn rc-sub-dark px-3 py-1.5 flex items-center gap-1.5 font-black text-xs tracking-wider uppercase cursor-pointer"
           >
-            {isHoldMode ? (holdStart ? 'TAP HOLD END' : 'HOLD MODE: ON') : 'HOLD NOTE'}
+            <ArrowLeft className="w-4 h-4" /> EXIT STUDIO
           </button>
 
-          {/* Auto-Sync (BETA) Controls */}
-          <div className="flex items-center gap-1 bg-indigo-950/70 border border-indigo-400/40 rounded-lg px-2 py-1">
+          <div className="flex items-center gap-2">
+            <h1 className="text-sm sm:text-base font-black tracking-wider uppercase text-white">
+              BEATMAP & TRIGGER STUDIO
+            </h1>
+            <span className="rc-dock-well px-2.5 py-1 text-cyan-300 text-[10px] font-black uppercase tracking-wider hidden lg:inline-block">
+              HOLD OR RIGHT-CLICK ANY SLOT FOR TRIGGERS & CHECKPOINTS
+            </span>
             <button
-              onClick={() => setAutoSyncEnabled(!autoSyncEnabled)}
-              className={`flex items-center gap-1 text-[11px] font-black uppercase cursor-pointer ${
-                autoSyncEnabled ? 'text-indigo-200' : 'text-slate-400'
-              }`}
-              title="Auto-Sync (Beta): Automatically snaps placed and recorded notes onto the song's beat grid"
+              onClick={() => setShowTutorial(true)}
+              className="rc-bevel-btn rc-sub-dark w-7 h-7 flex items-center justify-center text-cyan-300 cursor-pointer"
+              title="How to use the editor"
             >
-              <Wand2 className="w-3.5 h-3.5 text-indigo-400" />
-              AUTO-SYNC
-              <span className="px-1 py-0.2 rounded bg-amber-400 text-slate-950 text-[9px] font-black">
-                BETA
-              </span>
-              <span>{autoSyncEnabled ? 'ON' : 'OFF'}</span>
-            </button>
-            <select
-              value={autoSyncSubdivision}
-              onChange={(e) => setAutoSyncSubdivision(Number(e.target.value))}
-              className="bg-slate-950 border border-indigo-400/30 rounded px-1 py-0.5 text-[10px] font-black text-indigo-200"
-              title="Beat Grid Snap Subdivision"
-            >
-              <option value={2}>1/2 Beat</option>
-              <option value={4}>1/4 Beat</option>
-              <option value={8}>1/8 Beat</option>
-            </select>
-            <button
-              onClick={handleAutoSyncAllNotes}
-              className="px-2 py-0.5 rounded bg-indigo-500 hover:bg-indigo-400 text-white text-[10px] font-black uppercase cursor-pointer"
-              title="Snap all existing notes in the chart to the beat grid"
-            >
-              SNAP ALL
+              <HelpCircle className="w-4 h-4" />
             </button>
           </div>
-        </div>
 
-        {/* Transport & Quick Slot Trigger Button */}
-        <div className="flex flex-wrap items-center gap-1.5">
-          <button
-            onClick={() => openSlotStudioModal(Math.round(currentTime / stepTime), 0, 'trigger')}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-black border bg-fuchsia-500/20 border-fuchsia-400/60 text-fuchsia-200 hover:bg-fuchsia-500/30 cursor-pointer"
-          >
-            <Zap className="w-3.5 h-3.5" /> + TRIGGER / CP ({triggers.length + checkpoints.length})
-          </button>
-
-          <button
-            onClick={() => togglePlay(true)}
-            className={`flex items-center gap-1 px-3 py-1.5 rounded-lg font-black text-[11px] transition-all cursor-pointer ${
-              isRecording
-                ? 'bg-red-600 text-white animate-pulse shadow-[0_0_15px_rgba(220,38,38,0.8)]'
-                : 'bg-slate-900 border border-red-500/40 text-red-400 hover:bg-red-500/20'
-            }`}
-          >
-            <Mic className="w-3.5 h-3.5" /> {isRecording ? 'STOP REC' : 'LIVE REC'}
-          </button>
-
-          <button
-            onClick={() => togglePlay(false)}
-            className={`flex items-center gap-1 px-3 py-1.5 rounded-lg font-black text-[11px] transition-all cursor-pointer ${
-              isPlaying && !isRecording
-                ? 'bg-rose-500 text-white'
-                : 'bg-cyan-400 text-slate-950 hover:bg-cyan-300'
-            }`}
-          >
-            {isPlaying && !isRecording ? (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {onPlaytest && (
               <>
-                <Square className="w-3.5 h-3.5 fill-current" /> PAUSE
-              </>
-            ) : (
-              <>
-                <Play className="w-3.5 h-3.5 fill-current" /> PLAY
+                <button
+                  onClick={() => handleLocalPlaytest(false)}
+                  className="rc-bevel-btn rc-tile-cyan px-2.5 py-1.5 flex items-center gap-1 font-black text-[11px] uppercase cursor-pointer"
+                  title="Test play your track from the beginning (0:00)"
+                >
+                  <Play className="w-3.5 h-3.5 fill-current" /> TEST START
+                </button>
+                <button
+                  onClick={() => handleLocalPlaytest(true)}
+                  className="rc-bevel-btn rc-sub-teal px-2.5 py-1.5 flex items-center gap-1 font-black text-[11px] uppercase cursor-pointer"
+                  title="Test play your track from active checkpoint or current playhead"
+                >
+                  <Flag className="w-3.5 h-3.5" /> TEST CHECKPOINT
+                </button>
               </>
             )}
-          </button>
-
-          <button
-            onClick={() => setNotes([])}
-            className="p-1.5 bg-rose-500/20 text-rose-400 hover:bg-rose-500 hover:text-white rounded-lg transition-colors cursor-pointer"
-            title="Clear All Notes"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-
-      {/* Active Triggers & Checkpoints Quick Strip */}
-      {(triggers.length > 0 || checkpoints.length > 0) && (
-        <div className="px-4 py-1.5 bg-slate-950/95 border-b border-white/10 flex items-center gap-2 overflow-x-auto custom-scrollbar shrink-0">
-          <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 shrink-0">
-            TIMELINE MARKERS:
-          </span>
-          {checkpoints.map((cp) => (
+            <label className="rc-bevel-btn rc-sub-dark px-2.5 py-1.5 flex items-center gap-1 font-black text-[11px] uppercase cursor-pointer">
+              <Upload className="w-3.5 h-3.5" /> IMPORT
+              <input type="file" accept=".json" onChange={handleImport} className="hidden" />
+            </label>
             <button
-              key={cp.id}
-              onClick={() => jumpToCheckpoint(cp)}
-              className={`px-2 py-0.5 rounded-md border text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shrink-0 cursor-pointer ${
-                activeCheckpointId === cp.id
-                  ? 'bg-emerald-500/30 border-emerald-400 text-emerald-200'
-                  : 'bg-emerald-950/60 border-emerald-500/30 text-emerald-300 hover:border-emerald-400'
-              }`}
+              onClick={handleExport}
+              className="rc-bevel-btn rc-sub-dark px-2.5 py-1.5 flex items-center gap-1 font-black text-[11px] uppercase cursor-pointer"
             >
-              <Flag className="w-2.5 h-2.5" /> {cp.name} (R#{cp.row})
+              <Download className="w-3.5 h-3.5" /> EXPORT
             </button>
-          ))}
-          {triggers.map((trig) => (
             <button
-              key={trig.id}
-              onClick={() => openSlotStudioModal(trig.row ?? 0, 0, 'trigger')}
-              className="px-2 py-0.5 rounded-md border border-fuchsia-400/40 bg-fuchsia-950/50 hover:border-fuchsia-300 text-fuchsia-200 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shrink-0 cursor-pointer"
+              onClick={handleSave}
+              className="rc-bevel-btn rc-tile-green px-3.5 py-1.5 flex items-center gap-1.5 font-black text-[11px] uppercase tracking-wider cursor-pointer"
             >
-              <Zap className="w-2.5 h-2.5" />
-              R#{trig.row}:{' '}
-              {trig.type === 'speed'
-                ? `SPD ${trig.speed?.toFixed(2)}x`
-                : trig.type === 'extra_notes'
-                ? `${trig.lanes}K (${trig.transition})`
-                : trig.type === 'invisible_notes'
-                ? `INVISIBLE ${trig.invisibleEnabled !== false ? 'ON' : 'OFF'}`
-                : `VEL: ${trig.velocityEffect?.toUpperCase()}`}
+              <UploadCloud className="w-3.5 h-3.5" /> PUBLISH
             </button>
-          ))}
-        </div>
-      )}
-
-      {/* Editor Note Grid — Supports Click to Place Note, and Press-and-Hold or Right-Click for Slot Trigger / Checkpoint */}
-      <div className="flex-1 overflow-y-auto relative flex justify-center bg-[#05070e]" ref={gridRef}>
-        <div
-          className="relative py-8 transition-all duration-300"
-          style={{
-            width: editorLaneCount === 8 ? '820px' : editorLaneCount === 6 ? '640px' : '460px',
-            maxWidth: '96vw',
-          }}
-        >
-          {/* Playhead */}
-          {isPlaying && (
-            <div
-              className="absolute left-0 w-full h-1 bg-emerald-400 z-30 shadow-[0_0_15px_#10b981] pointer-events-none"
-              style={{ top: `${32 + (currentTime / stepTime) * 38}px` }}
-            />
-          )}
-
-          {/* Column Headers */}
-          <div className="flex mb-2 sticky top-0 bg-slate-950/95 backdrop-blur-md z-20 py-2 border-b border-white/15 rounded-t-lg">
-            <div className="w-24 text-center text-[10px] text-slate-400 font-black">
-              ROW / HOLD
-            </div>
-            {Array.from({ length: editorLaneCount }).map((_, col) => (
-              <div
-                key={col}
-                className="flex-1 text-center font-black text-[10px] sm:text-xs truncate px-1"
-                style={{ color: LANE_COLORS_8[col] }}
-              >
-                {getLaneHeaderLabel(col)}
-              </div>
-            ))}
           </div>
+        </div>
 
-          {/* Grid Rows */}
-          {Array.from({ length: totalSteps }).map((_, row) => {
-            const isBeat = row % 4 === 0;
-            const isMeasure = row % 16 === 0;
-            const time = row * stepTime;
-            const rowCheckpoint = checkpoints.find((cp) => cp.row === row);
-            const rowTriggers = triggers.filter((tr) => tr.row === row);
+        {statusBanner && (
+          <div className="rc-dock-rail px-3 py-1.5 border-2 border-[#36e2ff] text-cyan-200 text-xs font-black tracking-wide flex items-center justify-between shrink-0">
+            <span>{statusBanner}</span>
+            <button onClick={() => setStatusBanner(null)} className="text-cyan-300 hover:text-white cursor-pointer">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
 
-            return (
-              <div
-                key={row}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  openSlotStudioModal(row, 0);
+        {/* Metadata & External Audio Dock Bar */}
+        <div className="rc-dock-rail px-3 py-2 flex flex-wrap gap-2 items-center justify-between shrink-0">
+          <div className="flex flex-wrap gap-2 items-center">
+            <div className="flex flex-col">
+              <label className="text-[9px] text-cyan-200 font-black uppercase">Title</label>
+              <input
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                className="bg-[#070a14] border-2 border-white/20 rounded-lg px-2 py-1 text-white text-xs font-bold focus:outline-none focus:border-[#36e2ff] w-28 sm:w-36"
+              />
+            </div>
+            <div className="flex flex-col">
+              <label className="text-[9px] text-cyan-200 font-black uppercase">Artist</label>
+              <input
+                type="text"
+                value={artist}
+                onChange={(e) => setArtist(e.target.value)}
+                className="bg-[#070a14] border-2 border-white/20 rounded-lg px-2 py-1 text-white text-xs font-bold focus:outline-none focus:border-[#36e2ff] w-24 sm:w-32"
+              />
+            </div>
+            <div className="flex flex-col">
+              <label className="text-[9px] text-cyan-200 font-black uppercase">BPM</label>
+              <input
+                type="number"
+                value={bpm}
+                onChange={(e) => setBpm(Number(e.target.value))}
+                min="40"
+                max="360"
+                className="bg-[#070a14] border-2 border-white/20 rounded-lg px-2 py-1 text-white text-xs font-bold focus:outline-none focus:border-[#36e2ff] w-16 tabular-nums"
+              />
+            </div>
+            <div className="flex flex-col">
+              <label className="text-[9px] text-cyan-200 font-black uppercase">Len (s)</label>
+              <input
+                type="number"
+                value={duration}
+                onChange={(e) => setDuration(Number(e.target.value))}
+                min="10"
+                max="600"
+                className="bg-[#070a14] border-2 border-white/20 rounded-lg px-2 py-1 text-white text-xs font-bold focus:outline-none focus:border-[#36e2ff] w-16 tabular-nums"
+              />
+            </div>
+            <div className="flex flex-col">
+              <label className="text-[9px] text-cyan-200 font-black uppercase">Difficulty</label>
+              <select
+                value={difficulty}
+                onChange={(e) => setDifficulty(e.target.value as Difficulty)}
+                className="bg-[#070a14] border-2 border-white/20 rounded-lg px-2 py-1 text-white text-xs font-bold focus:outline-none focus:border-[#36e2ff]"
+              >
+                <option value="Easy">Easy</option>
+                <option value="Medium">Medium</option>
+                <option value="Hard">Hard</option>
+                <option value="Expert">Expert</option>
+                <option value="Death">Death</option>
+              </select>
+            </div>
+            <div className="flex flex-col">
+              <label className="text-[9px] text-cyan-200 font-black uppercase">Grid Lanes</label>
+              <select
+                value={editorLaneCount}
+                onChange={(e) => setEditorLaneCount(Number(e.target.value) as LaneCountOption)}
+                className="bg-[#070a14] border-2 border-[#36e2ff]/60 rounded-lg px-2 py-1 text-[#36e2ff] text-xs font-black focus:outline-none"
+              >
+                <option value={4}>4 Lanes (Default)</option>
+                <option value={6}>6 Lanes (Expanded)</option>
+                <option value={8}>8 Lanes (Full Stage)</option>
+              </select>
+            </div>
+
+            {/* Local file upload */}
+            <div className="flex flex-col">
+              <label className="text-[9px] text-cyan-200 font-black uppercase">MP3/OGG File</label>
+              <label className="rc-bevel-btn rc-sub-dark flex items-center gap-1 px-2.5 py-1 cursor-pointer text-xs font-bold text-cyan-300">
+                <Music className="w-3.5 h-3.5" />
+                <span className="truncate max-w-[85px]">{audioUrl ? 'Loaded ✓' : 'Upload File'}</span>
+                <input type="file" accept="audio/*" onChange={handleAudioUpload} className="hidden" />
+              </label>
+            </div>
+
+            {/* Newgrounds ID or Spotify Link Upload */}
+            <div className="flex flex-col">
+              <label className="text-[9px] text-amber-300 font-black uppercase flex items-center gap-1">
+                <Link2 className="w-3 h-3" /> Newgrounds ID or Spotify Link
+              </label>
+              <div className="flex items-center gap-1">
+                <input
+                  type="text"
+                  value={externalAudioInput}
+                  onChange={(e) => setExternalAudioInput(e.target.value)}
+                  placeholder="NG ID (e.g. 1094821) or Spotify URL..."
+                  className="bg-[#070a14] border-2 border-amber-400/50 rounded-lg px-2 py-1 text-white text-xs w-40 sm:w-52 focus:outline-none focus:border-amber-300"
+                />
+                <button
+                  onClick={handleApplyExternalAudio}
+                  className="rc-bevel-btn rc-tile-gold px-2.5 py-1 font-black text-[11px] uppercase cursor-pointer"
+                >
+                  LOAD
+                </button>
+                <button
+                  onClick={handlePreviewExternalAudio}
+                  className={`rc-bevel-btn px-2.5 py-1 font-black text-[11px] uppercase cursor-pointer flex items-center gap-1 ${
+                    isPreviewingExternal ? 'rc-tile-red' : 'rc-sub-teal'
+                  }`}
+                  title="Preview loaded Newgrounds / Spotify audio"
+                >
+                  <Volume2 className="w-3 h-3" /> {isPreviewingExternal ? 'STOP' : 'HEAR'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {externalStatus && (
+          <div className="rc-dock-well px-3 py-1 text-amber-200 text-[11px] font-bold flex items-center justify-between shrink-0">
+            <span>{externalStatus}</span>
+            <button onClick={() => setExternalStatus('')} className="text-amber-300 hover:text-white cursor-pointer">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
+        {/* Secondary Console Toolbar: Note Types (Normal, Hold Note, Demon ONLY — no gold/fire/mine), Auto-Sync, Transport & Live Rec */}
+        <div className="rc-dock-rail px-3 py-2 flex flex-wrap items-center justify-between gap-2 shrink-0">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {/* Only Normal, Hold Note, and Demon notes */}
+            <div className="rc-dock-well p-1 flex items-center gap-1.5">
+              <button
+                onClick={() => {
+                  setSelectedNoteType('normal');
+                  setIsHoldMode(false);
                 }}
-                className={`flex items-center h-[38px] border-b transition-colors ${
-                  rowCheckpoint
-                    ? 'bg-emerald-500/15 border-emerald-400/70'
-                    : rowTriggers.length > 0
-                    ? 'bg-fuchsia-500/15 border-fuchsia-400/60'
-                    : isMeasure
-                    ? 'border-white/35 bg-white/[0.04]'
-                    : isBeat
-                    ? 'border-white/15'
-                    : 'border-white/5'
+                className={`rc-bevel-btn px-3 py-1 text-[11px] font-black uppercase cursor-pointer ${
+                  selectedNoteType === 'normal' && !isHoldMode
+                    ? 'rc-tile-cyan'
+                    : 'rc-sub-dark text-slate-300'
                 }`}
               >
-                {/* Row Number + Trigger/Checkpoint Indicator Button */}
-                <button
-                  onClick={() => openSlotStudioModal(row, 0)}
-                  className="w-24 px-1.5 h-full flex items-center justify-end gap-1 text-[10px] text-slate-400 hover:text-cyan-300 font-mono cursor-pointer group"
-                  title="Click, Press & Hold, or Right-Click to place a Trigger or Checkpoint on this row"
+                NORMAL NOTE
+              </button>
+
+              <button
+                onClick={() => {
+                  setIsHoldMode(!isHoldMode);
+                  setHoldStart(null);
+                }}
+                className={`rc-bevel-btn px-3 py-1 text-[11px] font-black uppercase cursor-pointer ${
+                  isHoldMode ? 'rc-tile-violet' : 'rc-sub-dark text-slate-300'
+                }`}
+              >
+                {isHoldMode ? (holdStart ? 'TAP HOLD END' : 'HOLD NOTE: ON') : 'HOLD NOTE'}
+              </button>
+
+              <button
+                onClick={() => {
+                  setSelectedNoteType('demon');
+                  setIsHoldMode(false);
+                }}
+                className={`rc-bevel-btn px-3 py-1 text-[11px] font-black uppercase flex items-center gap-1 cursor-pointer ${
+                  selectedNoteType === 'demon' && !isHoldMode
+                    ? 'rc-tile-red'
+                    : 'rc-sub-dark text-rose-300'
+                }`}
+              >
+                <Skull className="w-3.5 h-3.5" /> DEMON NOTE
+              </button>
+            </div>
+
+            {/* Auto-Sync (BETA) Controls */}
+            <div className="rc-dock-well px-2.5 py-1 flex items-center gap-1.5">
+              <button
+                onClick={() => setAutoSyncEnabled(!autoSyncEnabled)}
+                className={`flex items-center gap-1 text-[11px] font-black uppercase cursor-pointer ${
+                  autoSyncEnabled ? 'text-cyan-300' : 'text-slate-400'
+                }`}
+                title="Auto-Sync (Beta): Automatically snaps placed and recorded notes onto the song's beat grid"
+              >
+                <Wand2 className="w-3.5 h-3.5 text-cyan-400" />
+                AUTO-SYNC
+                <span className="px-1.5 py-0.2 rounded bg-amber-400 text-slate-950 text-[9px] font-black">
+                  BETA
+                </span>
+                <span>{autoSyncEnabled ? 'ON' : 'OFF'}</span>
+              </button>
+              <select
+                value={autoSyncSubdivision}
+                onChange={(e) => setAutoSyncSubdivision(Number(e.target.value))}
+                className="bg-[#070a14] border border-cyan-400/40 rounded px-1.5 py-0.5 text-[10px] font-black text-cyan-200"
+                title="Beat Grid Snap Subdivision"
+              >
+                <option value={2}>1/2 Beat</option>
+                <option value={4}>1/4 Beat</option>
+                <option value={8}>1/8 Beat</option>
+              </select>
+              <button
+                onClick={handleAutoSyncAllNotes}
+                className="rc-bevel-btn rc-sub-teal px-2 py-0.5 text-[10px] font-black uppercase cursor-pointer"
+                title="Snap all existing notes in the chart to the beat grid"
+              >
+                SNAP ALL
+              </button>
+            </div>
+          </div>
+
+          {/* Unified Transport & Live Rec Buttons */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              onClick={() => openSlotStudioModal(Math.round(currentTime / stepTime), 0, 'trigger')}
+              className="rc-bevel-btn rc-tile-violet px-2.5 py-1.5 flex items-center gap-1 text-[11px] font-black uppercase cursor-pointer"
+            >
+              <Zap className="w-3.5 h-3.5" /> + TRIGGER / CP ({triggers.length + checkpoints.length})
+            </button>
+
+            <button
+              onClick={() => togglePlay(true)}
+              className={`rc-bevel-btn px-3.5 py-1.5 flex items-center gap-1.5 font-black text-[11px] uppercase cursor-pointer ${
+                isRecording ? 'rc-tile-red animate-pulse' : 'rc-tile-pink'
+              }`}
+            >
+              <Mic className="w-3.5 h-3.5" /> {isRecording ? 'STOP LIVE REC' : 'LIVE REC'}
+            </button>
+
+            <button
+              onClick={() => togglePlay(false)}
+              className={`rc-bevel-btn px-3.5 py-1.5 flex items-center gap-1.5 font-black text-[11px] uppercase cursor-pointer ${
+                isPlaying && !isRecording ? 'rc-sub-amber' : 'rc-tile-cyan'
+              }`}
+            >
+              {isPlaying && !isRecording ? (
+                <>
+                  <Square className="w-3.5 h-3.5 fill-current" /> PAUSE
+                </>
+              ) : (
+                <>
+                  <Play className="w-3.5 h-3.5 fill-current" /> PLAY
+                </>
+              )}
+            </button>
+
+            <button
+              onClick={() => setNotes([])}
+              className="rc-bevel-btn rc-tile-red p-1.5 cursor-pointer"
+              title="Clear All Notes"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Active Triggers & Checkpoints Quick Strip */}
+        {(triggers.length > 0 || checkpoints.length > 0) && (
+          <div className="rc-dock-well px-3 py-1.5 flex items-center gap-2 overflow-x-auto custom-scrollbar shrink-0">
+            <span className="text-[10px] font-black uppercase tracking-widest text-cyan-300 shrink-0">
+              MARKERS:
+            </span>
+            {checkpoints.map((cp) => (
+              <button
+                key={cp.id}
+                onClick={() => jumpToCheckpoint(cp)}
+                className={`rc-bevel-btn px-2 py-0.5 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shrink-0 cursor-pointer ${
+                  activeCheckpointId === cp.id ? 'rc-tile-green' : 'rc-sub-teal'
+                }`}
+              >
+                <Flag className="w-2.5 h-2.5" /> {cp.name} (R#{cp.row})
+              </button>
+            ))}
+            {triggers.map((trig) => (
+              <button
+                key={trig.id}
+                onClick={() => openSlotStudioModal(trig.row ?? 0, 0, 'trigger')}
+                className="rc-bevel-btn rc-tile-violet px-2 py-0.5 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shrink-0 cursor-pointer"
+              >
+                <Zap className="w-2.5 h-2.5" />
+                R#{trig.row}:{' '}
+                {trig.type === 'speed'
+                  ? `SPD ${trig.speed?.toFixed(2)}x`
+                  : trig.type === 'extra_notes'
+                  ? `${trig.lanes}K (${trig.transition})`
+                  : trig.type === 'invisible_notes'
+                  ? `INVISIBLE ${trig.invisibleEnabled !== false ? 'ON' : 'OFF'}`
+                  : `VEL: ${trig.velocityEffect?.toUpperCase()}`}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Editor Timeline Grid with Rectangle Note Slots & Rectangular Editor Notes */}
+        <div
+          className="rc-console-inset flex-1 min-h-0 overflow-y-auto relative flex justify-center custom-scrollbar"
+          ref={gridRef}
+        >
+          <div
+            className="relative py-6 transition-all duration-300"
+            style={{
+              width: editorLaneCount === 8 ? '860px' : editorLaneCount === 6 ? '670px' : '490px',
+              maxWidth: '96vw',
+            }}
+          >
+            {/* Playhead */}
+            {isPlaying && (
+              <div
+                className="absolute left-0 w-full h-1.5 bg-[#36e2ff] z-30 shadow-[0_0_16px_#36e2ff] pointer-events-none"
+                style={{ top: `${24 + (currentTime / stepTime) * 38}px` }}
+              />
+            )}
+
+            {/* Column Headers */}
+            <div className="flex mb-2 sticky top-0 bg-[#0d1428]/95 backdrop-blur-md z-20 py-2 border-b-2 border-[#36e2ff]/40 rounded-t-xl">
+              <div className="w-24 text-center text-[10px] text-cyan-200 font-black">
+                ROW / SLOT
+              </div>
+              {Array.from({ length: editorLaneCount }).map((_, col) => (
+                <div
+                  key={col}
+                  className="flex-1 text-center font-black text-[10px] sm:text-xs truncate px-1"
+                  style={{ color: LANE_COLORS_8[col] }}
                 >
-                  {rowCheckpoint && (
-                    <span className="px-1 py-0.2 rounded bg-emerald-500 text-slate-950 font-black text-[8px]">
-                      CP
-                    </span>
-                  )}
-                  {rowTriggers.map((rt) => (
-                    <span
-                      key={rt.id}
-                      className={`px-1 py-0.2 rounded font-black text-[8px] ${
-                        rt.type === 'speed'
-                          ? 'bg-amber-400 text-slate-950'
+                  {getLaneHeaderLabel(col)}
+                </div>
+              ))}
+            </div>
+
+            {/* Grid Rows with Rectangle Note Slots & Rectangular Editor Notes */}
+            {Array.from({ length: totalSteps }).map((_, row) => {
+              const isBeat = row % 4 === 0;
+              const isMeasure = row % 16 === 0;
+              const time = row * stepTime;
+              const rowCheckpoint = checkpoints.find((cp) => cp.row === row);
+              const rowTriggers = triggers.filter((tr) => tr.row === row);
+
+              return (
+                <div
+                  key={row}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    openSlotStudioModal(row, 0);
+                  }}
+                  className={`flex items-center h-[38px] border-b transition-colors ${
+                    rowCheckpoint
+                      ? 'bg-emerald-500/20 border-emerald-400/80'
+                      : rowTriggers.length > 0
+                      ? 'bg-fuchsia-500/20 border-fuchsia-400/70'
+                      : isMeasure
+                      ? 'border-white/35 bg-white/[0.05]'
+                      : isBeat
+                      ? 'border-white/20 bg-white/[0.02]'
+                      : 'border-white/10'
+                  }`}
+                >
+                  {/* Row Number + Trigger/Checkpoint Indicator Button */}
+                  <button
+                    onClick={() => openSlotStudioModal(row, 0)}
+                    className="w-24 px-1.5 h-full flex items-center justify-end gap-1 text-[10px] text-slate-300 hover:text-cyan-300 tabular-nums cursor-pointer"
+                    title="Click, Press & Hold, or Right-Click to place a Trigger or Checkpoint on this row"
+                  >
+                    {rowCheckpoint && (
+                      <span className="px-1 py-0.2 rounded bg-emerald-400 text-slate-950 font-black text-[8px]">
+                        CP
+                      </span>
+                    )}
+                    {rowTriggers.map((rt) => (
+                      <span
+                        key={rt.id}
+                        className={`px-1 py-0.2 rounded font-black text-[8px] ${
+                          rt.type === 'speed'
+                            ? 'bg-amber-400 text-slate-950'
+                            : rt.type === 'extra_notes'
+                            ? 'bg-fuchsia-400 text-slate-950'
+                            : rt.type === 'invisible_notes'
+                            ? 'bg-cyan-300 text-slate-950'
+                            : 'bg-indigo-400 text-slate-950'
+                        }`}
+                      >
+                        {rt.type === 'speed'
+                          ? `${rt.speed}x`
                           : rt.type === 'extra_notes'
-                          ? 'bg-fuchsia-400 text-slate-950'
+                          ? `${rt.lanes}K`
                           : rt.type === 'invisible_notes'
-                          ? 'bg-cyan-300 text-slate-950'
-                          : 'bg-indigo-400 text-slate-950'
-                      }`}
-                    >
-                      {rt.type === 'speed'
-                        ? `${rt.speed}x`
-                        : rt.type === 'extra_notes'
-                        ? `${rt.lanes}K`
-                        : rt.type === 'invisible_notes'
-                        ? 'INV'
-                        : 'VEL'}
-                    </span>
-                  ))}
-                  <span>{isBeat ? `${row / 4 + 1}` : `·${row}`}</span>
-                </button>
+                          ? 'INV'
+                          : 'VEL'}
+                      </span>
+                    ))}
+                    <span>{isBeat ? `B${row / 4 + 1}` : `·${row}`}</span>
+                  </button>
 
-                {Array.from({ length: editorLaneCount }).map((_, col) => {
-                  const note = notes.find(
-                    (n) => Math.abs(n.time - time) < 10 && n.lane === col
-                  );
-                  const isHoldStart = holdStart?.row === row && holdStart?.col === col;
-                  const holdingNote = notes.find(
-                    (n) =>
-                      n.lane === col &&
-                      n.duration &&
-                      n.time < time &&
-                      n.time + n.duration >= time - 10
-                  );
-                  const laneColor = LANE_COLORS_8[col];
+                  {Array.from({ length: editorLaneCount }).map((_, col) => {
+                    const note = notes.find(
+                      (n) => Math.abs(n.time - time) < 10 && n.lane === col
+                    );
+                    const isHoldStart = holdStart?.row === row && holdStart?.col === col;
+                    const holdingNote = notes.find(
+                      (n) =>
+                        n.lane === col &&
+                        n.duration &&
+                        n.time < time &&
+                        n.time + n.duration >= time - 10
+                    );
+                    const laneColor = LANE_COLORS_8[col];
 
-                  return (
-                    <div
-                      key={col}
-                      onPointerDown={(e) => handleCellPointerDown(row, col, e)}
-                      onPointerUp={clearLongPressTimer}
-                      onPointerLeave={clearLongPressTimer}
-                      onPointerCancel={clearLongPressTimer}
-                      onContextMenu={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        clearLongPressTimer();
-                        openSlotStudioModal(row, col);
-                      }}
-                      onClick={() => handleCellClick(row, col)}
-                      className="flex-1 h-full border-l border-white/10 flex items-center justify-center cursor-pointer hover:bg-white/10 transition-colors relative"
-                    >
-                      {isHoldStart && (
-                        <div className="w-6 h-6 rounded-full border-2 border-dashed border-white animate-spin" />
-                      )}
-
-                      {holdingNote && (
+                    return (
+                      <div
+                        key={col}
+                        onPointerDown={(e) => handleCellPointerDown(row, col, e)}
+                        onPointerUp={clearLongPressTimer}
+                        onPointerLeave={clearLongPressTimer}
+                        onPointerCancel={clearLongPressTimer}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          clearLongPressTimer();
+                          openSlotStudioModal(row, col);
+                        }}
+                        onClick={() => handleCellClick(row, col)}
+                        className="flex-1 h-full border-l border-white/15 flex items-center justify-center cursor-pointer hover:bg-white/10 transition-colors relative px-1"
+                      >
+                        {/* Visible Rectangle Note Slot */}
                         <div
-                          className="w-3.5 h-full opacity-55"
-                          style={{ backgroundColor: laneColor }}
-                        />
-                      )}
-
-                      {note && (
-                        <div
-                          className={`w-7 h-7 shadow-lg transform scale-95 transition-transform flex items-center justify-center z-10 ${
-                            note.type === 'mine'
-                              ? 'rounded-lg bg-red-900 border-2 border-red-500'
-                              : note.type === 'demon'
-                              ? 'rounded-lg bg-black border-2 border-red-600 shadow-[0_0_15px_#dc2626]'
-                              : note.type === 'gold'
-                              ? 'rounded-full bg-yellow-400 border-2 border-white shadow-[0_0_15px_#facc15]'
-                              : note.type === 'fire'
-                              ? 'rounded-full bg-orange-500 border-2 border-yellow-300 shadow-[0_0_15px_#f97316]'
-                              : 'rounded-full'
-                          }`}
-                          style={
-                            !note.type || note.type === 'normal'
-                              ? {
-                                  backgroundColor: laneColor,
-                                  boxShadow: `0 0 10px ${laneColor}`,
-                                }
-                              : {}
-                          }
+                          className="w-full h-[27px] rounded-md border border-white/15 bg-[#090d1b]/85 flex items-center justify-center relative overflow-hidden"
+                          style={{
+                            borderColor: isBeat ? `${laneColor}44` : 'rgba(255,255,255,0.13)',
+                          }}
                         >
-                          {note.type === 'mine' && <Skull className="w-3.5 h-3.5 text-red-400" />}
-                          {note.type === 'demon' && (
-                            <Flame className="w-4 h-4 text-red-600 animate-pulse" />
+                          {isHoldStart && (
+                            <div className="w-full h-full rounded-md border-2 border-dashed border-white bg-purple-500/30 animate-pulse flex items-center justify-center text-[9px] font-black">
+                              HOLD START
+                            </div>
                           )}
-                          {note.type === 'gold' && <Sparkles className="w-3.5 h-3.5 text-black" />}
-                          {note.type === 'fire' && (
-                            <Flame className="w-3.5 h-3.5 text-yellow-200" />
+
+                          {holdingNote && (
+                            <div
+                              className="w-[70%] h-full opacity-75 border-x-2 border-white/70"
+                              style={{ backgroundColor: laneColor }}
+                            />
+                          )}
+
+                          {/* Rectangular Editor Note */}
+                          {note && (
+                            <div
+                              className={`w-full h-full rounded-md border-2 flex items-center justify-center z-10 font-black text-[10px] tracking-wider uppercase shadow-[0_2px_0_rgba(0,0,0,0.8)] ${
+                                note.type === 'demon'
+                                  ? 'bg-[#1a050d] border-rose-500 text-rose-200 shadow-[0_0_12px_#f43f5e]'
+                                  : 'text-slate-950 border-white'
+                              }`}
+                              style={
+                                note.type !== 'demon'
+                                  ? {
+                                      backgroundColor: laneColor,
+                                      boxShadow: `0 0 10px ${laneColor}88`,
+                                    }
+                                  : undefined
+                              }
+                            >
+                              {note.type === 'demon' ? (
+                                <span className="flex items-center gap-0.5 text-rose-400">
+                                  <Skull className="w-3.5 h-3.5" /> DMN
+                                </span>
+                              ) : note.duration && note.duration > 0 ? (
+                                <span>HOLD</span>
+                              ) : (
+                                <span>NOTE</span>
+                              )}
+                            </div>
                           )}
                         </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Bottom Unified Live Rec & Interactive Record Buttons Deck (Matches Live Rec & Gameplay Controls!) */}
+        <div className="rc-dock-rail px-3 py-2 flex flex-col gap-1.5 shrink-0">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => togglePlay(true)}
+                className={`rc-bevel-btn px-3 py-1 text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 cursor-pointer ${
+                  isRecording ? 'rc-tile-red animate-pulse' : 'rc-tile-pink'
+                }`}
+              >
+                <Mic className="w-3.5 h-3.5" />
+                {isRecording ? 'LIVE REC ACTIVE (TAP OR HOLD PADS BELOW)' : 'LIVE REC DECK'}
+              </button>
+              <span className="text-[10px] font-bold text-cyan-200/85 hidden sm:inline">
+                Tap or hold the rectangle lane record buttons below (or press keys) to record live notes!
+              </span>
+            </div>
+            <div className="text-[10px] font-black text-amber-300 tabular-nums">
+              PLAYHEAD: {(currentTime / 1000).toFixed(2)}s / {duration}s • NOTES: {notes.length}
+            </div>
+          </div>
+
+          <div
+            className="grid gap-1.5"
+            style={{
+              gridTemplateColumns: `repeat(${editorLaneCount}, minmax(0, 1fr))`,
+            }}
+          >
+            {Array.from({ length: editorLaneCount }).map((_, col) => {
+              const laneColor = LANE_COLORS_8[col];
+              const isHeld = Boolean(activeRecLanes[col]);
+              return (
+                <button
+                  key={col}
+                  type="button"
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    startLiveRecordLane(col);
+                  }}
+                  onPointerUp={(e) => {
+                    e.preventDefault();
+                    endLiveRecordLane(col);
+                  }}
+                  onPointerLeave={() => {
+                    if (activeRecLanes[col]) endLiveRecordLane(col);
+                  }}
+                  onPointerCancel={() => {
+                    if (activeRecLanes[col]) endLiveRecordLane(col);
+                  }}
+                  className={`rc-bevel-btn h-10 sm:h-11 flex flex-col items-center justify-center cursor-pointer transition-transform ${
+                    isHeld ? 'scale-95 brightness-125' : ''
+                  }`}
+                  style={{
+                    background: isHeld
+                      ? laneColor
+                      : `linear-gradient(180deg, ${laneColor}33 0%, #0b1022 100%)`,
+                    borderColor: laneColor,
+                    color: isHeld ? '#05070e' : '#ffffff',
+                  }}
+                >
+                  <span className="text-[10px] sm:text-xs font-black tracking-wider uppercase">
+                    REC {col + 1}
+                  </span>
+                  <span className="text-[8px] font-bold opacity-85 tabular-nums">
+                    {getLaneHeaderLabel(col)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
 
-      {/* PRESS & HOLD / RIGHT-CLICK SLOT TRIGGER & CHECKPOINT MODAL */}
+      {/* PRESS & HOLD / RIGHT-CLICK SLOT TRIGGER & CHECKPOINT MODAL (Same Arcade Console UI) */}
       {slotModalRow !== null && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-3">
-          <div className="rc-panel w-full max-w-xl border-2 border-fuchsia-400/60 shadow-[0_0_50px_rgba(217,70,239,0.3)] p-4 sm:p-5 max-h-[90vh] overflow-y-auto custom-scrollbar rc-modal-enter">
-            <div className="flex items-center justify-between pb-3 mb-3 border-b border-white/15">
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-3">
+          <div className="rc-console-tray w-full max-w-xl p-4 sm:p-5 max-h-[90vh] overflow-y-auto custom-scrollbar rc-modal-enter space-y-3">
+            <div className="rc-dock-rail px-3 py-2.5 flex items-center justify-between">
               <div>
                 <div className="flex items-center gap-2">
                   <span className="px-2 py-0.5 rounded bg-fuchsia-500/25 border border-fuchsia-400 text-fuchsia-200 text-[10px] font-black uppercase">
                     ROW #{slotModalRow} • LANE {slotModalCol + 1}
                   </span>
-                  <span className="text-xs font-black text-cyan-300">
+                  <span className="text-xs font-black text-cyan-300 tabular-nums">
                     TIMESTAMP: {((slotModalRow * stepTime) / 1000).toFixed(2)}s
                   </span>
                 </div>
-                <h3 className="text-base font-black uppercase tracking-wider text-white mt-1">
+                <h3 className="text-sm sm:text-base font-black uppercase tracking-wider text-white mt-1">
                   SLOT TRIGGER & CHECKPOINT STUDIO
                 </h3>
               </div>
               <button
                 onClick={() => setSlotModalRow(null)}
-                className="w-8 h-8 rounded-lg bg-white/10 hover:bg-rose-500/20 border border-white/20 flex items-center justify-center text-slate-300 hover:text-rose-300 cursor-pointer"
+                className="rc-bevel-btn rc-tile-red w-8 h-8 flex items-center justify-center text-white cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             {/* Mode Switcher: Trigger vs Editor Checkpoint */}
-            <div className="grid grid-cols-2 gap-2 mb-4">
+            <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={() => setSlotTab('trigger')}
-                className={`py-2 px-3 rounded-xl border font-black text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
-                  slotTab === 'trigger'
-                    ? 'bg-fuchsia-500/25 border-fuchsia-400 text-fuchsia-200 shadow-[0_0_15px_rgba(217,70,239,0.25)]'
-                    : 'bg-slate-900 border-white/15 text-slate-400'
+                className={`rc-bevel-btn py-2 px-3 font-black text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer ${
+                  slotTab === 'trigger' ? 'rc-tile-pink' : 'rc-sub-dark text-slate-300'
                 }`}
               >
                 <Zap className="w-4 h-4" /> MARK AS CHART TRIGGER
               </button>
               <button
                 onClick={() => setSlotTab('checkpoint')}
-                className={`py-2 px-3 rounded-xl border font-black text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
-                  slotTab === 'checkpoint'
-                    ? 'bg-emerald-500/25 border-emerald-400 text-emerald-200 shadow-[0_0_15px_rgba(16,185,129,0.25)]'
-                    : 'bg-slate-900 border-white/15 text-slate-400'
+                className={`rc-bevel-btn py-2 px-3 font-black text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer ${
+                  slotTab === 'checkpoint' ? 'rc-tile-green' : 'rc-sub-dark text-slate-300'
                 }`}
               >
                 <BookmarkCheck className="w-4 h-4" /> MARK AS CHECKPOINT
@@ -1355,82 +1448,80 @@ export const SongEditor: React.FC<SongEditorProps> = ({
             </div>
 
             {slotTab === 'trigger' ? (
-              <div className="space-y-3.5">
+              <div className="rc-console-inset p-3.5 space-y-3.5">
                 {/* 4 Trigger Types */}
                 <div>
-                  <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 block mb-1.5">
+                  <label className="text-[10px] font-black uppercase tracking-wider text-cyan-200 block mb-1.5">
                     SELECT TRIGGER TYPE FOR ROW #{slotModalRow}
                   </label>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                     <button
                       onClick={() => setSlotTriggerType('speed')}
-                      className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
-                        slotTriggerType === 'speed'
-                          ? 'bg-amber-500/25 border-amber-400 text-amber-200'
-                          : 'bg-slate-900 border-white/10 text-slate-400'
+                      className={`rc-bevel-btn p-2.5 text-left cursor-pointer ${
+                        slotTriggerType === 'speed' ? 'rc-tile-gold' : 'rc-sub-dark text-slate-300'
                       }`}
                     >
-                      <Gauge className="w-4 h-4 mb-1 text-amber-300" />
+                      <Gauge className="w-4 h-4 mb-1" />
                       <div className="text-[11px] font-black uppercase">SPEED</div>
-                      <div className="text-[9px] text-slate-300">6 Speed Presets</div>
+                      <div className="text-[9px] opacity-85">Smooth Ramp</div>
                     </button>
 
                     <button
                       onClick={() => setSlotTriggerType('extra_notes')}
-                      className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
+                      className={`rc-bevel-btn p-2.5 text-left cursor-pointer ${
                         slotTriggerType === 'extra_notes'
-                          ? 'bg-fuchsia-500/25 border-fuchsia-400 text-fuchsia-200'
-                          : 'bg-slate-900 border-white/10 text-slate-400'
+                          ? 'rc-tile-pink'
+                          : 'rc-sub-dark text-slate-300'
                       }`}
                     >
-                      <Columns className="w-4 h-4 mb-1 text-fuchsia-300" />
+                      <Columns className="w-4 h-4 mb-1" />
                       <div className="text-[11px] font-black uppercase">EXTRA NOTES</div>
-                      <div className="text-[9px] text-slate-300">4 / 6 / 8 Lanes</div>
+                      <div className="text-[9px] opacity-85">4 / 6 / 8 Lanes</div>
                     </button>
 
                     <button
                       onClick={() => setSlotTriggerType('invisible_notes')}
-                      className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
+                      className={`rc-bevel-btn p-2.5 text-left cursor-pointer ${
                         slotTriggerType === 'invisible_notes'
-                          ? 'bg-cyan-500/25 border-cyan-400 text-cyan-200'
-                          : 'bg-slate-900 border-white/10 text-slate-400'
+                          ? 'rc-tile-cyan'
+                          : 'rc-sub-dark text-slate-300'
                       }`}
                     >
-                      <EyeOff className="w-4 h-4 mb-1 text-cyan-300" />
+                      <EyeOff className="w-4 h-4 mb-1" />
                       <div className="text-[11px] font-black uppercase">INVISIBLE</div>
-                      <div className="text-[9px] text-slate-300">Early Flash & Fade</div>
+                      <div className="text-[9px] opacity-85">Flash & Fade</div>
                     </button>
 
                     <button
                       onClick={() => setSlotTriggerType('note_velocity')}
-                      className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
+                      className={`rc-bevel-btn p-2.5 text-left cursor-pointer ${
                         slotTriggerType === 'note_velocity'
-                          ? 'bg-indigo-500/25 border-indigo-400 text-indigo-200'
-                          : 'bg-slate-900 border-white/10 text-slate-400'
+                          ? 'rc-tile-violet'
+                          : 'rc-sub-dark text-slate-300'
                       }`}
                     >
-                      <Radio className="w-4 h-4 mb-1 text-indigo-300" />
+                      <Radio className="w-4 h-4 mb-1" />
                       <div className="text-[11px] font-black uppercase">VELOCITY</div>
-                      <div className="text-[9px] text-slate-300">12 Scroll FX</div>
+                      <div className="text-[9px] opacity-85">12 Scroll FX</div>
                     </button>
                   </div>
                 </div>
 
                 {/* Trigger Configuration Specifics */}
                 {slotTriggerType === 'speed' && (
-                  <div className="bg-slate-900/90 border border-amber-400/40 rounded-xl p-3">
+                  <div className="rc-dock-rail p-3">
                     <label className="text-[10px] font-black uppercase text-amber-300 block mb-2">
-                      SPEED TRIGGER PRESET (KEEPS DIFFICULTY SPEED RATIO)
+                      SPEED TRIGGER PRESET (SMOOTH CUBIC RAMP • KEEPS DIFFICULTY SPEED RATIO)
                     </label>
                     <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
                       {SPEED_TRIGGER_PRESETS.map((preset) => (
                         <button
                           key={preset}
                           onClick={() => setSlotSpeedPreset(preset)}
-                          className={`py-2 rounded-lg font-black text-xs border cursor-pointer ${
+                          className={`rc-bevel-btn py-2 font-black text-xs cursor-pointer ${
                             slotSpeedPreset === preset
-                              ? 'bg-amber-400 text-slate-950 border-white'
-                              : 'bg-slate-950 text-slate-300 border-white/15'
+                              ? 'rc-tile-gold'
+                              : 'rc-sub-dark text-slate-300'
                           }`}
                         >
                           {preset.toFixed(2)}x
@@ -1441,7 +1532,7 @@ export const SongEditor: React.FC<SongEditorProps> = ({
                 )}
 
                 {slotTriggerType === 'extra_notes' && (
-                  <div className="bg-slate-900/90 border border-fuchsia-400/40 rounded-xl p-3 space-y-3">
+                  <div className="rc-dock-rail p-3 space-y-3">
                     <div>
                       <label className="text-[10px] font-black uppercase text-fuchsia-300 block mb-1.5">
                         LANE EXPANSION COUNT (WIDENS STAGE WITH SAME NOTE SIZE)
@@ -1451,10 +1542,10 @@ export const SongEditor: React.FC<SongEditorProps> = ({
                           <button
                             key={lanes}
                             onClick={() => setSlotExtraLanes(lanes)}
-                            className={`py-2 rounded-lg font-black text-xs border cursor-pointer ${
+                            className={`rc-bevel-btn py-2 font-black text-xs cursor-pointer ${
                               slotExtraLanes === lanes
-                                ? 'bg-fuchsia-400 text-slate-950 border-white'
-                                : 'bg-slate-950 text-slate-300 border-white/15'
+                                ? 'rc-tile-pink'
+                                : 'rc-sub-dark text-slate-300'
                             }`}
                           >
                             {lanes} NOTES
@@ -1473,7 +1564,7 @@ export const SongEditor: React.FC<SongEditorProps> = ({
                           onChange={(e) =>
                             setSlotTransition(e.target.value as LaneExpansionTransition)
                           }
-                          className="w-full px-2.5 py-2 rounded-lg bg-slate-950 border border-white/20 text-xs font-bold text-white"
+                          className="w-full px-2.5 py-2 rounded-lg bg-[#070a14] border-2 border-white/20 text-xs font-bold text-white"
                         >
                           {LANE_EXPANSION_TRANSITIONS.map((tr) => (
                             <option key={tr.id} value={tr.id}>
@@ -1502,30 +1593,26 @@ export const SongEditor: React.FC<SongEditorProps> = ({
                 )}
 
                 {slotTriggerType === 'invisible_notes' && (
-                  <div className="bg-slate-900/90 border border-cyan-400/40 rounded-xl p-3 space-y-3">
+                  <div className="rc-dock-rail p-3 space-y-3">
                     <div className="text-xs font-black text-cyan-300">
                       INVISIBLE NOTES TRIGGER — FLASH & FADE STEALTH CALCULATION
                     </div>
                     <p className="text-[11px] text-slate-300">
-                      Notes flash brightly towards the beginning-to-middle of their render and then quickly fade out to invisible, challenging the player to calculate the exact hit timing.
+                      Notes flash brightly towards the beginning-to-middle of their render and then quickly fade out to invisible.
                     </p>
                     <div className="grid grid-cols-2 gap-2">
                       <button
                         onClick={() => setSlotInvisibleEnabled(true)}
-                        className={`py-2 rounded-lg font-black text-xs border cursor-pointer ${
-                          slotInvisibleEnabled
-                            ? 'bg-cyan-400 text-slate-950 border-white'
-                            : 'bg-slate-950 text-slate-400 border-white/15'
+                        className={`rc-bevel-btn py-2 font-black text-xs cursor-pointer ${
+                          slotInvisibleEnabled ? 'rc-tile-cyan' : 'rc-sub-dark text-slate-300'
                         }`}
                       >
                         ENABLE INVISIBLE NOTES
                       </button>
                       <button
                         onClick={() => setSlotInvisibleEnabled(false)}
-                        className={`py-2 rounded-lg font-black text-xs border cursor-pointer ${
-                          !slotInvisibleEnabled
-                            ? 'bg-emerald-400 text-slate-950 border-white'
-                            : 'bg-slate-950 text-slate-400 border-white/15'
+                        className={`rc-bevel-btn py-2 font-black text-xs cursor-pointer ${
+                          !slotInvisibleEnabled ? 'rc-tile-green' : 'rc-sub-dark text-slate-300'
                         }`}
                       >
                         RESTORE NORMAL NOTES
@@ -1554,7 +1641,7 @@ export const SongEditor: React.FC<SongEditorProps> = ({
                 )}
 
                 {slotTriggerType === 'note_velocity' && (
-                  <div className="bg-slate-900/90 border border-indigo-400/40 rounded-xl p-3 space-y-3">
+                  <div className="rc-dock-rail p-3 space-y-3">
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] font-black uppercase text-indigo-300">
                         12 NOTE VELOCITY SCROLL EFFECTS (ALWAYS ARRIVES ON BEAT)
@@ -1568,16 +1655,16 @@ export const SongEditor: React.FC<SongEditorProps> = ({
                         <button
                           key={fx.id}
                           onClick={() => setSlotVelocityEffect(fx.id)}
-                          className={`p-2 rounded-lg border text-left cursor-pointer transition-all ${
+                          className={`rc-bevel-btn p-2 text-left cursor-pointer ${
                             slotVelocityEffect === fx.id
-                              ? 'bg-indigo-500/30 border-indigo-300 text-white'
-                              : 'bg-slate-950 border-white/10 text-slate-400 hover:border-white/25'
+                              ? 'rc-tile-violet'
+                              : 'rc-sub-dark text-slate-300'
                           }`}
                         >
                           <div className="text-[10px] font-black truncate" style={{ color: fx.color }}>
                             {fx.name}
                           </div>
-                          <div className="text-[9px] text-slate-400 line-clamp-1">
+                          <div className="text-[9px] opacity-80 line-clamp-1">
                             {fx.description}
                           </div>
                         </button>
@@ -1599,7 +1686,7 @@ export const SongEditor: React.FC<SongEditorProps> = ({
 
                 {/* Existing Triggers at this Row */}
                 {triggers.filter((t) => t.row === slotModalRow).length > 0 && (
-                  <div className="bg-slate-950/90 border border-white/15 rounded-xl p-2.5">
+                  <div className="rc-dock-well p-2.5">
                     <div className="text-[10px] font-black uppercase text-slate-400 mb-1.5">
                       EXISTING TRIGGERS ON ROW #{slotModalRow}
                     </div>
@@ -1629,13 +1716,13 @@ export const SongEditor: React.FC<SongEditorProps> = ({
                 <div className="flex justify-end gap-2 pt-2">
                   <button
                     onClick={() => setSlotModalRow(null)}
-                    className="px-4 py-2 rounded-xl bg-white/10 text-xs font-black text-slate-300 cursor-pointer"
+                    className="rc-bevel-btn rc-sub-dark px-4 py-2 text-xs font-black text-slate-300 cursor-pointer"
                   >
                     CANCEL
                   </button>
                   <button
                     onClick={handleSaveSlotTrigger}
-                    className="px-5 py-2 rounded-xl bg-gradient-to-r from-fuchsia-400 to-cyan-400 text-slate-950 font-black text-xs uppercase tracking-wider cursor-pointer shadow-[0_0_20px_rgba(217,70,239,0.4)]"
+                    className="rc-bevel-btn rc-tile-cyan px-5 py-2 font-black text-xs uppercase tracking-wider cursor-pointer"
                   >
                     SAVE TRIGGER ON ROW #{slotModalRow}
                   </button>
@@ -1643,8 +1730,8 @@ export const SongEditor: React.FC<SongEditorProps> = ({
               </div>
             ) : (
               /* Editor Checkpoint Tab inside Slot Studio Modal */
-              <div className="space-y-3.5">
-                <div className="bg-slate-900/90 border border-emerald-400/40 rounded-xl p-3 space-y-2.5">
+              <div className="rc-console-inset p-3.5 space-y-3.5">
+                <div className="rc-dock-rail p-3 space-y-2.5">
                   <div className="text-xs font-black text-emerald-300 uppercase">
                     PLACE OR JUMP TO EDITOR CHECKPOINT AT ROW #{slotModalRow}
                   </div>
@@ -1659,7 +1746,7 @@ export const SongEditor: React.FC<SongEditorProps> = ({
                       type="text"
                       value={slotCheckpointName}
                       onChange={(e) => setSlotCheckpointName(e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-emerald-400/40 text-xs font-bold text-white"
+                      className="w-full px-3 py-2 rounded-lg bg-[#070a14] border-2 border-emerald-400/50 text-xs font-bold text-white"
                     />
                   </div>
                 </div>
@@ -1672,7 +1759,7 @@ export const SongEditor: React.FC<SongEditorProps> = ({
                         if (existing) handleDeleteCheckpoint(existing.id);
                         setSlotModalRow(null);
                       }}
-                      className="px-3 py-2 rounded-xl bg-rose-500/20 border border-rose-400/50 text-rose-200 text-xs font-black uppercase cursor-pointer"
+                      className="rc-bevel-btn rc-tile-red px-3 py-2 text-xs font-black uppercase cursor-pointer"
                     >
                       REMOVE CHECKPOINT
                     </button>
@@ -1689,14 +1776,14 @@ export const SongEditor: React.FC<SongEditorProps> = ({
                           stopPlayback();
                           onPlaytest(buildCurrentSongObject(), time);
                         }}
-                        className="px-3.5 py-2 rounded-xl bg-cyan-500/25 border border-cyan-400 text-cyan-200 font-black text-xs uppercase cursor-pointer"
+                        className="rc-bevel-btn rc-tile-cyan px-3.5 py-2 font-black text-xs uppercase cursor-pointer"
                       >
                         PLAYTEST FROM HERE
                       </button>
                     )}
                     <button
                       onClick={handleSaveSlotCheckpoint}
-                      className="px-5 py-2 rounded-xl bg-emerald-400 hover:bg-emerald-300 text-slate-950 font-black text-xs uppercase tracking-wider cursor-pointer"
+                      className="rc-bevel-btn rc-tile-green px-5 py-2 font-black text-xs uppercase tracking-wider cursor-pointer"
                     >
                       SAVE CHECKPOINT
                     </button>
@@ -1710,41 +1797,36 @@ export const SongEditor: React.FC<SongEditorProps> = ({
 
       {/* Tutorial Modal */}
       {showTutorial && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-white/20 p-5 rounded-2xl max-w-lg w-full relative max-h-[88vh] overflow-y-auto">
-            <button
-              onClick={() => setShowTutorial(false)}
-              className="absolute top-3 right-3 text-slate-400 hover:text-white cursor-pointer"
-            >
-              <X className="w-5 h-5" />
-            </button>
-            <h2 className="text-lg font-black mb-3 text-amber-300 uppercase tracking-wider">
-              BEATMAP & TRIGGER STUDIO GUIDE
-            </h2>
-            <div className="space-y-2.5 text-slate-300 text-xs">
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="rc-console-tray p-5 max-w-lg w-full relative max-h-[88vh] overflow-y-auto space-y-3">
+            <div className="rc-dock-rail px-3 py-2 flex items-center justify-between">
+              <h2 className="text-sm sm:text-base font-black text-amber-300 uppercase tracking-wider">
+                BEATMAP & TRIGGER STUDIO GUIDE
+              </h2>
+              <button
+                onClick={() => setShowTutorial(false)}
+                className="rc-bevel-btn rc-tile-red w-7 h-7 flex items-center justify-center text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="rc-console-inset p-4 space-y-2.5 text-slate-200 text-xs font-semibold">
               <p>
-                <strong className="text-white">1. Press & Hold or Right-Click Any Slot:</strong>{' '}
-                Long-press (~0.35s) or Right-Click any cell in the note grid to mark that row as a{' '}
-                <strong className="text-fuchsia-300">Speed Trigger</strong>,{' '}
-                <strong className="text-fuchsia-300">Extra Notes Trigger (4/6/8 Lanes)</strong>,{' '}
-                <strong className="text-cyan-300">Invisible Notes Trigger</strong>,{' '}
-                <strong className="text-indigo-300">Note Velocity Trigger (12 Scroll FX)</strong>, or an{' '}
-                <strong className="text-emerald-300">Editor Checkpoint</strong>!
+                <strong className="text-cyan-300">1. Rectangle Note Slots & Editor Notes:</strong>{' '}
+                Click any rectangle slot to place or remove a rectangular Normal Note, Hold Note, or Demon Note.
               </p>
               <p>
-                <strong className="text-white">2. Local Playtesting:</strong> Click{' '}
-                <strong className="text-cyan-300">TEST START</strong> or{' '}
-                <strong className="text-emerald-300">TEST CHECKPOINT</strong> to test your chart immediately.
+                <strong className="text-fuchsia-300">2. Press & Hold or Right-Click Any Slot:</strong>{' '}
+                Long-press (~0.35s) or Right-Click any slot to mark that row as a Speed Trigger, Extra Notes Trigger (4/6/8 Lanes), Invisible Notes Trigger, Note Velocity Trigger (12 Scroll FX), or Editor Checkpoint.
               </p>
               <p>
-                <strong className="text-white">3. Newgrounds & Spotify Audio:</strong> Paste any
-                Newgrounds Audio ID or Spotify Track/Playlist link and click{' '}
-                <strong className="text-amber-300">LOAD</strong> and <strong className="text-cyan-300">HEAR</strong>.
+                <strong className="text-pink-300">3. Live Rec Deck & Record Buttons:</strong>{' '}
+                Click <strong className="text-white">LIVE REC</strong> and tap/hold the bottom rectangular Record Lane Buttons (or press your keyboard keybinds) to record notes live on beat!
               </p>
             </div>
             <button
               onClick={() => setShowTutorial(false)}
-              className="mt-4 w-full py-2 bg-amber-400 text-slate-950 font-black rounded-xl hover:bg-amber-300 transition-colors cursor-pointer uppercase text-xs"
+              className="rc-bevel-btn rc-tile-gold w-full py-2.5 font-black uppercase text-xs cursor-pointer"
             >
               GOT IT!
             </button>

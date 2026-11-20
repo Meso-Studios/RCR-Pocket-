@@ -397,7 +397,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({
   })();
 
   const effectiveEmail =
-    user?.email || playerInfo.profile?.email || DEFAULT_OWNER_EMAIL;
+    user?.email || playerInfo.profile?.email || '';
   const isAdminUser = isUserAdmin(effectiveEmail, customAdmins);
 
   return (

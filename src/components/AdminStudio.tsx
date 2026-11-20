@@ -4,8 +4,10 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  Check,
   Crown,
   Lock,
+  MessageSquare,
   Plus,
   ShieldAlert,
   ShoppingBag,
@@ -16,15 +18,15 @@ import {
   UserPlus,
   Users,
   Volume2,
+  X,
 } from 'lucide-react';
 import { db } from '../firebaseClient';
 import {
-  ACTIVE_RIVAL_PROFILES,
   ADMIN_EMAILS,
   CUSTOM_ADMINS_STORAGE_KEY,
-  DEFAULT_OWNER_EMAIL,
-  NOTE_EFFECTS,
+  MESSAGING_WAITLIST_STORAGE_KEY,
   NOTE_RARITIES,
+  REAL_PROFILES_STORAGE_KEY,
   RHYTHM_LIST_STORAGE_KEY,
   ROYALTY_FREE_SONGS,
   SECRET_DEV_CODE,
@@ -46,8 +48,9 @@ import type {
   FirebaseUser,
   HitSoundProduct,
   InterruptionData,
-  NoteEffectConfig,
+  MessagingWaitlistEntry,
   NoteProduct,
+  PlayerProfile,
   ScreenId,
   ShopShutdownConfig,
   Song,
@@ -105,15 +108,94 @@ export const AdminStudio: React.FC<AdminStudioProps> = ({
   });
   const [newAdminEmail, setNewAdminEmail] = useState('');
 
+  const [realProfiles, setRealProfiles] = useState<PlayerProfile[]>(() => {
+    try {
+      const raw = localStorage.getItem(REAL_PROFILES_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [waitlistEntries, setWaitlistEntries] = useState<MessagingWaitlistEntry[]>(() => {
+    try {
+      const raw = localStorage.getItem(MESSAGING_WAITLIST_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    if (!db) return;
+    db.collection('system')
+      .doc('real_profiles')
+      .get()
+      .then((snap: any) => {
+        if (snap?.exists) {
+          const list = snap.data()?.profiles;
+          if (Array.isArray(list)) {
+            setRealProfiles(list);
+            localStorage.setItem(REAL_PROFILES_STORAGE_KEY, JSON.stringify(list));
+          }
+        }
+      })
+      .catch(() => {});
+
+    db.collection('system')
+      .doc('messaging_waitlist')
+      .get()
+      .then((snap: any) => {
+        if (snap?.exists) {
+          const list = snap.data()?.entries;
+          if (Array.isArray(list)) {
+            setWaitlistEntries(list);
+            localStorage.setItem(MESSAGING_WAITLIST_STORAGE_KEY, JSON.stringify(list));
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleUpdateWaitlistStatus = (uid: string, status: 'approved' | 'rejected') => {
+    const next = waitlistEntries.map((entry) =>
+      entry.uid === uid
+        ? {
+            ...entry,
+            status,
+            reviewedBy: user?.email || 'admin',
+            reviewedAt: Date.now(),
+          }
+        : entry
+    );
+    setWaitlistEntries(next);
+    try {
+      localStorage.setItem(MESSAGING_WAITLIST_STORAGE_KEY, JSON.stringify(next));
+    } catch {}
+    if (db) {
+      db.collection('system')
+        .doc('messaging_waitlist')
+        .set({ entries: next, updatedAt: Date.now() }, { merge: true })
+        .catch(() => {});
+    }
+    AudioEngine.playUI('confirm');
+    const target = waitlistEntries.find((e) => e.uid === uid);
+    setStatusBanner(
+      status === 'approved'
+        ? `Approved ${target?.displayName || uid} for Profile Messaging!`
+        : `Revoked/Rejected Profile Messaging access for ${target?.displayName || uid}.`
+    );
+  };
+
   const isAdminUser =
     externalIsAdmin ??
-    isUserAdmin(user?.email || DEFAULT_OWNER_EMAIL, customAdmins);
+    isUserAdmin(user?.email, customAdmins);
   const handleBack = () => {
     if (onBack) onBack();
     else if (setScreen) setScreen('menu');
   };
 
-  const [unlocked, setUnlocked] = useState<boolean>(true);
+  const [unlocked, setUnlocked] = useState<boolean>(Boolean(externalIsAdmin));
   const [passInput, setPassInput] = useState('');
   const [passErr, setPassErr] = useState('');
   const [tab, setTab] = useState<
@@ -340,7 +422,6 @@ export const AdminStudio: React.FC<AdminStudioProps> = ({
   const [noteScaleY, setNoteScaleY] = useState(1);
   const [noteRarity, setNoteRarity] = useState('rare');
   const [notePrice, setNotePrice] = useState(500);
-  const [selectedEffects, setSelectedEffects] = useState<NoteEffectConfig[]>([]);
   const [publishingNote, setPublishingNote] = useState(false);
 
   // Hit Sound Builder state
@@ -459,18 +540,6 @@ export const AdminStudio: React.FC<AdminStudioProps> = ({
     );
   };
 
-  const toggleEffect = (effId: string) => {
-    setSelectedEffects((prev) => {
-      const exists = prev.find((e) => e.id === effId);
-      if (exists) return prev.filter((e) => e.id !== effId);
-      return [...prev, { id: effId, intensity: 1 }];
-    });
-  };
-
-  const updateEffectIntensity = (effId: string, intensity: number) => {
-    setSelectedEffects((prev) => prev.map((e) => (e.id === effId ? { ...e, intensity } : e)));
-  };
-
   const handleStickerUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -513,7 +582,7 @@ export const AdminStudio: React.FC<AdminStudioProps> = ({
     const prod: NoteProduct = {
       id: `np_${Date.now()}`,
       name: noteName.trim(),
-      description: noteDesc.trim() || 'Custom Admin Note Skin',
+      description: noteDesc.trim() || 'Custom Cosmetic Note Skin',
       fill: noteFill,
       outline: noteOutline,
       text: noteText.trim(),
@@ -522,7 +591,7 @@ export const AdminStudio: React.FC<AdminStudioProps> = ({
       stickerScaleY: noteScaleY,
       rarity: noteRarity,
       price: Math.max(0, Number(notePrice) || 0),
-      effects: selectedEffects,
+      effects: [],
       createdAt: Date.now(),
       createdBy: user?.email || 'admin',
       active: true,
@@ -537,7 +606,7 @@ export const AdminStudio: React.FC<AdminStudioProps> = ({
       setNoteDesc('');
       setNoteText('');
       setNoteSticker('');
-      setSelectedEffects([]);
+      setStatusBanner(`Published pure cosmetic Note Skin "${prod.name}" to the Shop!`);
     } catch (e) {
       console.error('Failed to publish note product:', e);
     } finally {
@@ -1165,57 +1234,22 @@ export const AdminStudio: React.FC<AdminStudioProps> = ({
                 </div>
               )}
 
-              <div>
-                <label className="text-xs text-white/60 font-bold block mb-2">
-                  Note Gameplay Effects ({selectedEffects.length} selected)
-                </label>
-                <div className="max-h-48 overflow-y-auto grid grid-cols-2 gap-1.5 p-2 bg-black/40 rounded-xl border border-white/10">
-                  {NOTE_EFFECTS.map((eff) => {
-                    const sel = selectedEffects.find((e) => e.id === eff.id);
-                    return (
-                      <div
-                        key={eff.id}
-                        className={`p-2 rounded-lg border text-left transition-all ${
-                          sel ? 'bg-rose-500/20 border-rose-400' : 'bg-white/5 border-white/10'
-                        }`}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => toggleEffect(eff.id)}
-                          className="w-full text-left"
-                        >
-                          <div className="text-xs font-black">{eff.name}</div>
-                          <div className="text-[10px] text-white/50">{eff.desc}</div>
-                        </button>
-                        {sel && (
-                          <input
-                            type="range"
-                            min="0.5"
-                            max="3"
-                            step="0.25"
-                            value={sel.intensity}
-                            onChange={(e) => updateEffectIntensity(eff.id, Number(e.target.value))}
-                            className="w-full mt-1"
-                          />
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
+              <div className="p-3 rounded-xl bg-cyan-500/10 border border-cyan-400/30 text-xs font-bold text-cyan-200">
+                PURE COSMETIC SKIN MODE: All Note Products are strictly visual skins (no gameplay ability advantages).
               </div>
 
               <button
                 onClick={publishNoteProduct}
                 disabled={publishingNote || !noteName.trim()}
-                className="w-full py-3 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-40 font-black text-sm flex items-center justify-center gap-2"
+                className="w-full py-3 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-40 font-black text-sm flex items-center justify-center gap-2 cursor-pointer"
               >
-                <Plus className="w-4 h-4" /> PUBLISH TO SHOP
+                <Plus className="w-4 h-4" /> PUBLISH SKIN TO SHOP
               </button>
             </div>
 
             <div className="bg-black/50 border border-white/10 rounded-2xl p-5">
               <h3 className="text-sm font-black uppercase tracking-widest text-white/60 mb-3">
-                Existing Note Products ({noteProducts.length})
+                Existing Note Skins ({noteProducts.length})
               </h3>
               <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
                 {noteProducts.map((prod) => (
@@ -1233,13 +1267,13 @@ export const AdminStudio: React.FC<AdminStudioProps> = ({
                       <div>
                         <div className="text-sm font-black">{prod.name}</div>
                         <div className="text-[10px] text-white/50">
-                          {prod.price} Coins · {prod.rarity.toUpperCase()} · {prod.effects?.length || 0} Effects
+                          {prod.price} Coins · {prod.rarity.toUpperCase()} · COSMETIC SKIN
                         </div>
                       </div>
                     </div>
                     <button
                       onClick={() => deleteNoteProduct(prod.id)}
-                      className="p-2 text-rose-400 hover:bg-rose-500/20 rounded-lg"
+                      className="p-2 text-rose-400 hover:bg-rose-500/20 rounded-lg cursor-pointer"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -1465,80 +1499,163 @@ export const AdminStudio: React.FC<AdminStudioProps> = ({
               </div>
             </div>
 
-            {/* Right 6 cols: Player Accounts Directory with One-Click Promote/Demote */}
-            <div className="lg:col-span-6 bg-black/60 border border-white/15 rounded-2xl p-5 space-y-3">
-              <div className="flex items-center gap-2">
-                <Users className="w-5 h-5 text-fuchsia-400" />
-                <div>
-                  <h3 className="text-sm font-black uppercase tracking-wider text-white">
-                    REGISTERED PLAYER ACCOUNTS ({ACTIVE_RIVAL_PROFILES.length + 1})
-                  </h3>
-                  <p className="text-xs text-white/60">
-                    Inspect player accounts and toggle their Admin permissions with one click.
-                  </p>
+            {/* Right 6 cols: Real Registered Player Profiles & Profile Messaging Waitlist Approvals */}
+            <div className="lg:col-span-6 space-y-4">
+              {/* Profile Messaging Waitlist Approval Queue */}
+              <div className="bg-black/60 border-2 border-amber-400/50 rounded-2xl p-5 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5">
+                    <MessageSquare className="w-5 h-5 text-amber-300" />
+                    <div>
+                      <h3 className="text-sm font-black uppercase tracking-wider text-white">
+                        PROFILE MESSAGING WAITLIST ({waitlistEntries.length})
+                      </h3>
+                      <p className="text-xs text-white/60">
+                        All Admins have automatic messaging access. Approve or revoke player waitlist applications below.
+                      </p>
+                    </div>
+                  </div>
                 </div>
-              </div>
 
-              <div className="space-y-2 max-h-[360px] overflow-y-auto pr-1">
-                {[
-                  {
-                    uid: user?.uid || 'owner-01',
-                    displayName: user?.displayName || 'Marin (Owner)',
-                    email: user?.email || DEFAULT_OWNER_EMAIL,
-                    titleBadge: 'GAME CREATOR & TOP 1 JUDGE',
-                    ratingPoints: 3100,
-                    wins1v1: 95,
-                  },
-                  ...ACTIVE_RIVAL_PROFILES,
-                ].map((acct) => {
-                  const acctEmail = acct.email || '';
-                  const isCore = ADMIN_EMAILS.some(
-                    (e) => e.toLowerCase() === acctEmail.toLowerCase()
-                  );
-                  const isPromoted = isUserAdmin(acctEmail, customAdmins);
-                  return (
-                    <div
-                      key={acct.uid || acctEmail}
-                      className="flex items-center justify-between gap-2 bg-white/5 border border-white/10 px-3.5 py-2.5 rounded-xl"
-                    >
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-black text-white truncate">
-                            {acct.displayName}
-                          </span>
-                          <span className="px-1.5 py-0.5 rounded bg-fuchsia-500/20 border border-fuchsia-400/40 text-[9px] font-black text-fuchsia-200">
-                            {acct.titleBadge}
-                          </span>
+                {waitlistEntries.length === 0 ? (
+                  <div className="p-4 rounded-xl bg-white/5 border border-white/10 text-xs text-white/60 text-center font-bold">
+                    No waitlist applications submitted yet. When players apply for Profile Messaging in the Profile Console, they appear here for instant Admin approval.
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+                    {waitlistEntries.map((entry) => (
+                      <div
+                        key={entry.uid}
+                        className="flex flex-wrap items-center justify-between gap-2 bg-white/5 border border-white/15 px-3.5 py-2.5 rounded-xl"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-black text-white truncate">
+                              {entry.displayName}
+                            </span>
+                            <span
+                              className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${
+                                entry.status === 'approved'
+                                  ? 'bg-emerald-500/25 border border-emerald-400 text-emerald-200'
+                                  : entry.status === 'rejected'
+                                  ? 'bg-rose-500/25 border border-rose-400 text-rose-200'
+                                  : 'bg-amber-500/25 border border-amber-400 text-amber-200'
+                              }`}
+                            >
+                              {entry.status.toUpperCase()}
+                            </span>
+                          </div>
+                          {entry.email && (
+                            <div className="text-[10px] text-cyan-300 font-bold truncate">
+                              {entry.email}
+                            </div>
+                          )}
+                          <div className="text-[11px] text-white/75 truncate mt-0.5">
+                            &ldquo;{entry.reason}&rdquo;
+                          </div>
                         </div>
-                        <div className="text-[11px] text-cyan-300 font-bold truncate">
-                          {acctEmail} · {acct.wins1v1 || 0}W 1v1
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {entry.status !== 'approved' && (
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateWaitlistStatus(entry.uid, 'approved')}
+                              className="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black text-[10px] font-black uppercase flex items-center gap-1 cursor-pointer"
+                            >
+                              <Check className="w-3.5 h-3.5" /> APPROVE
+                            </button>
+                          )}
+                          {entry.status !== 'rejected' && (
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateWaitlistStatus(entry.uid, 'rejected')}
+                              className="px-2.5 py-1 rounded-lg bg-rose-500/30 hover:bg-rose-500/50 border border-rose-400/50 text-rose-200 text-[10px] font-black uppercase flex items-center gap-1 cursor-pointer"
+                            >
+                              <X className="w-3.5 h-3.5" /> REVOKE
+                            </button>
+                          )}
                         </div>
                       </div>
+                    ))}
+                  </div>
+                )}
+              </div>
 
-                      {isCore ? (
-                        <span className="px-2.5 py-1 rounded-lg bg-amber-400/20 border border-amber-400/60 text-amber-300 text-[10px] font-black uppercase shrink-0">
-                          CORE ADMIN
-                        </span>
-                      ) : isPromoted ? (
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveAdminEmail(acctEmail)}
-                          className="px-2.5 py-1 rounded-lg bg-rose-500/25 hover:bg-rose-500/40 border border-rose-400/50 text-rose-200 text-[10px] font-black uppercase shrink-0 cursor-pointer"
+              {/* Real Registered Player Profiles Directory */}
+              <div className="bg-black/60 border border-white/15 rounded-2xl p-5 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Users className="w-5 h-5 text-fuchsia-400" />
+                  <div>
+                    <h3 className="text-sm font-black uppercase tracking-wider text-white">
+                      REAL REGISTERED PLAYER PROFILES ({realProfiles.length})
+                    </h3>
+                    <p className="text-xs text-white/60">
+                      Only real player profiles created by users are listed here (all fake profiles removed).
+                    </p>
+                  </div>
+                </div>
+
+                {realProfiles.length === 0 ? (
+                  <div className="p-4 rounded-xl bg-white/5 border border-white/10 text-xs text-white/60 text-center font-bold">
+                    No player profiles registered yet. Profiles appear here when players create their profile card.
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1">
+                    {realProfiles.map((acct) => {
+                      const acctEmail = acct.email || '';
+                      const isCore =
+                        acctEmail &&
+                        ADMIN_EMAILS.some((e) => e.toLowerCase() === acctEmail.toLowerCase());
+                      const isPromoted = acctEmail && isUserAdmin(acctEmail, customAdmins);
+                      return (
+                        <div
+                          key={acct.uid || acct.id || acct.displayName}
+                          className="flex items-center justify-between gap-2 bg-white/5 border border-white/10 px-3.5 py-2.5 rounded-xl"
                         >
-                          REVOKE ADMIN
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => handleAddAdminEmail(acctEmail)}
-                          className="px-2.5 py-1 rounded-lg bg-emerald-500/25 hover:bg-emerald-500/40 border border-emerald-400/60 text-emerald-200 text-[10px] font-black uppercase shrink-0 cursor-pointer"
-                        >
-                          + MAKE ADMIN
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-black text-white truncate">
+                                {acct.displayName}
+                              </span>
+                              <span className="px-1.5 py-0.5 rounded bg-fuchsia-500/20 border border-fuchsia-400/40 text-[9px] font-black text-fuchsia-200">
+                                {acct.titleBadge || 'PLAYER'}
+                              </span>
+                            </div>
+                            <div className="text-[11px] text-cyan-300 font-bold truncate">
+                              {acctEmail || `UID: ${acct.uid || acct.id}`} · {acct.versusWins || 0}W 1v1
+                            </div>
+                          </div>
+
+                          {isCore ? (
+                            <span className="px-2.5 py-1 rounded-lg bg-amber-400/20 border border-amber-400/60 text-amber-300 text-[10px] font-black uppercase shrink-0">
+                              CORE ADMIN
+                            </span>
+                          ) : isPromoted && acctEmail ? (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveAdminEmail(acctEmail)}
+                              className="px-2.5 py-1 rounded-lg bg-rose-500/25 hover:bg-rose-500/40 border border-rose-400/50 text-rose-200 text-[10px] font-black uppercase shrink-0 cursor-pointer"
+                            >
+                              REVOKE ADMIN
+                            </button>
+                          ) : acctEmail ? (
+                            <button
+                              type="button"
+                              onClick={() => handleAddAdminEmail(acctEmail)}
+                              className="px-2.5 py-1 rounded-lg bg-emerald-500/25 hover:bg-emerald-500/40 border border-emerald-400/60 text-emerald-200 text-[10px] font-black uppercase shrink-0 cursor-pointer"
+                            >
+                              + MAKE ADMIN
+                            </button>
+                          ) : (
+                            <span className="px-2 py-1 rounded bg-white/5 text-white/45 text-[10px] font-bold">
+                              NO EMAIL SET
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
           </div>

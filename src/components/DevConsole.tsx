@@ -63,7 +63,7 @@ export const DevConsole: React.FC<DevConsoleProps> = ({ playerInfo, setPlayerInf
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/85 p-2.5 sm:p-4 overflow-y-auto">
-      <div className="rc-console-tray w-full max-w-3xl p-4 sm:p-5 font-mono text-emerald-400 max-h-[92dvh] overflow-y-auto">
+      <div className="rc-console-tray w-full max-w-3xl p-4 sm:p-5 tabular-nums text-emerald-400 max-h-[92dvh] overflow-y-auto">
         <div className="rc-dock-rail flex justify-between items-center mb-4 px-3.5 py-2">
           <h2 className="text-lg sm:text-2xl font-black uppercase tracking-widest flex items-center gap-2.5 text-emerald-400">
             <Monitor className="w-5 h-5 sm:w-6 sm:h-6" /> DEV CONSOLE
@@ -133,7 +133,7 @@ export const DevConsole: React.FC<DevConsoleProps> = ({ playerInfo, setPlayerInf
                       type="text"
                       value={color}
                       onChange={(e) => handleColorChange(i, e.target.value)}
-                      className="min-w-0 flex-1 bg-[#0d1018] border border-emerald-500/60 rounded text-emerald-400 px-1.5 font-mono uppercase text-xs"
+                      className="min-w-0 flex-1 bg-[#0d1018] border border-emerald-500/60 rounded text-emerald-400 px-1.5 tabular-nums uppercase text-xs"
                     />
                   </div>
                 </div>
